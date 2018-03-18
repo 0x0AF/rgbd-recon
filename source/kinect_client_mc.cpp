@@ -267,7 +267,6 @@ void init(std::vector<std::string> const &args)
     g_nka->refineBoundary(g_refine);
     g_recon_mc->setTsdfLimit(g_tsdf_limit);
     g_recon_mc->setVoxelSize(g_voxel_size);
-    g_recon_mc->setBrickSize(g_brick_size);
 }
 
 void init_config(std::vector<std::string> const &args)
@@ -345,9 +344,9 @@ void update_gui()
         if(ImGui::CollapsingHeader("Reconstruction Mode", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::RadioButton("Points", &g_recon_mode, 0);
-            ImGui::RadioButton("Marching Cubes", &g_recon_mode, 1);
-            ImGui::RadioButton("Trigrid", &g_recon_mode, 2);
-            ImGui::RadioButton("Trigrid orig", &g_recon_mode, 3);
+            ImGui::RadioButton("Trigrid", &g_recon_mode, 1);
+            ImGui::RadioButton("Trigrid orig", &g_recon_mode, 2);
+            ImGui::RadioButton("Marching Cubes", &g_recon_mode, 3);
         }
         if(ImGui::CollapsingHeader("Visualisation"))
         {
@@ -370,12 +369,6 @@ void update_gui()
             if(ImGui::DragFloat("Voxel Size", &g_voxel_size, 0.001f, 0.003f, 0.1f, "%.3f"))
             {
                 g_recon_mc->setVoxelSize(g_voxel_size);
-                g_brick_size = g_recon_mc->getBrickSize();
-            }
-            if(ImGui::DragFloat("Brick Size", &g_brick_size, 0.01f, 0.1f, 1.0f, "%.3f"))
-            {
-                g_recon_mc->setBrickSize(g_brick_size);
-                g_brick_size = g_recon_mc->getBrickSize();
             }
             if(ImGui::Checkbox("Draw TSDF", &g_draw_calibvis))
             {
@@ -545,12 +538,12 @@ void process_textures()
 {
     if(g_recon_mc.get() == g_recons.at(g_recon_mode).get())
     {
-        g_recon_mc->clearOccupiedBricks();
+        // g_recon_mc->clearOccupiedBricks();
     }
     g_nka->processTextures();
     if(g_recon_mc.get() == g_recons.at(g_recon_mode).get())
     {
-        g_recon_mc->updateOccupiedBricks();
+        // g_recon_mc->updateOccupiedBricks();
     }
 }
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -566,6 +559,12 @@ void draw3d(void)
     if(update_textures)
     {
         process_textures();
+    }
+
+    if(g_recon_mc.get() == g_recons.at(g_recon_mode).get()) {
+        if(update_textures) {
+            g_recon_mc->integrate();
+        }
     }
 
     glClearColor(g_clear_color[0], g_clear_color[1], g_clear_color[2], g_clear_color[3]);
