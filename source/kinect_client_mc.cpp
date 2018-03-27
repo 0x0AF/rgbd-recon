@@ -89,6 +89,8 @@ float g_brick_size = 0.1f;
 float g_tsdf_limit = 0.01f;
 float g_zoom = 0.5f;
 double g_time_prev = 0.0f;
+float g_mc_iso = 0.001;
+float g_mc_size_voxel = 96.0f;
 
 int g_min_voxels = 10;
 
@@ -362,17 +364,24 @@ void update_gui()
         }
         if(ImGui::CollapsingHeader("Integration "))
         {
-            if(ImGui::DragFloat("TSDF Limit", &g_tsdf_limit, 0.001f, 0.001f, 0.03f, "%.3f"))
+            if(g_recons[g_recon_mode].get() == g_recon_mc.get())
             {
-                g_recon_mc->setTsdfLimit(g_tsdf_limit);
-            }
-            if(ImGui::DragFloat("Voxel Size", &g_voxel_size, 0.001f, 0.003f, 0.1f, "%.3f"))
-            {
-                g_recon_mc->setVoxelSize(g_voxel_size);
-            }
-            if(ImGui::Checkbox("Draw TSDF", &g_draw_calibvis))
-            {
-                // g_recon_mc->setDrawBricks(g_skip_space);
+                if(ImGui::SliderFloat("TSDF Limit", &g_tsdf_limit, 0.001f, 0.03f, "%.5f", 2.71828381f))
+                {
+                    g_recon_mc->setTsdfLimit(g_tsdf_limit);
+                }
+                if(ImGui::SliderFloat("Voxel Size", &g_voxel_size, 0.01f, 0.1f, "%.5f", 2.71828381f))
+                {
+                    g_recon_mc->setVoxelSize(g_voxel_size);
+                }
+                if (ImGui::SliderFloat("Marching Cubes ISO", &g_mc_iso, 0.00001f, 0.01f, "%.5f", 2.71828381f))
+                {
+                    g_recon_mc->setIso(g_mc_iso);
+                }
+                if(ImGui::SliderFloat("Marching Cubes Voxel Size", &g_mc_size_voxel, 64.0f, 512.0f, "%.5f"))
+                {
+                    g_recon_mc->setSizeMCVoxel(g_mc_size_voxel);
+                }
             }
         }
         if(ImGui::CollapsingHeader("Processing Performance"))

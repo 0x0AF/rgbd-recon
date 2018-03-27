@@ -30,12 +30,16 @@ class ReconMC : public Reconstruction
     void drawF() override;
     void setVoxelSize(float size);
     void setTsdfLimit(float limit);
+    void setIso(float iso);
+    void setSizeMCVoxel(float size_mc_voxel);
 
     void resize(std::size_t width, std::size_t height) override;
 
+    static int TRI_TABLE[4096];
+
   private:
     globjects::VertexArray *m_point_grid;
-    globjects::Buffer *m_point_buffer;
+    globjects::Buffer *m_point_buffer, *m_tri_table_buffer;
 
     globjects::ref_ptr<globjects::Program> m_program;
     globjects::ref_ptr<globjects::Program> m_program_integration;
@@ -48,6 +52,9 @@ class ReconMC : public Reconstruction
     glm::fmat4 m_mat_vol_to_world;
     float m_limit;
     float m_voxel_size;
+
+    float m_iso;
+    float m_size_mc_voxel;
 };
 }
 
