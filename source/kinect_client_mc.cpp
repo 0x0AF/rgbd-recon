@@ -90,7 +90,7 @@ float g_tsdf_limit = 0.01f;
 float g_zoom = 0.5f;
 double g_time_prev = 0.0f;
 float g_mc_iso = 0.001;
-float g_mc_size_voxel = 96.0f;
+float g_mc_size_voxel = 256.0f;
 
 int g_min_voxels = 10;
 

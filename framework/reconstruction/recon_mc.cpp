@@ -121,7 +121,7 @@ ReconMC::ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::Bo
       m_point_grid{new globjects::VertexArray()}, m_point_buffer{new globjects::Buffer()}, m_tri_table_buffer{new globjects::Buffer()},
       m_voxel_size{size},
       m_iso{0.001f},
-      m_size_mc_voxel{96.0f}
+      m_size_mc_voxel{256.0f}
 
 {
     m_program->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/mc.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/mc.gs"),
@@ -157,17 +157,19 @@ ReconMC::ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::Bo
     m_program_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
     m_program_integration->setUniform("limit", m_limit);
 
+    float longest_axis = std::max(std::max(bbox_dimensions.x, bbox_dimensions.y), bbox_dimensions.z);
+    float voxel_edge_length = longest_axis / 256.0f;
+    int num_voxels_x = (int)std::ceil(bbox_dimensions.x / voxel_edge_length);
+    int num_voxels_y = (int)std::ceil(bbox_dimensions.y / voxel_edge_length);
+    int num_voxels_z = (int)std::ceil(bbox_dimensions.z / voxel_edge_length);
     std::vector<glm::fvec3> data{};
-    float stepX = bbox_dimensions.x / 128.0f;
-    float stepY = bbox_dimensions.y / 128.0f;
-    float stepZ = bbox_dimensions.z / 128.0f;
-    for(unsigned x = 0; x < 128; ++x)
+    for(unsigned x = 0; x < num_voxels_x; ++x)
     {
-        for(unsigned y = 0; y < 128; ++y)
+        for(unsigned y = 0; y < num_voxels_y; ++y)
         {
-            for(unsigned z = 0; z < 128; ++z)
+            for(unsigned z = 0; z < num_voxels_z; ++z)
             {
-                data.emplace_back(x * stepX + bbox_translation.x, y * stepY + bbox_translation.y, z * stepZ + bbox_translation.z);
+                data.emplace_back(x * voxel_edge_length + bbox_translation.x, y * voxel_edge_length + bbox_translation.y, z * voxel_edge_length + bbox_translation.z);
             }
         }
     }
@@ -218,7 +220,7 @@ void ReconMC::draw()
     gloost::Matrix modelview;
     glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
 
-    m_point_grid->drawArrays(GL_POINTS, 0, 128 * 128 * 128);
+    m_point_grid->drawArrays(GL_POINTS, 0, 256 * 256 * 256);
 
     m_program->release();
 }
