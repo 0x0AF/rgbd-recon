@@ -84,13 +84,12 @@ bool g_skip_space = true;
 bool g_draw_bricks = false;
 bool g_watch_errors = true;
 int g_num_kinect = 1;
-float g_voxel_size = 0.01f;
+float g_voxel_size = 0.02f;
 float g_brick_size = 0.1f;
 float g_tsdf_limit = 0.01f;
 float g_zoom = 0.5f;
 double g_time_prev = 0.0f;
 float g_mc_iso = 0.001;
-float g_mc_size_voxel = 256.0f;
 
 int g_min_voxels = 10;
 
@@ -378,10 +377,6 @@ void update_gui()
                 {
                     g_recon_mc->setIso(g_mc_iso);
                 }
-                if(ImGui::SliderFloat("Marching Cubes Voxel Size", &g_mc_size_voxel, 64.0f, 512.0f, "%.5f"))
-                {
-                    g_recon_mc->setSizeMCVoxel(g_mc_size_voxel);
-                }
             }
         }
         if(ImGui::CollapsingHeader("Processing Performance"))
@@ -571,9 +566,9 @@ void draw3d(void)
     }
 
     if(g_recon_mc.get() == g_recons.at(g_recon_mode).get()) {
-        if(update_textures) {
-            g_recon_mc->integrate();
-        }
+        //if(update_textures) {
+        //    g_recon_mc->integrate();
+        //}
     }
 
     glClearColor(g_clear_color[0], g_clear_color[1], g_clear_color[2], g_clear_color[3]);

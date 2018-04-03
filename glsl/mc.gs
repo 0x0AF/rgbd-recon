@@ -5,20 +5,29 @@
 #extension GL_ARB_uniform_buffer_object : enable
 
 layout(points) in;
-layout(triangle_strip, max_vertices = 135) out;
+layout(triangle_strip, max_vertices = 120) out;
 
 in vec3 in_pass_Position[];
+in float in_valid_vertex[];
+
 out vec3 pass_Position;
-out vec3 pass_Normal;
 
 uniform mat4 gl_ModelViewMatrix;
 uniform mat4 gl_ProjectionMatrix;
 uniform mat4 gl_NormalMatrix;
 
-uniform float iso;
-uniform float size_mc_voxel;
+uniform sampler2DArray kinect_depths;
+uniform sampler2DArray kinect_qualities;
+uniform sampler2DArray kinect_silhouettes;
 
-uniform sampler3D volume_tsdf;
+uniform sampler3D[5] cv_xyz_inv;
+
+uniform float limit;
+uniform uint num_kinects;
+
+uniform float iso;
+uniform float size_voxel;
+
 uniform mat4 vol_to_world;
 
 int[] cube_edge_flags =
@@ -42,13 +51,51 @@ layout(std430, binding = 5) buffer tri_table { int[] triangle_connections; };
 
 vec3 vertex_offsets[] = vec3[](vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(1, 0, 1), vec3(1, 1, 1), vec3(0, 1, 1));
 
-float sample_volume(const vec3 pos) { return texture(volume_tsdf, pos).r; }
+float sample_volume(const vec3 position)
+{
+    float weighted_tsd = limit;
+    float total_weight = 0;
+    for(uint i = 0u; i < num_kinects; ++i)
+    {
+        vec3 pos_calib = texture(cv_xyz_inv[i], position).xyz;
+        float silhouette = texture(kinect_silhouettes, vec3(pos_calib.xy, float(i))).r;
+        if(silhouette < 1.0f)
+        {
+            // no write yet -> voxel outside of surface
+            if(weighted_tsd >= limit)
+            {
+                weighted_tsd = -limit;
+                continue;
+            }
+        }
+        float depth = texture(kinect_depths, vec3(pos_calib.xy, float(i))).r;
+        float sdist = pos_calib.z - depth;
+        if(sdist <= -limit)
+        {
+            weighted_tsd = -limit;
+            // break;
+        }
+        else if(sdist >= limit)
+        {
+            // do nothing
+        }
+        else
+        {
+            float weight = texture(kinect_qualities, vec3(pos_calib.xy, float(i))).r;
+
+            weighted_tsd = (weighted_tsd * total_weight + weight * sdist) / (total_weight + weight);
+            total_weight += weight;
+        }
+    }
+
+    return weighted_tsd;
+}
 
 void sample_cube(const vec3 pos, inout float cube[8])
 {
     for(uint i = 0u; i < 8; i++)
     {
-        cube[i] = sample_volume(pos + vertex_offsets[i] / size_mc_voxel);
+        cube[i] = sample_volume(pos + vertex_offsets[i] * size_voxel);
     }
 }
 
@@ -60,135 +107,70 @@ float get_offset(float v1, float v2)
 
 void make_face(vec3 a, vec3 b, vec3 c)
 {
-    vec3 u = b - a;
-    vec3 v = c - a;
-
-    pass_Normal.x = u.y * v.z - u.z * v.y;
-    pass_Normal.y = u.z * v.x - u.x * v.z;
-    pass_Normal.z = u.x * v.y - u.y * v.x;
-
-    pass_Normal = normalize(pass_Normal);
-
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
     pass_Position = a;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
     EmitVertex();
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(b, 1.0);
     pass_Position = b;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(b, 1.0);
     EmitVertex();
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
     pass_Position = c;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
     EmitVertex();
 
     EndPrimitive();
-}
-
-bool check_bounds(int x, int y, int z)
-{
-    vec3 shift;
-
-    shift = vec3(x - 1, y - 1, z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(-x - 1, -y - 1, -z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(x - 1, -y - 1, z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(x - 1, y - 1, -z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(-x - 1, y - 1, z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(-x - 1, y - 1, -z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(-x - 1, -y - 1, z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    shift = vec3(x - 1, -y - 1, -z - 1) / size_mc_voxel;
-    if(sample_volume(in_pass_Position[0] + shift) > iso)
-    {
-        return true;
-    }
-
-    return false;
 }
 
 void main()
 {
     // MC START
 
-    //	if(is_edge){
-    //	    return;
-    //	}
-
-    if(check_bounds(3, 3, 3))
+    if(in_valid_vertex[0] < 0.f)
     {
-        for(int x = 0; x < 3; x++)
+        return;
+    }
+
+    for(int x = 0; x < 3; x++)
+    {
+        for(int y = 0; y < 3; y++)
         {
-            for(int y = 0; y < 3; y++)
+            for(int z = 0; z < 3; z++)
             {
-                for(int z = 0; z < 3; z++)
+                float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
+
+                vec3 center = in_pass_Position[0] + size_voxel * vec3(x - 1, y - 1, z - 1);
+
+                sample_cube(center, cube);
+
+                int i = 0;
+                int flag_storage = 0;
+                vec3 cube_vertices[12];
+
+                for(i = 0; i < 8; i++)
+                    if(cube[i] > iso)
+                        flag_storage |= 1 << i;
+
+                if(flag_storage != 0)
                 {
-                    vec3 shift = vec3(x - 1, y - 1, z - 1) / size_mc_voxel;
+                    int edgeFlags = cube_edge_flags[flag_storage];
 
-                    float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
-                    sample_cube(in_pass_Position[0] + shift, cube);
-
-                    int i = 0;
-                    int flag_storage = 0;
-                    vec3 cube_vertices[12];
-
-                    for(i = 0; i < 8; i++)
-                        if(cube[i] > iso)
-                            flag_storage |= 1 << i;
-
-                    if(flag_storage != 0)
+                    for(i = 0; i < 12; i++)
                     {
-                        int edgeFlags = cube_edge_flags[flag_storage];
-
-                        for(i = 0; i < 12; i++)
+                        if((edgeFlags & (1 << i)) != 0)
                         {
-                            if((edgeFlags & (1 << i)) != 0)
-                            {
-                                float offset = get_offset(cube[edge_connections[i].x], cube[edge_connections[i].y]);
+                            float offset = get_offset(cube[edge_connections[i].x], cube[edge_connections[i].y]);
 
-                                cube_vertices[i] = in_pass_Position[0] + shift + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) / size_mc_voxel;
-                            }
+                            cube_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel;
                         }
+                    }
 
-                        for(i = 0; i < 5; i++)
+                    for(i = 0; i < 5; i++)
+                    {
+                        if(triangle_connections[flag_storage * 16 + 3 * i] >= 0)
                         {
-                            if(triangle_connections[flag_storage * 16 + 3 * i] >= 0)
-                            {
-                                make_face(cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 0]], cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 1]],
-                                          cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 2]]);
-                            }
+                            make_face(cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 0]], cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 1]],
+                                      cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 2]]);
                         }
                     }
                 }

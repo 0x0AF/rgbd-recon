@@ -24,16 +24,11 @@ class ReconMC : public Reconstruction
     ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size);
     ~ReconMC();
 
-    void integrate();
-
     void draw() override;
     void drawF() override;
     void setVoxelSize(float size);
     void setTsdfLimit(float limit);
     void setIso(float iso);
-    void setSizeMCVoxel(float size_mc_voxel);
-
-    void resize(std::size_t width, std::size_t height) override;
 
     static int TRI_TABLE[4096];
 
@@ -42,19 +37,14 @@ class ReconMC : public Reconstruction
     globjects::Buffer *m_point_buffer, *m_tri_table_buffer;
 
     globjects::ref_ptr<globjects::Program> m_program;
-    globjects::ref_ptr<globjects::Program> m_program_integration;
 
     glm::uvec3 m_res_volume;
-    VolumeSampler m_sampler;
-    globjects::ref_ptr<globjects::Texture> m_volume_tsdf;
-    globjects::ref_ptr<globjects::Texture> m_tex_num_samples;
-
     glm::fmat4 m_mat_vol_to_world;
+
     float m_limit;
     float m_voxel_size;
 
     float m_iso;
-    float m_size_mc_voxel;
 };
 }
 
