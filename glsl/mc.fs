@@ -116,21 +116,24 @@ vec3 blendNormals(const in vec3 sample_pos)
     return total_normal;
 }
 
-vec3 blendCameras(const in vec3 sample_pos) {
-  vec3 total_color = vec3(0.0);
-  float total_weight = 0.0;
-  float[5] weights = getWeights(sample_pos);
-  for(uint i = 0u; i < num_kinects; ++i) {
-    vec3 pos_calib = texture(cv_xyz_inv[i], sample_pos).xyz;
-    vec3 color = camera_colors[i];
+vec3 blendCameras(const in vec3 sample_pos)
+{
+    vec3 total_color = vec3(0.0);
+    float total_weight = 0.0;
+    float[5] weights = getWeights(sample_pos);
+    for(uint i = 0u; i < num_kinects; ++i)
+    {
+        vec3 pos_calib = texture(cv_xyz_inv[i], sample_pos).xyz;
+        vec3 color = camera_colors[i];
 
-    total_color += color * weights[i];
-    total_weight += weights[i];
-  }
+        total_color += color * weights[i];
+        total_weight += weights[i];
+    }
 
-  total_color /= total_weight;
-  if(total_weight <= 0.0) total_color = vec3(1.0);
-  return total_color;
+    total_color /= total_weight;
+    if(total_weight <= 0.0)
+        total_color = vec3(1.0);
+    return total_color;
 }
 
 vec4 get_color(vec3 sample_pos)

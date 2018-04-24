@@ -21,8 +21,6 @@ uniform float size_voxel;
 out vec3 in_pass_Position;
 out float in_valid_vertex;
 
-uniform sampler3D volume_tsdf;
-
 float sample_volume(const vec3 position)
 {
     float weighted_tsd = limit;
@@ -82,12 +80,17 @@ bool check_bounds_3()
     bool some_inside = false;
     bool all_inside = true;
 
-    for(uint i = 0u; i < 8; i++){
-        if(bounds[i]){
+    for(uint i = 0u; i < 8; i++)
+    {
+        if(bounds[i])
+        {
             some_inside = true;
-        }else{
+        }
+        else
+        {
             all_inside = false;
-            if(some_inside){
+            if(some_inside)
+            {
                 return true;
             }
         }

@@ -34,7 +34,7 @@ class ReconMC : public Reconstruction
 
   private:
     globjects::VertexArray *m_point_grid;
-    globjects::Buffer *m_point_buffer, *m_tri_table_buffer;
+    globjects::Buffer *m_point_buffer, *m_tri_table_buffer, *m_uv_counter_buffer;
 
     globjects::ref_ptr<globjects::Program> m_program;
 

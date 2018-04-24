@@ -115,7 +115,7 @@ int ReconMC::TRI_TABLE[] = {
 
 ReconMC::ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size)
     : Reconstruction(cfs, cv, bbox), m_program{new globjects::Program()}, m_res_volume{0}, m_mat_vol_to_world{1.0f}, m_limit{limit}, m_point_grid{new globjects::VertexArray()},
-      m_point_buffer{new globjects::Buffer()}, m_tri_table_buffer{new globjects::Buffer()}, m_voxel_size{size}, m_iso{0.001f}
+      m_point_buffer{new globjects::Buffer()}, m_tri_table_buffer{new globjects::Buffer()}, m_uv_counter_buffer{new globjects::Buffer()}, m_voxel_size{size}, m_iso{0.001f}
 {
     m_program->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/mc.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/mc.gs"),
                       globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/mc.fs"));
@@ -167,6 +167,12 @@ ReconMC::ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::Bo
     m_point_grid->binding(0)->setBuffer(m_point_buffer, 0, sizeof(glm::fvec3));
     m_point_grid->binding(0)->setFormat(3, GL_FLOAT);
 
+    m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
+    m_uv_counter_buffer->setData(sizeof(GLuint), 0, GL_DYNAMIC_DRAW);
+    m_uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+
+    m_uv_counter_buffer->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
+
     setVoxelSize(m_voxel_size);
 }
 
@@ -181,6 +187,12 @@ void ReconMC::drawF() { Reconstruction::drawF(); }
 
 void ReconMC::draw()
 {
+    m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
+    GLuint * ptr = (GLuint *) m_uv_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    ptr[0] = 0;
+    m_uv_counter_buffer->unmap();
+    m_uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+
     m_program->use();
 
     gloost::Matrix projection_matrix;

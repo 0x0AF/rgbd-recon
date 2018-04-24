@@ -3,9 +3,12 @@
 #extension GL_ARB_shading_language_include : require
 #extension GL_ARB_shader_storage_buffer_object : require
 #extension GL_ARB_uniform_buffer_object : enable
+#extension GL_ARB_shader_atomic_counters : enable
 
 layout(points) in;
 layout(triangle_strip, max_vertices = 120) out;
+
+layout(binding = 6) uniform atomic_uint uv_counter;
 
 in vec3 in_pass_Position[];
 in float in_valid_vertex[];
@@ -29,6 +32,8 @@ uniform float iso;
 uniform float size_voxel;
 
 uniform mat4 vol_to_world;
+
+uint texture_res = 256;
 
 int[] cube_edge_flags =
     int[](0x000, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c, 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00, 0x190, 0x099, 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c, 0x99c, 0x895, 0xb9f,
@@ -105,18 +110,56 @@ float get_offset(float v1, float v2)
     return (delta == 0.0f) ? 0.5f : (iso - v1) / delta;
 }
 
+vec2[3] next_uv()
+{
+    uint uv_position = atomicCounterIncrement(uv_counter);
+
+    uint uv_x = (uv_position / 2) % (texture_res);
+    uint uv_y = (uv_position / 2) / (texture_res);
+
+    float cathetus_length = 1.f / float(texture_res);
+
+    vec2[3] uv = vec2[](vec2(1.f, 0.f), vec2(0.f, 0.f), vec2(0.f, 1.f));
+
+    if(uv_position % 2 == 0)
+    {
+        uv[0] = vec2(uv_x, uv_y + 1);
+        uv[1] = vec2(uv_x + 1, uv_y);
+        uv[2] = vec2(uv_x, uv_y);
+    }
+    else
+    {
+        uv[0] = vec2(uv_x, uv_y + 1);
+        uv[1] = vec2(uv_x + 1, uv_y);
+        uv[2] = vec2(uv_x + 1, uv_y + 1);
+    }
+
+    for(uint i = 0; i < 3; i++)
+    {
+        uv[i] = uv[i] * cathetus_length;
+        uv[i] = uv[i] - vec2(0.5f, 0.5f);
+        uv[i] = uv[i] * 2.f;
+    }
+
+    return uv;
+}
+
 void make_face(vec3 a, vec3 b, vec3 c)
 {
+    vec2[3] uv = next_uv();
+
+    // gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+
     pass_Position = a;
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+    gl_Position = vec4(uv[0].x, uv[0].y, 0.0, 1.0);
     EmitVertex();
 
     pass_Position = b;
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(b, 1.0);
+    gl_Position = vec4(uv[1].x, uv[1].y, 0.0, 1.0);
     EmitVertex();
 
     pass_Position = c;
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
+    gl_Position = vec4(uv[2].x, uv[2].y, 0.0, 1.0);
     EmitVertex();
 
     EndPrimitive();
@@ -179,9 +222,4 @@ void main()
     }
 
     // MC END
-
-    //    if(sample_volume(in_pass_Position[0]) > iso)
-    //    {
-    //        make_face(in_pass_Position[0] + vertex_offset[0] / 256.0f, in_pass_Position[0] + vertex_offset[1] / 256.0f, in_pass_Position[0] + vertex_offset[2] / 256.0f);
-    //    }
 }
