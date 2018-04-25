@@ -45,7 +45,7 @@ set(MPFR_LIBRARY_SEARCH_DIR "/opt/mpfr/lib")
 find_dependency_custom(MPFR "mpfr.h" "mpfr")
 ################################
 # glfw
-set(GLFW_DIRECTORY glfw-3.0.3)
+set(GLFW_DIRECTORY glfw-3.2.1)
 set(GLFW_INSTALL OFF CACHE STRING "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE STRING "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE STRING "" FORCE)
@@ -61,8 +61,8 @@ include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/external/${GLM_DIRECTORY}
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/squish)
 ################################
 set(OPTION_BUILD_TESTS OFF CACHE STRING "" FORCE)
-# glbinding
-set(GLB_DIRECTORY "glbinding-2.0.0")
+## glbinding
+set(GLB_DIRECTORY "glbinding-2.1.4")
 set(glbinding_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/${GLB_DIRECTORY}")
 add_subdirectory(${glbinding_DIR})
 include_directories(SYSTEM ${glbinding_DIR}/source/glbinding/include)
@@ -70,7 +70,7 @@ include_directories(SYSTEM ${GLBINDING_EXPORT_DIRS})
 include_directories(SYSTEM external)
 ################################
 # globjects
-set(GLOW_DIRECTORY "globjects-0.5.0")
+set(GLOW_DIRECTORY "globjects-1.0.0")
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/${GLOW_DIRECTORY})
 ################################
 # FastDXT
