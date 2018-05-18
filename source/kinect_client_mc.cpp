@@ -467,6 +467,7 @@ void update_gui()
                 static std::vector<const char *> listbox_items = {"Color", "Depth", "Quality", "Normals", "Silhouette", "Orig Depth", "LAB colors"};
                 ImGui::ListBox("Type", &setting.first, listbox_items.data(), listbox_items.size(), listbox_items.size());
             }
+
             TexInfo test = {g_nka->getStartTextureUnit() + setting.first, -setting.second - 1};
             ImTextureID cont;
             std::memcpy(&cont, &test, sizeof(test));
