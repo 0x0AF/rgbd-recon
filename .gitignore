@@ -37,3 +37,4 @@ install
 *.sublime-workspace
 
 .idea*
+imgui.ini
