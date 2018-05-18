@@ -10,7 +10,7 @@ add_library(framework STATIC
   ${FRAMEWORK_HEADER})
 
 # self built libraries
-target_link_libraries(framework gloost fastdxt ${SQUISH_LIBRARIES} globjects glbinding)
+target_link_libraries(framework gloost fastdxt ${SQUISH_LIBRARIES} globjects::globjects)
 # global libraries
 target_link_libraries(framework GLU zmq CGAL ${BOOST_LIBRARIES} gmp mpfr -fopenmp)
 set_target_properties(framework PROPERTIES COMPILE_FLAGS "-fopenmp")

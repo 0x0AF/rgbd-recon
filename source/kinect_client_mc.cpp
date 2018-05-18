@@ -18,7 +18,7 @@ using namespace gl;
 
 #include <cmath>
 #include <imgui.h>
-#include <imgui_impl_glfw_glb.h>
+#include <imgui_impl_glfw_gl3.h>
 #include <iostream>
 #include <memory>
 #include <stdlib.h>
@@ -317,7 +317,7 @@ void load_config(std::string const &file_name)
 /// logic
 void update_gui()
 {
-    ImGui_ImplGlfwGLB_NewFrame();
+    ImGui_ImplGlfwGL3_NewFrame ();
 
     // 1. Show a simple window
     // Tip: if we don't call ImGui::Begin()/ImGui::End() the widgets appears in a window automatically called "Debug"
@@ -451,35 +451,36 @@ void update_gui()
         auto &setting = g_gui_texture_settings[i];
         ImGui::SetNextWindowSize(ImVec2(100, 100), ImGuiSetCond_FirstUseEver);
         bool show_tex = true;
-        if(!ImGui::Begin(std::string{"Textures " + std::to_string(i)}.c_str(), &show_tex))
-        {
-            ImGui::End();
-        }
-        else
-        {
-            if(ImGui::CollapsingHeader("Kinect", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                static std::vector<const char *> listbox_items = {"1", "2", "3", "4"};
-                ImGui::ListBox("Number", &setting.second, listbox_items.data(), listbox_items.size(), listbox_items.size());
-            }
-            if(ImGui::CollapsingHeader("Texture Type", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                static std::vector<const char *> listbox_items = {"Color", "Depth", "Quality", "Normals", "Silhouette", "Orig Depth", "LAB colors"};
-                ImGui::ListBox("Type", &setting.first, listbox_items.data(), listbox_items.size(), listbox_items.size());
-            }
-            TexInfo test = {g_nka->getStartTextureUnit() + setting.first, -setting.second - 1};
-            ImTextureID cont;
-            std::memcpy(&cont, &test, sizeof(test));
-            glm::uvec2 res{g_nka->getDepthResolution()};
-
-            // float aspect = float(res.x) / res.y;
-            // for rotated texture visualization
-            float aspect = float(res.y) / res.x;
-
-            float width = ImGui::GetWindowContentRegionWidth();
-            ImGui::Image(cont, ImVec2(width, width / aspect), ImVec2(0, 0), ImVec2(1, 1), ImColor(255, 255, 255, 255), ImColor(255, 255, 255, 128));
-            ImGui::End();
-        }
+        // TODO
+//        if(!ImGui::Begin(std::string{"Textures " + std::to_string(i)}.c_str(), &show_tex))
+//        {
+//            ImGui::End();
+//        }
+//        else
+//        {
+//            if(ImGui::CollapsingHeader("Kinect", ImGuiTreeNodeFlags_DefaultOpen))
+//            {
+//                static std::vector<const char *> listbox_items = {"1", "2", "3", "4"};
+//                ImGui::ListBox("Number", &setting.second, listbox_items.data(), listbox_items.size(), listbox_items.size());
+//            }
+//            if(ImGui::CollapsingHeader("Texture Type", ImGuiTreeNodeFlags_DefaultOpen))
+//            {
+//                static std::vector<const char *> listbox_items = {"Color", "Depth", "Quality", "Normals", "Silhouette", "Orig Depth", "LAB colors"};
+//                ImGui::ListBox("Type", &setting.first, listbox_items.data(), listbox_items.size(), listbox_items.size());
+//            }
+//            TexInfo test = {g_nka->getStartTextureUnit() + setting.first, -setting.second - 1};
+//            ImTextureID cont;
+//            std::memcpy(&cont, &test, sizeof(test));
+//            glm::uvec2 res{g_nka->getDepthResolution()};
+//
+//            // float aspect = float(res.x) / res.y;
+//            // for rotated texture visualization
+//            float aspect = float(res.y) / res.x;
+//
+//            float width = ImGui::GetWindowContentRegionWidth();
+//            ImGui::Image(cont, ImVec2(width, width / aspect), ImVec2(0, 0), ImVec2(1, 1), ImColor(255, 255, 255, 255), ImColor(255, 255, 255, 128));
+//            ImGui::End();
+//        }
         if(!show_tex)
         {
             g_gui_texture_settings.pop_back();
@@ -801,7 +802,7 @@ void quit(int status)
     // free globjects
     globjects::detachAllObjects();
 
-    ImGui_ImplGlfwGLB_Shutdown();
+    ImGui_ImplGlfwGL3_Shutdown();
     // free glfw resources
     glfwDestroyWindow(g_window);
     glfwTerminate();
@@ -926,7 +927,7 @@ int main(int argc, char *argv[])
     glfwMakeContextCurrent(g_window);
 
     // Setup ImGui binding
-    ImGui_ImplGlfwGLB_Init(g_window, true);
+    ImGui_ImplGlfwGL3_Init(g_window, true);
     // disable vsync
     glfwSwapInterval(0);
     glfwSetKeyCallback(g_window, key_callback);
@@ -987,30 +988,31 @@ void watch_gl_errors(bool activate)
     {
         // add callback after each function call
         glbinding::setCallbackMaskExcept(glbinding::CallbackMask::After | glbinding::CallbackMask::ParametersAndReturnValue, {"glGetError", "glVertex3f", "glVertex2f", "glBegin", "glColor3f"});
-        glbinding::setAfterCallback([](glbinding::FunctionCall const &call) {
-            GLenum error = glGetError();
-            if(error != GL_NO_ERROR)
-            {
-                // print name
-                std::cerr << "OpenGL Error: " << call.function->name() << "(";
-                // parameters
-                for(unsigned i = 0; i < call.parameters.size(); ++i)
-                {
-                    std::cerr << call.parameters[i]->asString();
-                    if(i < call.parameters.size() - 1)
-                        std::cerr << ", ";
-                }
-                std::cerr << ")";
-                // return value
-                if(call.returnValue)
-                {
-                    std::cerr << " -> " << call.returnValue->asString();
-                }
-                // error
-                std::cerr << " - " << glbinding::Meta::getString(error) << std::endl;
-                throw std::exception{};
-            }
-        });
+        // TODO
+//        glbinding::setAfterCallback([](glbinding::FunctionCall const &call) {
+//            GLenum error = glGetError();
+//            if(error != GL_NO_ERROR)
+//            {
+//                // print name
+//                std::cerr << "OpenGL Error: " << call.function->name() << "(";
+//                // parameters
+//                for(unsigned i = 0; i < call.parameters.size(); ++i)
+//                {
+//                    std::cerr << call.parameters[i]->asString();
+//                    if(i < call.parameters.size() - 1)
+//                        std::cerr << ", ";
+//                }
+//                std::cerr << ")";
+//                // return value
+//                if(call.returnValue)
+//                {
+//                    std::cerr << " -> " << call.returnValue->asString();
+//                }
+//                // error
+//                std::cerr << " - " << glbinding::Meta::getString(error) << std::endl;
+//                throw std::exception{};
+//            }
+//        });
     }
     else
     {

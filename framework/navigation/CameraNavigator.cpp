@@ -4,10 +4,12 @@
 using namespace gl;
 
 #define GLFW_INCLUDE_NONE
-#define GLFW_INCLUDE_GLU
+//#define GLFW_INCLUDE_GLU
 #include <GLFW/glfw3.h>
 
 #include <string.h> // memcpy
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace pmd{
 
@@ -103,9 +105,10 @@ namespace pmd{
     glPushMatrix();
     glLoadIdentity();
     gloost::Matrix m;
-    gluLookAt(o[0],o[1],o[2],
-	      m_poi[0],m_poi[1],m_poi[2],
-	      y[0],y[1],y[2]);
+    glm::mat4 matrix = glm::lookAt(glm::vec3(o[0],o[1],o[2]),
+                                   glm::vec3(m_poi[0],m_poi[1],m_poi[2]),
+                                   glm::vec3(y[0],y[1],y[2]));
+    glLoadMatrixf(glm::value_ptr(matrix));
     gloostGetv (GL_MODELVIEW_MATRIX, m.data());
     m.invert();
     glPopMatrix();

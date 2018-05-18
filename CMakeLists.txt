@@ -62,16 +62,14 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/squish)
 ################################
 set(OPTION_BUILD_TESTS OFF CACHE STRING "" FORCE)
 ## glbinding
-set(GLB_DIRECTORY "glbinding-2.1.4")
-set(glbinding_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/${GLB_DIRECTORY}")
-add_subdirectory(${glbinding_DIR})
-include_directories(SYSTEM ${glbinding_DIR}/source/glbinding/include)
-include_directories(SYSTEM ${GLBINDING_EXPORT_DIRS})
-include_directories(SYSTEM external)
+find_package(glbinding REQUIRED)
+include_directories(${GLBINDING_INCLUDES})
+#link_libraries(${GLBINDING_LIBRARIES})
 ################################
 # globjects
-set(GLOW_DIRECTORY "globjects-1.0.0")
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/${GLOW_DIRECTORY})
+find_package(globjects REQUIRED)
+include_directories(${GLOBJECTS_INCLUDES})
+#link_libraries(${GLOBJECTS_LIBRARIES})
 ################################
 # FastDXT
 add_sublibrary(fastdxt ${CMAKE_CURRENT_SOURCE_DIR}/external/fastdxt "-O3 -funroll-loops -fomit-frame-pointer -fPIC -msse2 -DDXT_INTR -w")
@@ -80,7 +78,7 @@ add_sublibrary(fastdxt ${CMAKE_CURRENT_SOURCE_DIR}/external/fastdxt "-O3 -funrol
 add_sublibrary(gloost ${CMAKE_CURRENT_SOURCE_DIR}/external/gloost "-w")
 ################################
 # imgui
-add_sublibrary(imgui ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui-1.49 "-w")
+add_sublibrary(imgui ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui "-w")
 target_link_libraries(imgui glfw)
 ################################
 # svg

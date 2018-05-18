@@ -17,9 +17,9 @@
     This file is part of the gloost framework. You can use it in parts or as
        whole under the terms of the GPL (http://www.gnu.org/licenses/#GPL).
 
-            gloost is being created by Felix Weißig and Stephan Beck
+            gloost is being created by Felix Weiï¿½ig and Stephan Beck
 
-     Felix Weißig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
+     Felix Weiï¿½ig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
 */
 
 
@@ -32,8 +32,10 @@
 
 /// cpp includes
 #include <glbinding/gl/gl.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 using namespace gl;
-#include <GL/glut.h>
+// #include <GL/glu.h>
 
 
 
@@ -199,9 +201,10 @@ PerspectiveCamera::lookAt(Point3 eye, Point3 coi, Vector3 up)
   glPushMatrix();
   {
     glLoadIdentity();
-    gluLookAt((GLfloat) eye[0],(GLfloat) eye[1],(GLfloat) eye[2],
-              (GLfloat) coi[0],(GLfloat) coi[1],(GLfloat) coi[2],
-              (GLfloat) up[0], (GLfloat) up[1], (GLfloat) up[2]);
+    glm::mat4 matrix = glm::lookAt(glm::vec3(eye[0],eye[1],eye[2]),
+                                   glm::vec3(coi[0],coi[1],coi[2]),
+                                   glm::vec3(up[0],up[1],up[2]));
+    glLoadMatrixf(glm::value_ptr(matrix));
     gloostGetv (GL_MODELVIEW_MATRIX, _modelview.data());
   }
   glPopMatrix();
@@ -266,7 +269,6 @@ PerspectiveCamera::getPickRay(unsigned int screenWidth,
   return Ray(camPos, pickDir);
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -281,7 +283,9 @@ PerspectiveCamera::updateProjection()
   glPushMatrix();
   {
     glLoadIdentity();
-    gluPerspective (_fov, _aspect, _near, _far);
+
+    glm::mat4 matrix = glm::perspective (_fov, _aspect, _near, _far);
+    glLoadMatrixf (glm::value_ptr (matrix));
     gloostGetv (GL_PROJECTION_MATRIX, _projection.data());
   }
   glPopMatrix();

@@ -1,7 +1,7 @@
 #ifndef RECONSTRUCTION_HPP
 #define RECONSTRUCTION_HPP
 
-#include "gloost/BoundingBox.h"
+#include "BoundingBox.h"
 
 namespace kinect{
 

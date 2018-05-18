@@ -28,7 +28,8 @@ using namespace gl;
 #include <globjects/NamedString.h>
 #include <globjects/base/File.h>
 
-#include "squish/squish.h"
+#include "squish.h"
+#include <zmq.h>
 #include <zmq.hpp>
 
 #include <iostream>

@@ -17,9 +17,9 @@
     This file is part of the gloost framework. You can use it in parts or as
        whole under the terms of the GPL (http://www.gnu.org/licenses/#GPL).
 
-            gloost is being created by Felix Weißig and Stephan Beck
+            gloost is being created by Felix Weiï¿½ig and Stephan Beck
 
-     Felix Weißig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
+     Felix Weiï¿½ig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
 */
 
 
@@ -27,6 +27,8 @@
 /// gloost includes
 #include <TextureText.h>
 #include <gloostRenderGoodies.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 
 /// cpp includes
@@ -120,9 +122,11 @@ TextureText::begin()
     glOrtho(viewportParams[0], viewportParams[2], viewportParams[1], viewportParams[3], 0.1, 10.0);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    gluLookAt(0.0, 0.0, 5.0,
-              0.0, 0.0, 0.0,
-              0.0, 1.0, 0.0);
+
+    glm::mat4 matrix = glm::lookAt(glm::vec3(0.0, 0.0, 5.0),
+                                 glm::vec3(0.0, 0.0, 0.0),
+                                 glm::vec3(0.0, 1.0, 0.0));
+    glLoadMatrixf(glm::value_ptr(matrix));
 
 
     glEnable(GL_BLEND);

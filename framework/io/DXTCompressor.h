@@ -3,7 +3,7 @@
 
 
 #include <Timer.h>
-#include <fastdxt/libdxt.h>
+#include <libdxt.h>
 
 
 

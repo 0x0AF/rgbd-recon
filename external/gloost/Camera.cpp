@@ -17,9 +17,9 @@
     This file is part of the gloost framework. You can use it in parts or as
        whole under the terms of the GPL (http://www.gnu.org/licenses/#GPL).
 
-            gloost is being created by Felix Weißig and Stephan Beck
+            gloost is being created by Felix Weiï¿½ig and Stephan Beck
 
-     Felix Weißig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
+     Felix Weiï¿½ig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
 */
 
 
@@ -33,7 +33,7 @@
 /// cpp includes
 #include <glbinding/gl/gl.h> // functions
 using namespace gl;
-#include <GL/glut.h>
+// #include <GL/glu.h>
 
 
 

@@ -1,5 +1,6 @@
 #include "FeedbackReceiver.h"
 
+#include <zmq.h>
 #include <zmq.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>

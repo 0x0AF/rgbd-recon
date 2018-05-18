@@ -16,9 +16,9 @@
     This file is part of the gloost framework. You can use it in parts or as
        whole under the terms of the GPL (http://www.gnu.org/licenses/#GPL).
 
-            gloost is being created by Felix Weißig and Stephan Beck
+            gloost is being created by Felix Weiï¿½ig and Stephan Beck
 
-     Felix Weißig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
+     Felix Weiï¿½ig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
 */
 
 
@@ -225,7 +225,7 @@ Shader::initInContext(unsigned int contextId)
 
   // vertex shader
   glCompileShader(vs);
-  glGetShaderbv(vs, GL_COMPILE_STATUS, &vsCompiled);
+  glGetShaderiv(vs, GL_COMPILE_STATUS, &vsCompiled);
 
   if (vsCompiled == GL_FALSE)
   {
@@ -246,7 +246,7 @@ Shader::initInContext(unsigned int contextId)
 
   // fragment shader
   glCompileShader( fs );
-  glGetShaderbv(fs, GL_COMPILE_STATUS, &fsCompiled);
+  glGetShaderiv(fs, GL_COMPILE_STATUS, &fsCompiled);
 
 
   if (fsCompiled == GL_FALSE)
@@ -269,7 +269,7 @@ Shader::initInContext(unsigned int contextId)
   if (gs)
   {
     glCompileShader( gs );
-    glGetShaderbv(gs, GL_COMPILE_STATUS, &gsCompiled);
+    glGetShaderiv(gs, GL_COMPILE_STATUS, &gsCompiled);
 
     if (gsCompiled == GL_FALSE)
     {

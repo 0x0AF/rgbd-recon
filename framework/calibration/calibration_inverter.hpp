@@ -14,7 +14,7 @@
 #include <globjects/Texture.h>
 #include <globjects/Program.h>
 
-#include "gloost/BoundingBox.h"
+#include "BoundingBox.h"
 
 namespace kinect{
 

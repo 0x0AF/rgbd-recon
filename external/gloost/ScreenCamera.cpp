@@ -17,9 +17,9 @@
     This file is part of the gloost framework. You can use it in parts or as
        whole under the terms of the GPL (http://www.gnu.org/licenses/#GPL).
 
-            gloost is being created by Felix Weißig and Stephan Beck
+            gloost is being created by Felix Weiï¿½ig and Stephan Beck
 
-     Felix Weißig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
+     Felix Weiï¿½ig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
 */
 
 
@@ -31,8 +31,8 @@
 
 
 /// cpp includes
-#include <GL/gl.h>
-#include <GL/glut.h>
+#include <glbinding/gl/gl.h>
+// #include <GL/glu.h>
 
 
 
@@ -310,9 +310,9 @@ void ScreenCamera::set()
       float oy = -eye_Screen[1];
 
 
-      glMatrixMode(GL_PROJECTION);
-      glPushMatrix();
-      glLoadIdentity();
+      glMatrixMode(gl::GL_PROJECTION);
+      gl::glPushMatrix();
+      gl::glLoadIdentity();
 
       _left    = (ox - _screenw/2.0) * _near/d;
       _right   = (ox + _screenw/2.0) * _near/d;
@@ -324,9 +324,9 @@ void ScreenCamera::set()
       _fov = 2.0*atan(_screenw/d);
 
 
-      glFrustum( _left, _right, _bottom, _top,_near,_far);
-      gloostGetv (GL_PROJECTION_MATRIX, _projection.data());
-      glPopMatrix();
+      gl::glFrustum( _left, _right, _bottom, _top,_near,_far);
+      gloostGetv (gl::GL_PROJECTION_MATRIX, _projection.data());
+      gl::glPopMatrix();
 
 
       Camera::set();
