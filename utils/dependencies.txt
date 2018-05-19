@@ -1,6 +1,0 @@
-libboost-system-dev
-libopencv-dev
-libzmq3-dev
-libcgal10-dev
-libmpfr-dev
-libgmp-dev

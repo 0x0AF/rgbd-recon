@@ -18,11 +18,11 @@ class Framebuffer;
 
 namespace kinect
 {
-class ReconMC : public Reconstruction
+class ReconPerformanceCapture : public Reconstruction
 {
   public:
-    ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size);
-    ~ReconMC();
+    ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size);
+    ~ReconPerformanceCapture();
 
     void draw() override;
     void drawF() override;

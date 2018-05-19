@@ -146,9 +146,10 @@ vec2[3] next_uv()
 
 void make_face(vec3 a, vec3 b, vec3 c)
 {
-    vec2[3] uv = next_uv();
-
     // gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+
+#ifdef UNWRAP_UV
+    vec2[3] uv = next_uv();
 
     pass_Position = a;
     gl_Position = vec4(uv[0].x, uv[0].y, 0.0, 1.0);
@@ -160,6 +161,19 @@ void make_face(vec3 a, vec3 b, vec3 c)
 
     pass_Position = c;
     gl_Position = vec4(uv[2].x, uv[2].y, 0.0, 1.0);
+    EmitVertex();
+#endif
+
+    pass_Position = a;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+    EmitVertex();
+
+    pass_Position = b;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(b, 1.0);
+    EmitVertex();
+
+    pass_Position = c;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
     EmitVertex();
 
     EndPrimitive();

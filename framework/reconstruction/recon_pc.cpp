@@ -1,4 +1,4 @@
-#include "recon_mc.hpp"
+#include "recon_pc.hpp"
 
 #include "CalibVolumes.hpp"
 #include "calibration_files.hpp"
@@ -27,7 +27,7 @@ using namespace gl;
 
 namespace kinect
 {
-int ReconMC::TRI_TABLE[] = {
+int ReconPerformanceCapture::TRI_TABLE[] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  8,  3,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  1,  9,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,
     8,  3,  9,  8,  1,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,  2,  10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  8,  3,  1,  2,  10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 9,  2,
     10, 0,  2,  9,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 2,  8,  3,  2,  10, 8,  10, 9,  8,  -1, -1, -1, -1, -1, -1, -1, 3,  11, 2,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  11, 2,
@@ -113,7 +113,7 @@ int ReconMC::TRI_TABLE[] = {
     2,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,  3,  8,  9,  1,  8,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  9,  1,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  3,  8,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
-ReconMC::ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size)
+ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size)
     : Reconstruction(cfs, cv, bbox), m_program{new globjects::Program()}, m_res_volume{0}, m_mat_vol_to_world{1.0f}, m_limit{limit}, m_point_grid{new globjects::VertexArray()},
       m_point_buffer{new globjects::Buffer()}, m_tri_table_buffer{new globjects::Buffer()}, m_uv_counter_buffer{new globjects::Buffer()}, m_voxel_size{size}, m_iso{0.001f}
 {
@@ -176,16 +176,16 @@ ReconMC::ReconMC(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::Bo
     setVoxelSize(m_voxel_size);
 }
 
-ReconMC::~ReconMC()
+ReconPerformanceCapture::~ReconPerformanceCapture()
 {
     m_point_grid->destroy();
     m_point_buffer->destroy();
     m_tri_table_buffer->destroy();
 }
 
-void ReconMC::drawF() { Reconstruction::drawF(); }
+void ReconPerformanceCapture::drawF() { Reconstruction::drawF(); }
 
-void ReconMC::draw()
+void ReconPerformanceCapture::draw()
 {
     m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
     GLuint * ptr = (GLuint *) m_uv_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
@@ -226,7 +226,7 @@ void ReconMC::draw()
     m_program->release();
 }
 
-void ReconMC::setVoxelSize(float size)
+void ReconPerformanceCapture::setVoxelSize(float size)
 {
     m_voxel_size = size;
     m_res_volume = glm::ceil(glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]} / m_voxel_size);
@@ -256,9 +256,9 @@ void ReconMC::setVoxelSize(float size)
     m_point_buffer->setData(data, GL_STATIC_DRAW);
 }
 
-void ReconMC::setTsdfLimit(float limit) { m_limit = limit; }
+void ReconPerformanceCapture::setTsdfLimit(float limit) { m_limit = limit; }
 
-void ReconMC::setIso(float iso)
+void ReconPerformanceCapture::setIso(float iso)
 {
     m_iso = iso;
     m_program->setUniform("iso", m_iso);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(rgbd-calib)
+project(rgbd-recon)
 
 #set the build type if its not set
 if(NOT CMAKE_BUILD_TYPE)
