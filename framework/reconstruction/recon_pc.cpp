@@ -225,7 +225,6 @@ void ReconPerformanceCapture::draw()
     m_program->setUniform("NormalMatrix", normal_matrix);
 
     glDisable(GL_CULL_FACE);
-    //glEnable(GL_CULL_FACE);
 
     if(m_use_bricks)
     {
@@ -239,8 +238,6 @@ void ReconPerformanceCapture::draw()
         m_sampler.sample();
     }
 
-    //glDisable(GL_CULL_FACE);
-
     m_program->release();
 }
 
@@ -252,7 +249,7 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     m_sampler.resize(m_res_volume);
 
     m_program->setUniform("res_tsdf", m_res_volume);
-    m_program->setUniform("size_voxel", m_voxel_size);
+    m_program->setUniform("size_voxel", m_voxel_size / 2.f);
 
     m_program_integration->setUniform("res_tsdf", m_res_volume);
     m_volume_tsdf->image3D(0, GL_R32F, glm::ivec3{m_res_volume}, 0, GL_RED, GL_FLOAT, nullptr);

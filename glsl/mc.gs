@@ -216,7 +216,7 @@ void main()
             {
                 float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
 
-                vec3 center = geo_Position[0] + size_voxel / 2 * vec3(x - 1, y - 1, z - 1);
+                vec3 center = geo_Position[0] + size_voxel * vec3(x - 1, y - 1, z - 1);
 
                 sample_cube(center, cube);
 

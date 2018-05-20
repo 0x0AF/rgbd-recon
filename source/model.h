@@ -108,13 +108,13 @@ class model
         bool _draw_bricks = false;
         bool _watch_errors = true;
         int _num_kinect = 1;
-        float _voxel_size = 0.1f;
-        float _brick_size = 0.1f;
-        float _tsdf_limit = 0.01f;
+        float _voxel_size = 0.01f;
+        float _brick_size = 0.075f;
+        float _tsdf_limit = 0.03f;
         float _zoom = 1.25f;
         double _time_prev = 0.0f;
 
-        int _min_voxels = 10;
+        int _min_voxels = 32;
 
         bool _loaded_conf = false;
         unsigned _time_limit = 1;

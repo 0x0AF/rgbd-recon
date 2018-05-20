@@ -117,15 +117,15 @@ void renderer::update_gui()
             {
                 std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
 
-                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f", 2.71828381f))
+                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
                 {
                     recon_pc->setTsdfLimit(_io->_tsdf_limit);
                 }
-                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.1f, "%.5f", 2.71828381f))
+                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
                 {
                     recon_pc->setVoxelSize(_io->_voxel_size);
                 }
-                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.1f, 1.0f, "%.3f"))
+                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
                 {
                     recon_pc->setBrickSize(_io->_brick_size);
                     _io->_brick_size = recon_pc->getBrickSize();
@@ -169,16 +169,16 @@ void renderer::update_gui()
             {
                 std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
 
-                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f", 2.71828381f))
+                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
                 {
                     recon_integration->setTsdfLimit(_io->_tsdf_limit);
                 }
-                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.1f, "%.5f", 2.71828381f))
+                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
                 {
                     recon_integration->setVoxelSize(_io->_voxel_size);
                     _io->_brick_size = recon_integration->getBrickSize();
                 }
-                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.1f, 1.0f, "%.3f"))
+                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
                 {
                     recon_integration->setBrickSize(_io->_brick_size);
                     _io->_brick_size = recon_integration->getBrickSize();
@@ -514,7 +514,7 @@ void renderer::watch_gl_errors(bool activate)
                 }
                 // error
                 std::cerr << " - " << glbinding::Meta::getString(error) << std::endl;
-                throw std::exception{};
+                throw std::runtime_error("OpenGL error caught");
             }
         });
     }
