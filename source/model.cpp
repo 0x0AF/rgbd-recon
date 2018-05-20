@@ -103,6 +103,9 @@ void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector
     _nka->refineBoundary(io._refine);
     _recon_pc->setTsdfLimit(io._tsdf_limit);
     _recon_pc->setVoxelSize(io._voxel_size);
+    _recon_pc->setBrickSize(io._brick_size);
+    _recon_pc->setDrawBricks(io._draw_bricks);
+    _recon_pc->setUseBricks(io._bricking);
     _recon_integration->setTsdfLimit(io._tsdf_limit);
     _recon_integration->setVoxelSize(io._voxel_size);
     _recon_integration->setBrickSize(io._brick_size);
@@ -214,8 +217,16 @@ void model::reload_reconstructions()
     }
     globjects::File::reloadAll();
 }
-void model::next_reconstruction() { io._recon_mode = (int)((io._recon_mode + 1) % _recons.size()); }
-void model::prev_reconstruction() { io._recon_mode = (int)((io._recon_mode + _recons.size() - 1) % _recons.size()); }
+void model::next_reconstruction()
+{
+    io._recon_mode = (int)((io._recon_mode + 1) % _recons.size());
+    reload_reconstructions();
+}
+void model::prev_reconstruction()
+{
+    io._recon_mode = (int)((io._recon_mode + _recons.size() - 1) % _recons.size());
+    reload_reconstructions();
+}
 void model::update_framebuffer_size(unsigned int width, unsigned int height)
 {
     io._screenWidth = width;

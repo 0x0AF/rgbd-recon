@@ -113,7 +113,6 @@ class model
         float _tsdf_limit = 0.01f;
         float _zoom = 1.25f;
         double _time_prev = 0.0f;
-        float _mc_iso = 0.001;
 
         int _min_voxels = 10;
 

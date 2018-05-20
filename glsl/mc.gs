@@ -5,15 +5,20 @@
 #extension GL_ARB_uniform_buffer_object : enable
 #extension GL_ARB_shader_atomic_counters : enable
 
+#include </bricks.glsl>
+
 layout(points) in;
 layout(triangle_strip, max_vertices = 120) out;
 
 layout(binding = 6) uniform atomic_uint uv_counter;
 
-in vec3 in_pass_Position[];
-in float in_valid_vertex[];
+in vec3 geo_Position[];
+in uint geo_Id[];
 
 out vec3 pass_Position;
+#ifdef PASS_NORMALS
+out vec3 pass_Normal;
+#endif
 
 uniform mat4 gl_ModelViewMatrix;
 uniform mat4 gl_ProjectionMatrix;
@@ -28,10 +33,10 @@ uniform sampler3D[5] cv_xyz_inv;
 uniform float limit;
 uniform uint num_kinects;
 
-uniform float iso;
 uniform float size_voxel;
 
 uniform mat4 vol_to_world;
+uniform sampler3D volume_tsdf;
 
 uint texture_res = 256;
 
@@ -53,11 +58,11 @@ vec3 edge_directions[] = vec3[](vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f), 
                                 vec3(-1.0f, 0.0f, 0.0f), vec3(0.0f, -1.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, 1.0f));
 
 layout(std430, binding = 5) buffer tri_table { int[] triangle_connections; };
-
 vec3 vertex_offsets[] = vec3[](vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(1, 0, 1), vec3(1, 1, 1), vec3(0, 1, 1));
 
 float sample_volume(const vec3 position)
 {
+#ifdef MC_RESAMPLE_VOLUME
     float weighted_tsd = limit;
     float total_weight = 0;
     for(uint i = 0u; i < num_kinects; ++i)
@@ -94,6 +99,9 @@ float sample_volume(const vec3 position)
     }
 
     return weighted_tsd;
+#endif
+
+    return texture(volume_tsdf, position).r;
 }
 
 void sample_cube(const vec3 pos, inout float cube[8])
@@ -107,7 +115,7 @@ void sample_cube(const vec3 pos, inout float cube[8])
 float get_offset(float v1, float v2)
 {
     float delta = v2 - v1;
-    return (delta == 0.0f) ? 0.5f : (iso - v1) / delta;
+    return (delta == 0.0f) ? 0.5f : (0 - v1) / delta;
 }
 
 vec2[3] next_uv()
@@ -146,7 +154,7 @@ vec2[3] next_uv()
 
 void make_face(vec3 a, vec3 b, vec3 c)
 {
-    // gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+// gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
 
 #ifdef UNWRAP_UV
     vec2[3] uv = next_uv();
@@ -162,6 +170,17 @@ void make_face(vec3 a, vec3 b, vec3 c)
     pass_Position = c;
     gl_Position = vec4(uv[2].x, uv[2].y, 0.0, 1.0);
     EmitVertex();
+#endif
+
+#ifdef PASS_NORMALS
+    vec3 u = b - a;
+    vec3 v = c - a;
+
+    pass_Normal.x = u.y * v.z - u.z * v.y;
+    pass_Normal.y = u.z * v.x - u.x * v.z;
+    pass_Normal.z = u.x * v.y - u.y * v.x;
+
+    pass_Normal = normalize(pass_Normal);
 #endif
 
     pass_Position = a;
@@ -181,22 +200,23 @@ void make_face(vec3 a, vec3 b, vec3 c)
 
 void main()
 {
-    // MC START
-
-    if(in_valid_vertex[0] < 0.f)
+    uvec3 index = index_3d(geo_Id[0]);
+    if(!brick_occupied(get_id(index)))
     {
         return;
     }
 
-    for(int x = 0; x < 3; x++)
+    // MC START
+
+    for(int x = 0; x < 1; x++)
     {
-        for(int y = 0; y < 3; y++)
+        for(int y = 0; y < 1; y++)
         {
-            for(int z = 0; z < 3; z++)
+            for(int z = 0; z < 1; z++)
             {
                 float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
 
-                vec3 center = in_pass_Position[0] + size_voxel * vec3(x - 1, y - 1, z - 1);
+                vec3 center = geo_Position[0] + size_voxel / 2 * vec3(x - 1, y - 1, z - 1);
 
                 sample_cube(center, cube);
 
@@ -205,7 +225,7 @@ void main()
                 vec3 cube_vertices[12];
 
                 for(i = 0; i < 8; i++)
-                    if(cube[i] > iso)
+                    if(cube[i] > 0)
                         flag_storage |= 1 << i;
 
                 if(flag_storage != 0)

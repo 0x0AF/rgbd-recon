@@ -113,11 +113,16 @@ int ReconPerformanceCapture::TRI_TABLE[] = {
     2,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,  3,  8,  9,  1,  8,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  9,  1,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  3,  8,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
+static int start_image_unit = 3;
+
 ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size)
-    : Reconstruction(cfs, cv, bbox), m_program{new globjects::Program()}, m_res_volume{0}, m_mat_vol_to_world{1.0f}, m_limit{limit}, m_point_grid{new globjects::VertexArray()},
-      m_point_buffer{new globjects::Buffer()}, m_tri_table_buffer{new globjects::Buffer()}, m_uv_counter_buffer{new globjects::Buffer()}, m_voxel_size{size}, m_iso{0.001f}
+    : Reconstruction(cfs, cv, bbox), m_buffer_bricks{new globjects::Buffer()}, m_buffer_occupied{new globjects::Buffer()}, m_program{new globjects::Program()},
+      m_program_integration{new globjects::Program()}, m_program_solid{new globjects::Program()}, m_program_bricks{new globjects::Program()}, m_res_volume{0}, m_res_bricks{0},
+      m_sampler{glm::uvec3{0}}, m_volume_tsdf{globjects::Texture::createDefault(GL_TEXTURE_3D)}, m_mat_vol_to_world{1.0f}, m_limit{limit}, m_brick_size{0.1f},
+      m_tri_table_buffer{new globjects::Buffer()}, m_uv_counter_buffer{new globjects::Buffer()}, m_voxel_size{size}, m_use_bricks{true}, m_draw_bricks{false}, m_ratio_occupied{0.0f},
+      m_min_voxels_per_brick{10}
 {
-    m_program->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/mc.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/mc.gs"),
+    m_program->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/mc.gs"),
                       globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/mc.fs"));
 
     glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
@@ -127,7 +132,6 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
     m_mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * m_mat_vol_to_world;
 
     m_program->setUniform("vol_to_world", m_mat_vol_to_world);
-    m_program->setUniform("iso", m_iso);
     m_program->setUniform("size_voxel", m_voxel_size);
     m_program->setUniform("volume_tsdf", 29);
 
@@ -142,30 +146,28 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
     m_program->setUniform("num_kinects", m_num_kinects);
     m_program->setUniform("limit", m_limit);
 
+    m_program_integration->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
+    m_program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
+    m_program->setUniform("volume_tsdf", 29);
+
+    m_program_integration->setUniform("volume_tsdf", start_image_unit);
+    m_program_integration->setUniform("kinect_colors", 1);
+    m_program_integration->setUniform("kinect_depths", 2);
+    m_program_integration->setUniform("kinect_qualities", 3);
+    m_program_integration->setUniform("kinect_normals", 4);
+    m_program_integration->setUniform("kinect_silhouettes", 5);
+
+    m_program_integration->setUniform("num_kinects", m_num_kinects);
+    m_program_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
+    m_program_integration->setUniform("limit", m_limit);
+
+    m_program_solid->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
+
+    m_program_bricks->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/bricks.fs"),
+                             globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
+
     m_tri_table_buffer->setData(sizeof(int) * 4096, TRI_TABLE, GL_DYNAMIC_COPY);
     m_tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(int) * 4096);
-
-    int num_voxels_x = (int)std::ceil(bbox_dimensions.x / m_voxel_size);
-    int num_voxels_y = (int)std::ceil(bbox_dimensions.y / m_voxel_size);
-    int num_voxels_z = (int)std::ceil(bbox_dimensions.z / m_voxel_size);
-    std::vector<glm::fvec3> data{};
-    for(unsigned x = 0; x < num_voxels_x; ++x)
-    {
-        for(unsigned y = 0; y < num_voxels_y; ++y)
-        {
-            for(unsigned z = 0; z < num_voxels_z; ++z)
-            {
-                data.emplace_back(x * m_voxel_size + bbox_translation.x, y * m_voxel_size + bbox_translation.y, z * m_voxel_size + bbox_translation.z);
-            }
-        }
-    }
-
-    m_point_buffer->setData(data, GL_STATIC_DRAW);
-
-    m_point_grid->enable(0);
-    m_point_grid->binding(0)->setAttribute(0);
-    m_point_grid->binding(0)->setBuffer(m_point_buffer, 0, sizeof(glm::fvec3));
-    m_point_grid->binding(0)->setFormat(3, GL_FLOAT);
 
     m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
     m_uv_counter_buffer->setData(sizeof(GLuint), 0, GL_DYNAMIC_DRAW);
@@ -178,17 +180,24 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
 
 ReconPerformanceCapture::~ReconPerformanceCapture()
 {
-    m_point_grid->destroy();
-    m_point_buffer->destroy();
     m_tri_table_buffer->destroy();
+
+    m_buffer_bricks->destroy();
+    m_buffer_occupied->destroy();
 }
 
-void ReconPerformanceCapture::drawF() { Reconstruction::drawF(); }
-
+void ReconPerformanceCapture::drawF()
+{
+    Reconstruction::drawF();
+    if(m_draw_bricks)
+    {
+        drawOccupiedBricks();
+    }
+}
 void ReconPerformanceCapture::draw()
 {
     m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
-    GLuint * ptr = (GLuint *) m_uv_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    GLuint *ptr = (GLuint *)m_uv_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
     ptr[0] = 0;
     m_uv_counter_buffer->unmap();
     m_uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
@@ -215,13 +224,22 @@ void ReconPerformanceCapture::draw()
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * m_mat_vol_to_world);
     m_program->setUniform("NormalMatrix", normal_matrix);
 
-    glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
+    glDisable(GL_CULL_FACE);
+    //glEnable(GL_CULL_FACE);
 
-    int num_voxels_x = (int)std::ceil(bbox_dimensions.x / m_voxel_size);
-    int num_voxels_y = (int)std::ceil(bbox_dimensions.y / m_voxel_size);
-    int num_voxels_z = (int)std::ceil(bbox_dimensions.z / m_voxel_size);
+    if(m_use_bricks)
+    {
+        for(auto const &index : m_bricks_occupied)
+        {
+            m_sampler.sample(m_bricks[index].indices);
+        }
+    }
+    else
+    {
+        m_sampler.sample();
+    }
 
-    m_point_grid->drawArrays(GL_POINTS, 0, num_voxels_x * num_voxels_y * num_voxels_z);
+    //glDisable(GL_CULL_FACE);
 
     m_program->release();
 }
@@ -230,37 +248,140 @@ void ReconPerformanceCapture::setVoxelSize(float size)
 {
     m_voxel_size = size;
     m_res_volume = glm::ceil(glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]} / m_voxel_size);
-    m_program->setUniform("res_tsdf", m_res_volume);
-    std::cout << "resolution " << m_res_volume.x << ", " << m_res_volume.y << ", " << m_res_volume.z << " - " << (m_res_volume.x * m_res_volume.y * m_res_volume.z) / 1000 << "k voxels" << std::endl;
 
+    m_sampler.resize(m_res_volume);
+
+    m_program->setUniform("res_tsdf", m_res_volume);
     m_program->setUniform("size_voxel", m_voxel_size);
 
-    glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
-    glm::fvec3 bbox_translation = glm::fvec3{m_bbox.getPMin()[0], m_bbox.getPMin()[1], m_bbox.getPMin()[2]};
+    m_program_integration->setUniform("res_tsdf", m_res_volume);
+    m_volume_tsdf->image3D(0, GL_R32F, glm::ivec3{m_res_volume}, 0, GL_RED, GL_FLOAT, nullptr);
+    m_volume_tsdf->bindActive(GL_TEXTURE0 + 29);
 
-    int num_voxels_x = (int)std::ceil(bbox_dimensions.x / m_voxel_size);
-    int num_voxels_y = (int)std::ceil(bbox_dimensions.y / m_voxel_size);
-    int num_voxels_z = (int)std::ceil(bbox_dimensions.z / m_voxel_size);
-    std::vector<glm::fvec3> data{};
-    for(unsigned x = 0; x < num_voxels_x; ++x)
-    {
-        for(unsigned y = 0; y < num_voxels_y; ++y)
-        {
-            for(unsigned z = 0; z < num_voxels_z; ++z)
-            {
-                data.emplace_back(x * m_voxel_size + bbox_translation.x, y * m_voxel_size + bbox_translation.y, z * m_voxel_size + bbox_translation.z);
-            }
-        }
-    }
-
-    m_point_buffer->setData(data, GL_STATIC_DRAW);
+    setBrickSize(m_brick_size);
 }
 
 void ReconPerformanceCapture::setTsdfLimit(float limit) { m_limit = limit; }
-
-void ReconPerformanceCapture::setIso(float iso)
+void ReconPerformanceCapture::integrate()
 {
-    m_iso = iso;
-    m_program->setUniform("iso", m_iso);
+    glEnable(GL_RASTERIZER_DISCARD);
+    m_program_integration->use();
+
+    // clearing costs 0,4 ms on titan, filling from pbo 9
+    float negative = -m_limit;
+    m_volume_tsdf->clearImage(0, GL_RED, GL_FLOAT, &negative);
+
+    m_volume_tsdf->bindImageTexture(start_image_unit, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32F);
+
+    if(m_use_bricks)
+    {
+        for(auto const &index : m_bricks_occupied)
+        {
+            m_sampler.sample(m_bricks[index].indices);
+        }
+    }
+    else
+    {
+        m_sampler.sample();
+    }
+
+    m_program_integration->release();
+    glDisable(GL_RASTERIZER_DISCARD);
+}
+void ReconPerformanceCapture::setUseBricks(bool active)
+{
+    // TODO: incorporate toggle
+    m_use_bricks = active;
+}
+void ReconPerformanceCapture::setDrawBricks(bool active) { m_draw_bricks = active; }
+void ReconPerformanceCapture::setBrickSize(float size)
+{
+    m_brick_size = m_voxel_size * glm::round(size / m_voxel_size);
+    std::cout << "adjusted bricksize from " << size << " to " << m_brick_size << std::endl;
+    divideBox();
+}
+float ReconPerformanceCapture::occupiedRatio() const { return m_ratio_occupied; }
+float ReconPerformanceCapture::getBrickSize() const { return m_brick_size; }
+void ReconPerformanceCapture::clearOccupiedBricks() const
+{
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    // clear active bricks
+    static unsigned zerou = 0;
+    m_buffer_bricks->clearSubData(GL_R32UI, sizeof(unsigned) * 8, m_bricks.size() * sizeof(unsigned), GL_RED_INTEGER, GL_UNSIGNED_INT, &zerou);
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+}
+void ReconPerformanceCapture::updateOccupiedBricks()
+{
+    // load occupied brick info
+    m_buffer_bricks->getSubData(sizeof(unsigned) * 8, m_active_bricks.size() * sizeof(unsigned), m_active_bricks.data());
+    m_bricks_occupied.clear();
+
+    for(unsigned i = 0; i < m_active_bricks.size(); ++i)
+    {
+        if(m_active_bricks[i] >= m_min_voxels_per_brick)
+        {
+            m_bricks_occupied.emplace_back(i);
+        }
+    }
+    m_ratio_occupied = float(m_bricks_occupied.size()) / float(m_active_bricks.size());
+    m_buffer_occupied->setSubData(0, sizeof(unsigned) * m_bricks_occupied.size(), m_bricks_occupied.data());
+    if(!m_bricks_occupied.empty())
+    {
+        m_buffer_occupied->bindRange(GL_SHADER_STORAGE_BUFFER, 4, 0, sizeof(unsigned) * m_bricks_occupied.size());
+    }
+}
+void ReconPerformanceCapture::setMinVoxelsPerBrick(unsigned num) { m_min_voxels_per_brick = num; }
+void ReconPerformanceCapture::drawOccupiedBricks() const
+{
+    m_program_solid->use();
+    m_program_solid->setUniform("Color", glm::fvec3{1.0f, 0.0f, 0.0f});
+
+    UnitCube::drawWireInstanced(m_bricks_occupied.size());
+
+    m_program_solid->release();
+}
+void ReconPerformanceCapture::divideBox()
+{
+    m_bricks.clear();
+    glm::fvec3 min{m_bbox.getPMin()};
+    glm::fvec3 size{glm::fvec3{m_bbox.getPMax()} - min};
+    glm::fvec3 start{min};
+    m_res_bricks = glm::uvec3{0};
+    while(size.z - start.z + min.z > 0.0f)
+    {
+        while(size.y - start.y + min.y > 0.0f)
+        {
+            while(size.x - start.x + min.x > 0.0f)
+            {
+                m_bricks.emplace_back(start, glm::min(glm::fvec3{m_brick_size}, size - start + min));
+                auto &curr_brick = m_bricks.back();
+                curr_brick.indices = m_sampler.containedVoxels((curr_brick.pos - min) / size, curr_brick.size / size);
+                curr_brick.baseVoxel = m_sampler.baseVoxel((curr_brick.pos - min) / size, curr_brick.size / size);
+                start.x += m_brick_size;
+                if(m_res_bricks.z == 0 && m_res_bricks.y == 0)
+                {
+                    ++m_res_bricks.x;
+                }
+            }
+            start.x = min.x;
+            start.y += m_brick_size;
+            if(m_res_bricks.z == 0)
+            {
+                ++m_res_bricks.y;
+            }
+        }
+        start.y = min.y;
+        start.z += m_brick_size;
+        ++m_res_bricks.z;
+    }
+    std::vector<unsigned> bricks(m_bricks.size() + 8, 0);
+    std::memcpy(&bricks[0], &m_brick_size, sizeof(float));
+    std::memcpy(&bricks[4], &m_res_bricks, sizeof(unsigned) * 3);
+    m_buffer_bricks->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_COPY);
+    m_buffer_bricks->bindRange(GL_SHADER_STORAGE_BUFFER, 3, 0, sizeof(unsigned) * bricks.size());
+    m_active_bricks.resize(m_bricks.size());
+
+    m_buffer_occupied->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_DRAW);
+    std::cout << "brick res " << m_res_bricks.x << ", " << m_res_bricks.y << ", " << m_res_bricks.z << " - " << m_bricks.front().indices.size() << " voxels per brick" << std::endl;
 }
 }

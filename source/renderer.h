@@ -73,6 +73,8 @@ class renderer
     void draw3d();
     void next_shading_mode();
 
+    static void watch_gl_errors(bool activate);
+
   private:
     model *_model;
     model::IO *_io;

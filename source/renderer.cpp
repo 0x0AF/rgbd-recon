@@ -68,7 +68,9 @@ void renderer::update_gui()
             _io->_gui_texture_settings.emplace_back(0, 0);
         }
         if(ImGui::Checkbox("Watch OpenGL errors", &_io->_watch_errors))
-            ;
+        {
+            watch_gl_errors(_io->_watch_errors);
+        };
         ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         if(ImGui::CollapsingHeader("Reconstruction Mode", ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -123,9 +125,43 @@ void renderer::update_gui()
                 {
                     recon_pc->setVoxelSize(_io->_voxel_size);
                 }
-                if(ImGui::SliderFloat("Marching Cubes ISO", &_io->_mc_iso, 0.00001f, 0.01f, "%.5f", 2.71828381f))
+                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.1f, 1.0f, "%.3f"))
                 {
-                    recon_pc->setIso(_io->_mc_iso);
+                    recon_pc->setBrickSize(_io->_brick_size);
+                    _io->_brick_size = recon_pc->getBrickSize();
+                }
+                if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
+                {
+                    recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
+                    recon_pc->updateOccupiedBricks();
+                    recon_pc->integrate();
+                }
+                if(_io->_bricking)
+                {
+                    ImGui::Columns(2, NULL, false);
+                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
+                    {
+                        recon_pc->setUseBricks(_io->_bricking);
+                    }
+                    ImGui::NextColumn();
+                    ImGui::Text("%.3f %% occupied", recon_pc->occupiedRatio() * 100.0f);
+                    ImGui::Columns(1);
+
+                    if(_io->_bricking)
+                    {
+                        if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
+                        {
+                            recon_pc->setDrawBricks(_io->_draw_bricks);
+                        }
+                    }
+                }
+                else
+                {
+                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
+                    {
+                        recon_pc->setUseBricks(_io->_bricking);
+                        recon_pc->integrate();
+                    }
                 }
             }
             break;
@@ -287,6 +323,8 @@ void renderer::process_textures()
     break;
     case 1: // performance capture
     {
+        std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+        recon_pc->clearOccupiedBricks();
     }
     break;
     case 2: // raymarched integration
@@ -309,6 +347,8 @@ void renderer::process_textures()
     break;
     case 1: // performance capture
     {
+        std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+        recon_pc->updateOccupiedBricks();
     }
     break;
     case 2: // raymarched integration
@@ -334,24 +374,26 @@ void renderer::draw3d()
         process_textures();
 
         switch(_io->_recon_mode)
-          {
+        {
         case 0: // points
-          {
-          }
-            break;
+        {
+        }
+        break;
         case 1: // performance capture
-          {
-          }
-            break;
+        {
+            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+            recon_pc->integrate();
+        }
+        break;
         case 2: // raymarched integration
-          {
+        {
             std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-            recon_integration->integrate ();
-          }
-            break;
+            recon_integration->integrate();
+        }
+        break;
         default:
-          break;
-          }
+            break;
+        }
     }
 
     glClearColor(_io->_clear_color[0], _io->_clear_color[1], _io->_clear_color[2], _io->_clear_color[3]);
@@ -443,4 +485,41 @@ void renderer::next_shading_mode()
 {
     _shading_buffer_data.mode = (_shading_buffer_data.mode + 1) % 4;
     _buffer_shading->setSubData(0, sizeof(shading_data_t), &_shading_buffer_data);
+}
+void renderer::watch_gl_errors(bool activate)
+{
+    if(activate)
+    {
+        // add callback after each function call
+        glbinding::setCallbackMaskExcept(glbinding::CallbackMask::After | glbinding::CallbackMask::ParametersAndReturnValue, {"glGetError", "glVertex3f", "glVertex2f", "glBegin", "glColor3f"});
+
+        glbinding::setAfterCallback([](const glbinding::FunctionCall &call) {
+            GLenum error = glGetError();
+            if(error != GL_NO_ERROR)
+            {
+                // print name
+                std::cerr << "OpenGL Error: " << call.function->name() << "(";
+                // parameters
+                for(unsigned i = 0; i < call.parameters.size(); ++i)
+                {
+                    std::cerr << call.parameters[i]->asString();
+                    if(i < call.parameters.size() - 1)
+                        std::cerr << ", ";
+                }
+                std::cerr << ")";
+                // return value
+                if(call.returnValue)
+                {
+                    std::cerr << " -> " << call.returnValue->asString();
+                }
+                // error
+                std::cerr << " - " << glbinding::Meta::getString(error) << std::endl;
+                throw std::exception{};
+            }
+        });
+    }
+    else
+    {
+        glbinding::setCallbackMask(glbinding::CallbackMask::None);
+    }
 }

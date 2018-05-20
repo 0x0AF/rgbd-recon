@@ -221,44 +221,6 @@ void quit(int status)
     std::exit(status);
 }
 
-void watch_gl_errors(bool activate)
-{
-    if(activate)
-    {
-        // add callback after each function call
-        glbinding::setCallbackMaskExcept(glbinding::CallbackMask::After | glbinding::CallbackMask::ParametersAndReturnValue, {"glGetError", "glVertex3f", "glVertex2f", "glBegin", "glColor3f"});
-
-        glbinding::setAfterCallback([](const glbinding::FunctionCall &call) {
-            GLenum error = glGetError();
-            if(error != GL_NO_ERROR)
-            {
-                // print name
-                std::cerr << "OpenGL Error: " << call.function->name() << "(";
-                // parameters
-                for(unsigned i = 0; i < call.parameters.size(); ++i)
-                {
-                    std::cerr << call.parameters[i]->asString();
-                    if(i < call.parameters.size() - 1)
-                        std::cerr << ", ";
-                }
-                std::cerr << ")";
-                // return value
-                if(call.returnValue)
-                {
-                    std::cerr << " -> " << call.returnValue->asString();
-                }
-                // error
-                std::cerr << " - " << glbinding::Meta::getString(error) << std::endl;
-                throw std::exception{};
-            }
-        });
-    }
-    else
-    {
-        glbinding::setCallbackMask(glbinding::CallbackMask::None);
-    }
-}
-
 int main(int argc, char *argv[])
 {
     _model = &model::get_instance();
@@ -355,7 +317,7 @@ int main(int argc, char *argv[])
     // Initialize globjects (internally initializes glbinding, and registers the current context)
     globjects::init();
 
-    watch_gl_errors(_io->_watch_errors);
+    renderer::watch_gl_errors(_io->_watch_errors);
 
     // set some gl states
     glEnable(GL_TEXTURE_2D);
@@ -384,8 +346,6 @@ int main(int argc, char *argv[])
         }
 
         glfwSwapBuffers(_window);
-
-        watch_gl_errors(_io->_watch_errors);
 
         // keep track fo time if config was loaded
         if(_io->_loaded_conf)
