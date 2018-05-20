@@ -105,7 +105,6 @@ void init(std::vector<std::string> const &args)
     _model->init(bbox_min, bbox_max, calib_filenames, resource_path);
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     if(action != GLFW_RELEASE)
@@ -113,7 +112,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 
     switch(key)
     {
-    /// press ESC or q to quit
     case GLFW_KEY_ESCAPE:
     case GLFW_KEY_Q:
         glfwSetWindowShouldClose(_window, 1);
@@ -187,6 +185,13 @@ void click_callback(GLFWwindow *window, int button, int action, int mods)
     int mouse_v = (int)ypos;
 
     _model->get_navi()->mouse(button, action, mouse_h, mouse_v);
+}
+void scroll_callback(GLFWwindow *window, double xoffset, double yoffset)
+{
+    _io->_zoom = std::min(_io->_zoom + (float)yoffset * 0.01f, 2.3f);
+    _model->get_navi()->setZoom(_io->_zoom);
+
+    ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
 }
 static void error_callback(int error, const char *description) { fprintf(stderr, "Error %d: %s\n", error, description); }
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) { _model->update_framebuffer_size(width, height); }
@@ -329,12 +334,18 @@ int main(int argc, char *argv[])
     ImGui_ImplGlfwGL3_Init(_window, true);
     ImGui::StyleColorsDark();
 
+#ifndef NDEBUG
+    // enable vsync
+    glfwSwapInterval(1);
+#else
     // disable vsync
     glfwSwapInterval(0);
+#endif
 
     glfwSetKeyCallback(_window, key_callback);
     glfwSetCursorPosCallback(_window, mouse_callback);
     glfwSetMouseButtonCallback(_window, click_callback);
+    glfwSetScrollCallback(_window, scroll_callback);
     if(0 == _io->_stereo_mode)
     {
         glfwSetFramebufferSizeCallback(_window, framebuffer_size_callback);

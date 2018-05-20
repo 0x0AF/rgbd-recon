@@ -74,6 +74,7 @@ void renderer::update_gui()
         {
             ImGui::RadioButton("Points", &_io->_recon_mode, 0);
             ImGui::RadioButton("Marching Cubes", &_io->_recon_mode, 1);
+            ImGui::RadioButton("Integration", &_io->_recon_mode, 2);
         }
         if(ImGui::CollapsingHeader("Visualisation"))
         {
@@ -85,6 +86,21 @@ void renderer::update_gui()
             if(prev != _shading_buffer_data.mode)
             {
                 _buffer_shading->setSubData(0, sizeof(shading_data_t), &_shading_buffer_data);
+            }
+        }
+        if(ImGui::CollapsingHeader("Processing"))
+        {
+            if(ImGui::Checkbox("Morphological Filter", &_io->_processed))
+            {
+                _model->get_nka()->useProcessedDepths(_io->_processed);
+            }
+            if(ImGui::Checkbox("Bilateral Filter", &_io->_bilateral))
+            {
+                _model->get_nka()->filterTextures(_io->_bilateral);
+            }
+            if(ImGui::Checkbox("Boundary Refinement", &_io->_refine))
+            {
+                _model->get_nka()->refineBoundary(_io->_refine);
             }
         }
         if(ImGui::CollapsingHeader("Settings"))
@@ -111,6 +127,68 @@ void renderer::update_gui()
                 {
                     recon_pc->setIso(_io->_mc_iso);
                 }
+            }
+            break;
+            case 2: // raymarched integration
+            {
+                std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+
+                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f", 2.71828381f))
+                {
+                    recon_integration->setTsdfLimit(_io->_tsdf_limit);
+                }
+                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.1f, "%.5f", 2.71828381f))
+                {
+                    recon_integration->setVoxelSize(_io->_voxel_size);
+                    _io->_brick_size = recon_integration->getBrickSize();
+                }
+                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.1f, 1.0f, "%.3f"))
+                {
+                    recon_integration->setBrickSize(_io->_brick_size);
+                    _io->_brick_size = recon_integration->getBrickSize();
+                }
+                if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
+                {
+                    recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
+                    recon_integration->updateOccupiedBricks();
+                    recon_integration->integrate();
+                }
+                if(ImGui::Checkbox("Color hole filling", &_io->_colorfill))
+                {
+                    recon_integration->setColorFilling(_io->_colorfill);
+                }
+                if(_io->_bricking)
+                {
+                    ImGui::Columns(2, NULL, false);
+                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
+                    {
+                        recon_integration->setUseBricks(_io->_bricking);
+                    }
+                    ImGui::NextColumn();
+                    ImGui::Text("%.3f %% occupied", recon_integration->occupiedRatio() * 100.0f);
+                    ImGui::Columns(1);
+
+                    if(_io->_bricking)
+                    {
+                        if(ImGui::Checkbox("Skip empty Spaces", &_io->_skip_space))
+                        {
+                            recon_integration->setSpaceSkip(_io->_skip_space);
+                        }
+                        if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
+                        {
+                            recon_integration->setDrawBricks(_io->_draw_bricks);
+                        }
+                    }
+                }
+                else
+                {
+                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
+                    {
+                        recon_integration->setUseBricks(_io->_bricking);
+                        recon_integration->integrate();
+                    }
+                }
+                ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
             }
             break;
             default:
@@ -199,7 +277,50 @@ void renderer::update_model_matrix(bool load_ident)
 
     _model->get_navi()->resetOffsets();
 }
-void renderer::process_textures() { _model->get_nka()->processTextures(); }
+void renderer::process_textures()
+{
+    switch(_io->_recon_mode)
+    {
+    case 0: // points
+    {
+    }
+    break;
+    case 1: // performance capture
+    {
+    }
+    break;
+    case 2: // raymarched integration
+    {
+        std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+        recon_integration->clearOccupiedBricks();
+    }
+    break;
+    default:
+        break;
+    }
+
+    _model->get_nka()->processTextures();
+
+    switch(_io->_recon_mode)
+    {
+    case 0: // points
+    {
+    }
+    break;
+    case 1: // performance capture
+    {
+    }
+    break;
+    case 2: // raymarched integration
+    {
+        std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+        recon_integration->updateOccupiedBricks();
+    }
+    break;
+    default:
+        break;
+    }
+}
 void renderer::draw3d()
 {
     bool update_textures = false;
@@ -211,6 +332,26 @@ void renderer::draw3d()
     if(update_textures)
     {
         process_textures();
+
+        switch(_io->_recon_mode)
+          {
+        case 0: // points
+          {
+          }
+            break;
+        case 1: // performance capture
+          {
+          }
+            break;
+        case 2: // raymarched integration
+          {
+            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+            recon_integration->integrate ();
+          }
+            break;
+        default:
+          break;
+          }
     }
 
     glClearColor(_io->_clear_color[0], _io->_clear_color[1], _io->_clear_color[2], _io->_clear_color[3]);

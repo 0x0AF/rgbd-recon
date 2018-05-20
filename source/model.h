@@ -51,6 +51,7 @@ using namespace gl;
 #include <iostream>
 #include <memory>
 #include <reconstruction/recon_calibs.hpp>
+#include <reconstruction/recon_integration.hpp>
 
 /**
  * @class model is responsible for all states and data streams, except window (context) management
@@ -92,16 +93,16 @@ class model
         bool _play = true;
         bool _draw_frustums = false;
         bool _draw_grid = true;
-        bool _animate = true;
-        int _recon_mode = 1;
+        bool _animate = false;
+        int _recon_mode = 0;
         bool _bilateral = true;
         bool _draw_calibvis = false;
         bool _draw_textures = false;
         int _texture_type = 0;
         int _num_texture = 0;
-        bool _processed = true;
-        bool _refine = true;
-        bool _colorfill = true;
+        bool _processed = false;
+        bool _refine = false;
+        bool _colorfill = false;
         bool _bricking = true;
         bool _skip_space = true;
         bool _draw_bricks = false;
@@ -159,6 +160,7 @@ class model
 
     std::shared_ptr<kinect::ReconPoints> _recon_points;
     std::shared_ptr<kinect::ReconPerformanceCapture> _recon_pc;
+    std::shared_ptr<kinect::ReconIntegration> _recon_integration;
     std::vector<std::shared_ptr<kinect::Reconstruction>> _recons;
 
     std::shared_ptr<kinect::ReconCalibs> _calibvis;
