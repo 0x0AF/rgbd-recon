@@ -115,94 +115,138 @@ int ReconPerformanceCapture::TRI_TABLE[] = {
 
 static int start_image_unit = 3;
 
-ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size)
-    : Reconstruction(cfs, cv, bbox), m_buffer_bricks{new globjects::Buffer()}, m_buffer_occupied{new globjects::Buffer()}, m_program{new globjects::Program()},
-      m_program_integration{new globjects::Program()}, m_program_solid{new globjects::Program()}, m_program_bricks{new globjects::Program()}, m_res_volume{0}, m_res_bricks{0},
-      m_sampler{glm::uvec3{0}}, m_volume_tsdf{globjects::Texture::createDefault(GL_TEXTURE_3D)}, m_mat_vol_to_world{1.0f}, m_limit{limit}, m_brick_size{0.1f},
-      m_tri_table_buffer{new globjects::Buffer()}, m_uv_counter_buffer{new globjects::Buffer()}, m_voxel_size{size}, m_use_bricks{true}, m_draw_bricks{false}, m_ratio_occupied{0.0f},
-      m_min_voxels_per_brick{10}
+ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size) : Reconstruction(cfs, cv, bbox)
 {
-    m_program->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/mc.gs"),
-                      globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/mc.fs"));
+    init(limit, size);
+
+    _program->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/mc.gs"),
+                     globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/mc.fs"));
 
     glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
     glm::fvec3 bbox_translation = glm::fvec3{m_bbox.getPMin()[0], m_bbox.getPMin()[1], m_bbox.getPMin()[2]};
 
-    m_mat_vol_to_world = glm::scale(glm::fmat4{1.0f}, bbox_dimensions);
-    m_mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * m_mat_vol_to_world;
+    _mat_vol_to_world = glm::scale(glm::fmat4{1.0f}, bbox_dimensions);
+    _mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * _mat_vol_to_world;
 
-    m_program->setUniform("vol_to_world", m_mat_vol_to_world);
-    m_program->setUniform("size_voxel", m_voxel_size);
-    m_program->setUniform("volume_tsdf", 29);
+    _program->setUniform("vol_to_world", _mat_vol_to_world);
+    _program->setUniform("size_voxel", _voxel_size);
+    _program->setUniform("volume_tsdf", 29);
 
-    m_program->setUniform("kinect_colors", 1);
-    m_program->setUniform("kinect_depths", 2);
-    m_program->setUniform("kinect_qualities", 3);
-    m_program->setUniform("kinect_normals", 4);
-    m_program->setUniform("kinect_silhouettes", 5);
+    _program->setUniform("kinect_colors", 1);
+    _program->setUniform("kinect_depths", 2);
+    _program->setUniform("kinect_qualities", 3);
+    _program->setUniform("kinect_normals", 4);
+    _program->setUniform("kinect_silhouettes", 5);
 
-    m_program->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
-    m_program->setUniform("cv_uv", m_cv->getUVVolumeUnits());
-    m_program->setUniform("num_kinects", m_num_kinects);
-    m_program->setUniform("limit", m_limit);
+    _program->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
+    _program->setUniform("cv_uv", m_cv->getUVVolumeUnits());
+    _program->setUniform("num_kinects", m_num_kinects);
+    _program->setUniform("limit", _limit);
 
-    m_program_integration->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
-    m_program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
-    m_program->setUniform("volume_tsdf", 29);
+    _progra_integration->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
+    _progra_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
+    _program->setUniform("volume_tsdf", 29);
 
-    m_program_integration->setUniform("volume_tsdf", start_image_unit);
-    m_program_integration->setUniform("kinect_colors", 1);
-    m_program_integration->setUniform("kinect_depths", 2);
-    m_program_integration->setUniform("kinect_qualities", 3);
-    m_program_integration->setUniform("kinect_normals", 4);
-    m_program_integration->setUniform("kinect_silhouettes", 5);
+    _progra_integration->setUniform("volume_tsdf", start_image_unit);
+    _progra_integration->setUniform("kinect_colors", 1);
+    _progra_integration->setUniform("kinect_depths", 2);
+    _progra_integration->setUniform("kinect_qualities", 3);
+    _progra_integration->setUniform("kinect_normals", 4);
+    _progra_integration->setUniform("kinect_silhouettes", 5);
 
-    m_program_integration->setUniform("num_kinects", m_num_kinects);
-    m_program_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
-    m_program_integration->setUniform("limit", m_limit);
+    _progra_integration->setUniform("num_kinects", m_num_kinects);
+    _progra_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
+    _progra_integration->setUniform("limit", _limit);
 
-    m_program_solid->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
+    _progra_solid->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
 
-    m_program_bricks->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/bricks.fs"),
-                             globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
+    _progra_bricks->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/bricks.fs"),
+                           globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
 
-    m_tri_table_buffer->setData(sizeof(int) * 4096, TRI_TABLE, GL_DYNAMIC_COPY);
-    m_tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(int) * 4096);
+    _tri_table_buffer->setData(sizeof(int) * 4096, TRI_TABLE, GL_DYNAMIC_COPY);
+    _tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(int) * 4096);
 
-    m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
-    m_uv_counter_buffer->setData(sizeof(GLuint), 0, GL_DYNAMIC_DRAW);
-    m_uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
+    _uv_counter_buffer->setData(sizeof(GLuint), 0, GL_DYNAMIC_DRAW);
+    _uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _uv_counter_buffer->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
-    m_uv_counter_buffer->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
+    _vertex_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
+    _vertex_counter_buffer->setData(sizeof(GLuint), 0, GL_DYNAMIC_DRAW);
+    _vertex_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _vertex_counter_buffer->bindBase(GL_ATOMIC_COUNTER_BUFFER, 7);
 
-    setVoxelSize(m_voxel_size);
+    setVoxelSize(_voxel_size);
+
+    _transformFeedback = new globjects::TransformFeedback();
+    _transformFeedback->setVaryings(_program, {{"pass_Index", "pass_Position", "pass_Normal", "gl_SkipComponents1"}}, GL_INTERLEAVED_ATTRIBS);
+}
+
+void ReconPerformanceCapture::init(float limit, float size)
+{
+    _buffer_bricks = new globjects::Buffer();
+    _buffer_occupied = new globjects::Buffer();
+    _tri_table_buffer = new globjects::Buffer();
+    _uv_counter_buffer = new globjects::Buffer();
+    _vertex_counter_buffer = new globjects::Buffer();
+    _mesh_feedback_buffer = new globjects::Buffer();
+
+    _program = new globjects::Program();
+    _progra_integration = new globjects::Program();
+    _progra_solid = new globjects::Program();
+    _progra_bricks = new globjects::Program();
+
+    _res_volume = glm::uvec3(0);
+    _res_bricks = glm::uvec3(0);
+    _sampler = new VolumeSampler(glm::uvec3{0});
+    _volume_tsdf = globjects::Texture::createDefault(GL_TEXTURE_3D);
+
+    _mat_vol_to_world = glm::fmat4(1.0f);
+    _limit = limit;
+    _brick_size = 0.1f;
+    _voxel_size = size;
+    _use_bricks = true;
+    _draw_bricks = false;
+    _ratio_occupied = 0.0f;
+    _min_voxels_per_brick = 10;
+
+    _frame_number.store(0);
 }
 
 ReconPerformanceCapture::~ReconPerformanceCapture()
 {
-    m_tri_table_buffer->destroy();
+    _tri_table_buffer->destroy();
+    _uv_counter_buffer->destroy();
+    _vertex_counter_buffer->destroy();
+    _buffer_bricks->destroy();
+    _buffer_occupied->destroy();
 
-    m_buffer_bricks->destroy();
-    m_buffer_occupied->destroy();
+    _volume_tsdf->destroy();
 }
-
 void ReconPerformanceCapture::drawF()
 {
     Reconstruction::drawF();
-    if(m_draw_bricks)
+    if(_draw_bricks)
     {
         drawOccupiedBricks();
     }
 }
+
 void ReconPerformanceCapture::draw()
 {
-    m_uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
-    GLuint *ptr = (GLuint *)m_uv_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
-    ptr[0] = 0;
-    m_uv_counter_buffer->unmap();
-    m_uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _uv_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
+    GLuint *uv_ptr = (GLuint *)_uv_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    uv_ptr[0] = 0;
+    _uv_counter_buffer->unmap();
+    _uv_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
 
-    m_program->use();
+    _vertex_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
+    GLuint *vx_ptr = (GLuint *)_vertex_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    vx_ptr[0] = 0;
+    _vertex_counter_buffer->unmap();
+    _vertex_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+
+    _program->use();
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -216,169 +260,242 @@ void ReconPerformanceCapture::draw()
     viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
     gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
     image_to_eye.invert();
-    m_program->setUniform("img_to_eye_curr", image_to_eye);
+    _program->setUniform("img_to_eye_curr", image_to_eye);
 
     gloost::Matrix modelview;
     glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
     glm::fmat4 model_view{modelview};
-    glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * m_mat_vol_to_world);
-    m_program->setUniform("NormalMatrix", normal_matrix);
+    glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
+    _program->setUniform("NormalMatrix", normal_matrix);
 
-    glDisable(GL_CULL_FACE);
+    glEnable(GL_CULL_FACE);
 
-    if(m_use_bricks)
+    _mesh_feedback_buffer->bindBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0);
+    _mesh_feedback_buffer->setData(sizeof(struct_vertex) * 10000000, nullptr, GL_STATIC_READ);
+
+    GLuint query_tf, query_gen;
+    glGenQueries(1, &query_tf);
+    glGenQueries(1, &query_gen);
+
+    glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, query_tf);
+    glBeginQuery(GL_PRIMITIVES_GENERATED, query_gen);
+
+    _transformFeedback->bind();
+    _transformFeedback->begin(GL_TRIANGLES);
+
+    if(_use_bricks)
     {
-        for(auto const &index : m_bricks_occupied)
+        for(auto const &index : _bricks_occupied)
         {
-            m_sampler.sample(m_bricks[index].indices);
+            _sampler->sample(_bricks[index].indices);
         }
     }
     else
     {
-        m_sampler.sample();
+        _sampler->sample();
     }
 
-    m_program->release();
+    _transformFeedback->end();
+    _transformFeedback->unbind();
+
+    glFlush();
+
+    glEndQuery(GL_PRIMITIVES_GENERATED);
+    glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+
+    GLuint primitives_tf, primitives_gen;
+    glGetQueryObjectuiv(query_tf, GL_QUERY_RESULT, &primitives_tf);
+    glGetQueryObjectuiv(query_gen, GL_QUERY_RESULT, &primitives_gen);
+
+    if(_capture_mesh)
+    {
+        std::vector<uint8_t> feedback_buffer(sizeof(struct_vertex) * primitives_tf * 3);
+        _mesh_feedback_buffer->getSubData(0, sizeof(struct_vertex) * primitives_tf * 3, &feedback_buffer[0]);
+
+        glFlush();
+
+        std::map<uint32_t, std::set<uint32_t>> faces;
+
+        std::vector<GLuint> faces_interleaved;
+        std::vector<glm::vec3> verts(3 * primitives_tf);
+        std::vector<glm::vec3> norms(3 * primitives_tf);
+
+        for(size_t i = 0; i < primitives_tf * 3; i++)
+        {
+            uint32_t index;
+            memcpy(&index, &feedback_buffer[i * sizeof(struct_vertex)], sizeof(GLuint));
+            faces[index].insert((uint32_t)i);
+
+            memcpy(&verts[i], &feedback_buffer[i * sizeof(struct_vertex) + sizeof(GLuint)], sizeof(glm::vec3));
+            memcpy(&norms[i], &feedback_buffer[i * sizeof(struct_vertex) + sizeof(GLuint) + sizeof(glm::vec3)], sizeof(glm::vec3));
+        }
+
+        for(auto face : faces)
+        {
+            for(uint32_t vertex : face.second)
+            {
+                faces_interleaved.emplace_back(vertex);
+            }
+        }
+
+        std::filebuf fb;
+        fb.open("mesh" + std::to_string(_frame_number.load()) + ".ply", std::ios::out | std::ios::binary | std::ios::trunc);
+        std::ostream outputStream(&fb);
+
+        tinyply::PlyFile exampleOutFile;
+
+        exampleOutFile.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, 3 * verts.size(), (uint8_t *)verts.data(), tinyply::Type::INVALID, 0);
+        exampleOutFile.add_properties_to_element("vertex", {"nx", "ny", "nz"}, tinyply::Type::FLOAT32, 3 * norms.size(), (uint8_t *)norms.data(), tinyply::Type::INVALID, 0);
+
+        exampleOutFile.add_properties_to_element("face", {"vertex_indices"}, tinyply::Type::UINT32, faces_interleaved.size(), (uint8_t *)faces_interleaved.data(), tinyply::Type::UINT16, 3);
+        // exampleOutFile.add_properties_to_element("face", {"texcoord"}, Type::FLOAT32, faceTexcoords.size(), reinterpret_cast<uint8_t *>(faceTexcoords.data()), Type::UINT16, 6);
+        exampleOutFile.get_comments().emplace_back(std::to_string(primitives_tf) + " Transform Feedback primitives");
+        exampleOutFile.get_comments().emplace_back(std::to_string(primitives_gen) + " generated primitives");
+        exampleOutFile.write(outputStream, false);
+
+        fb.close();
+
+        _frame_number.store(_frame_number.load() + 1);
+        _capture_mesh = false;
+    }
+
+    _program->release();
+
+    glDisable(GL_CULL_FACE);
 }
 
 void ReconPerformanceCapture::setVoxelSize(float size)
 {
-    m_voxel_size = size;
-    m_res_volume = glm::ceil(glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]} / m_voxel_size);
+    _voxel_size = size;
+    _res_volume = glm::ceil(glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]} / _voxel_size);
 
-    m_sampler.resize(m_res_volume);
+    _sampler->resize(_res_volume);
 
-    m_program->setUniform("res_tsdf", m_res_volume);
-    m_program->setUniform("size_voxel", m_voxel_size / 2.f);
+    _program->setUniform("res_tsdf", _res_volume);
+    _program->setUniform("size_voxel", _voxel_size / 2.f);
 
-    m_program_integration->setUniform("res_tsdf", m_res_volume);
-    m_volume_tsdf->image3D(0, GL_R32F, glm::ivec3{m_res_volume}, 0, GL_RED, GL_FLOAT, nullptr);
-    m_volume_tsdf->bindActive(GL_TEXTURE0 + 29);
+    _progra_integration->setUniform("res_tsdf", _res_volume);
+    _volume_tsdf->image3D(0, GL_R32F, glm::ivec3{_res_volume}, 0, GL_RED, GL_FLOAT, nullptr);
+    _volume_tsdf->bindActive(GL_TEXTURE0 + 29);
 
-    setBrickSize(m_brick_size);
+    setBrickSize(_brick_size);
 }
-
-void ReconPerformanceCapture::setTsdfLimit(float limit) { m_limit = limit; }
+void ReconPerformanceCapture::setTsdfLimit(float limit) { _limit = limit; }
 void ReconPerformanceCapture::integrate()
 {
     glEnable(GL_RASTERIZER_DISCARD);
-    m_program_integration->use();
+    _progra_integration->use();
 
     // clearing costs 0,4 ms on titan, filling from pbo 9
-    float negative = -m_limit;
-    m_volume_tsdf->clearImage(0, GL_RED, GL_FLOAT, &negative);
+    float negative = -_limit;
+    _volume_tsdf->clearImage(0, GL_RED, GL_FLOAT, &negative);
+    _volume_tsdf->bindImageTexture(start_image_unit, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32F);
 
-    m_volume_tsdf->bindImageTexture(start_image_unit, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32F);
-
-    if(m_use_bricks)
+    if(_use_bricks)
     {
-        for(auto const &index : m_bricks_occupied)
+        for(auto const &index : _bricks_occupied)
         {
-            m_sampler.sample(m_bricks[index].indices);
+            _sampler->sample(_bricks[index].indices);
         }
     }
     else
     {
-        m_sampler.sample();
+        _sampler->sample();
     }
 
-    m_program_integration->release();
+    _progra_integration->release();
     glDisable(GL_RASTERIZER_DISCARD);
 }
-void ReconPerformanceCapture::setUseBricks(bool active)
-{
-    // TODO: incorporate toggle
-    m_use_bricks = active;
-}
-void ReconPerformanceCapture::setDrawBricks(bool active) { m_draw_bricks = active; }
+void ReconPerformanceCapture::setUseBricks(bool active) { _use_bricks = active; }
+void ReconPerformanceCapture::setDrawBricks(bool active) { _draw_bricks = active; }
 void ReconPerformanceCapture::setBrickSize(float size)
 {
-    m_brick_size = m_voxel_size * glm::round(size / m_voxel_size);
-    std::cout << "adjusted bricksize from " << size << " to " << m_brick_size << std::endl;
+    _brick_size = _voxel_size * glm::round(size / _voxel_size);
+    std::cout << "adjusted bricksize from " << size << " to " << _brick_size << std::endl;
     divideBox();
 }
-float ReconPerformanceCapture::occupiedRatio() const { return m_ratio_occupied; }
-float ReconPerformanceCapture::getBrickSize() const { return m_brick_size; }
+float ReconPerformanceCapture::occupiedRatio() const { return _ratio_occupied; }
+float ReconPerformanceCapture::getBrickSize() const { return _brick_size; }
 void ReconPerformanceCapture::clearOccupiedBricks() const
 {
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
     // clear active bricks
     static unsigned zerou = 0;
-    m_buffer_bricks->clearSubData(GL_R32UI, sizeof(unsigned) * 8, m_bricks.size() * sizeof(unsigned), GL_RED_INTEGER, GL_UNSIGNED_INT, &zerou);
+    _buffer_bricks->clearSubData(GL_R32UI, sizeof(unsigned) * 8, _bricks.size() * sizeof(unsigned), GL_RED_INTEGER, GL_UNSIGNED_INT, &zerou);
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 }
 void ReconPerformanceCapture::updateOccupiedBricks()
 {
     // load occupied brick info
-    m_buffer_bricks->getSubData(sizeof(unsigned) * 8, m_active_bricks.size() * sizeof(unsigned), m_active_bricks.data());
-    m_bricks_occupied.clear();
+    _buffer_bricks->getSubData(sizeof(unsigned) * 8, _active_bricks.size() * sizeof(unsigned), _active_bricks.data());
+    _bricks_occupied.clear();
 
-    for(unsigned i = 0; i < m_active_bricks.size(); ++i)
+    for(unsigned i = 0; i < _active_bricks.size(); ++i)
     {
-        if(m_active_bricks[i] >= m_min_voxels_per_brick)
+        if(_active_bricks[i] >= _min_voxels_per_brick)
         {
-            m_bricks_occupied.emplace_back(i);
+            _bricks_occupied.emplace_back(i);
         }
     }
-    m_ratio_occupied = float(m_bricks_occupied.size()) / float(m_active_bricks.size());
-    m_buffer_occupied->setSubData(0, sizeof(unsigned) * m_bricks_occupied.size(), m_bricks_occupied.data());
-    if(!m_bricks_occupied.empty())
+    _ratio_occupied = float(_bricks_occupied.size()) / float(_active_bricks.size());
+    _buffer_occupied->setSubData(0, sizeof(unsigned) * _bricks_occupied.size(), _bricks_occupied.data());
+    if(!_bricks_occupied.empty())
     {
-        m_buffer_occupied->bindRange(GL_SHADER_STORAGE_BUFFER, 4, 0, sizeof(unsigned) * m_bricks_occupied.size());
+        _buffer_occupied->bindRange(GL_SHADER_STORAGE_BUFFER, 4, 0, sizeof(unsigned) * _bricks_occupied.size());
     }
 }
-void ReconPerformanceCapture::setMinVoxelsPerBrick(unsigned num) { m_min_voxels_per_brick = num; }
+void ReconPerformanceCapture::setMinVoxelsPerBrick(unsigned num) { _min_voxels_per_brick = num; }
 void ReconPerformanceCapture::drawOccupiedBricks() const
 {
-    m_program_solid->use();
-    m_program_solid->setUniform("Color", glm::fvec3{1.0f, 0.0f, 0.0f});
+    _progra_solid->use();
+    _progra_solid->setUniform("Color", glm::fvec3{1.0f, 0.0f, 0.0f});
 
-    UnitCube::drawWireInstanced(m_bricks_occupied.size());
+    UnitCube::drawWireInstanced(_bricks_occupied.size());
 
-    m_program_solid->release();
+    _progra_solid->release();
 }
 void ReconPerformanceCapture::divideBox()
 {
-    m_bricks.clear();
+    _bricks.clear();
     glm::fvec3 min{m_bbox.getPMin()};
     glm::fvec3 size{glm::fvec3{m_bbox.getPMax()} - min};
     glm::fvec3 start{min};
-    m_res_bricks = glm::uvec3{0};
+    _res_bricks = glm::uvec3{0};
     while(size.z - start.z + min.z > 0.0f)
     {
         while(size.y - start.y + min.y > 0.0f)
         {
             while(size.x - start.x + min.x > 0.0f)
             {
-                m_bricks.emplace_back(start, glm::min(glm::fvec3{m_brick_size}, size - start + min));
-                auto &curr_brick = m_bricks.back();
-                curr_brick.indices = m_sampler.containedVoxels((curr_brick.pos - min) / size, curr_brick.size / size);
-                curr_brick.baseVoxel = m_sampler.baseVoxel((curr_brick.pos - min) / size, curr_brick.size / size);
-                start.x += m_brick_size;
-                if(m_res_bricks.z == 0 && m_res_bricks.y == 0)
+                _bricks.emplace_back(start, glm::min(glm::fvec3{_brick_size}, size - start + min));
+                auto &curr_brick = _bricks.back();
+                curr_brick.indices = _sampler->containedVoxels((curr_brick.pos - min) / size, curr_brick.size / size);
+                curr_brick.baseVoxel = _sampler->baseVoxel((curr_brick.pos - min) / size, curr_brick.size / size);
+                start.x += _brick_size;
+                if(_res_bricks.z == 0 && _res_bricks.y == 0)
                 {
-                    ++m_res_bricks.x;
+                    ++_res_bricks.x;
                 }
             }
             start.x = min.x;
-            start.y += m_brick_size;
-            if(m_res_bricks.z == 0)
+            start.y += _brick_size;
+            if(_res_bricks.z == 0)
             {
-                ++m_res_bricks.y;
+                ++_res_bricks.y;
             }
         }
         start.y = min.y;
-        start.z += m_brick_size;
-        ++m_res_bricks.z;
+        start.z += _brick_size;
+        ++_res_bricks.z;
     }
-    std::vector<unsigned> bricks(m_bricks.size() + 8, 0);
-    std::memcpy(&bricks[0], &m_brick_size, sizeof(float));
-    std::memcpy(&bricks[4], &m_res_bricks, sizeof(unsigned) * 3);
-    m_buffer_bricks->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_COPY);
-    m_buffer_bricks->bindRange(GL_SHADER_STORAGE_BUFFER, 3, 0, sizeof(unsigned) * bricks.size());
-    m_active_bricks.resize(m_bricks.size());
+    std::vector<unsigned> bricks(_bricks.size() + 8, 0);
+    std::memcpy(&bricks[0], &_brick_size, sizeof(float));
+    std::memcpy(&bricks[4], &_res_bricks, sizeof(unsigned) * 3);
+    _buffer_bricks->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_COPY);
+    _buffer_bricks->bindRange(GL_SHADER_STORAGE_BUFFER, 3, 0, sizeof(unsigned) * bricks.size());
+    _active_bricks.resize(_bricks.size());
 
-    m_buffer_occupied->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_DRAW);
-    std::cout << "brick res " << m_res_bricks.x << ", " << m_res_bricks.y << ", " << m_res_bricks.z << " - " << m_bricks.front().indices.size() << " voxels per brick" << std::endl;
+    _buffer_occupied->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_DRAW);
+    std::cout << "brick res " << _res_bricks.x << ", " << _res_bricks.y << ", " << _res_bricks.z << " - " << _bricks.front().indices.size() << " voxels per brick" << std::endl;
 }
 }

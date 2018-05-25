@@ -8,17 +8,18 @@
 #include </bricks.glsl>
 
 layout(points) in;
-layout(triangle_strip, max_vertices = 120) out;
+layout(triangle_strip, max_vertices = 36) out;
 
+layout(std430, binding = 5) buffer tri_table { int[] triangle_connections; };
 layout(binding = 6) uniform atomic_uint uv_counter;
+layout(binding = 7) uniform atomic_uint face_counter;
 
 in vec3 geo_Position[];
 in uint geo_Id[];
 
-out vec3 pass_Position;
-#ifdef PASS_NORMALS
+out uint pass_Index;
 out vec3 pass_Normal;
-#endif
+out vec3 pass_Position;
 
 uniform mat4 gl_ModelViewMatrix;
 uniform mat4 gl_ProjectionMatrix;
@@ -57,7 +58,6 @@ ivec2 edge_connections[] = ivec2[](ivec2(0, 1), ivec2(1, 2), ivec2(2, 3), ivec2(
 vec3 edge_directions[] = vec3[](vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f), vec3(-1.0f, 0.0f, 0.0f), vec3(0.0f, -1.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f),
                                 vec3(-1.0f, 0.0f, 0.0f), vec3(0.0f, -1.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, 1.0f), vec3(0.0f, 0.0f, 1.0f));
 
-layout(std430, binding = 5) buffer tri_table { int[] triangle_connections; };
 vec3 vertex_offsets[] = vec3[](vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(1, 0, 1), vec3(1, 1, 1), vec3(0, 1, 1));
 
 float sample_volume(const vec3 position)
@@ -115,7 +115,7 @@ void sample_cube(const vec3 pos, inout float cube[8])
 float get_offset(float v1, float v2)
 {
     float delta = v2 - v1;
-    return (delta == 0.0f) ? 0.5f : (0 - v1) / delta;
+    return (delta == 0.0f) ? 0.5f : (0.f - v1) / delta;
 }
 
 vec2[3] next_uv()
@@ -172,7 +172,6 @@ void make_face(vec3 a, vec3 b, vec3 c)
     EmitVertex();
 #endif
 
-#ifdef PASS_NORMALS
     vec3 u = b - a;
     vec3 v = c - a;
 
@@ -181,22 +180,156 @@ void make_face(vec3 a, vec3 b, vec3 c)
     pass_Normal.z = u.x * v.y - u.y * v.x;
 
     pass_Normal = normalize(pass_Normal);
-#endif
+    pass_Index = atomicCounterIncrement(face_counter);
 
-    pass_Position = a;
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+    pass_Position = c;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
+
     EmitVertex();
 
     pass_Position = b;
     gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(b, 1.0);
+
     EmitVertex();
 
-    pass_Position = c;
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
+    pass_Position = a;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+
     EmitVertex();
 
     EndPrimitive();
 }
+
+// void draw_full_triangle(uint t, inout vec3 edge_vertices[12])
+//{
+//    vec3 a, b, c;
+//    int i = 0;
+//
+//    for(; i < 12; i++)
+//    {
+//        if((t & (1u << i)) != 0)
+//        {
+//            a = edge_vertices[i];
+//            t = t & (~(1u << i));
+//            break;
+//        }
+//    }
+//
+//    for(; i < 12; i++)
+//    {
+//        if((t & (1u << i)) != 0)
+//        {
+//            b = edge_vertices[i];
+//            t = t & (~(1u << i));
+//            break;
+//        }
+//    }
+//
+//    for(; i < 12; i++)
+//    {
+//        if((t & (1u << i)) != 0)
+//        {
+//            c = edge_vertices[i];
+//            break;
+//        }
+//    }
+//
+//    vec3 u = b - a;
+//    vec3 v = c - a;
+//
+//    pass_Normal.x = u.y * v.z - u.z * v.y;
+//    pass_Normal.y = u.z * v.x - u.x * v.z;
+//    pass_Normal.z = u.x * v.y - u.y * v.x;
+//
+//    pass_Normal = normalize(pass_Normal);
+//    pass_Index = atomicCounterIncrement(face_counter);
+//
+//    pass_Position = c;
+//    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
+//
+//    EmitVertex();
+//
+//    pass_Position = b;
+//    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(b, 1.0);
+//
+//    EmitVertex();
+//
+//    pass_Position = a;
+//    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+//
+//    EmitVertex();
+//}
+//
+// void draw_diff_triangle(uint t, uint ref_t, inout vec3 edge_vertices[12])
+//{
+//    vec3 a, b, c;
+//
+//    int i = 0;
+//
+//    for(; i < 12; i++)
+//    {
+//        if((t & (1u << i)) != 0)
+//        {
+//            a = edge_vertices[i];
+//            t = t & (~(1u << i));
+//            ref_t = ref_t & (~(1u << i));
+//            break;
+//        }
+//    }
+//
+//    for(; i < 12; i++)
+//    {
+//        if((ref_t & (1u << i)) != 0)
+//        {
+//            b = edge_vertices[i];
+//            ref_t = ref_t & (~(1u << i));
+//            break;
+//        }
+//    }
+//
+//    for(; i < 12; i++)
+//    {
+//        if((ref_t & (1u << i)) != 0)
+//        {
+//            c = edge_vertices[i];
+//            break;
+//        }
+//    }
+//
+//    vec3 u = b - a;
+//    vec3 v = c - a;
+//
+//    pass_Normal.x = u.y * v.z - u.z * v.y;
+//    pass_Normal.y = u.z * v.x - u.x * v.z;
+//    pass_Normal.z = u.x * v.y - u.y * v.x;
+//
+//    pass_Normal = normalize(pass_Normal);
+//    pass_Index = atomicCounterIncrement(face_counter);
+//
+//    pass_Position = a;
+//    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(a, 1.0);
+//
+//    EmitVertex();
+//}
+//
+// bool is_triangle_set(uint t) { return (t & (1u << 16u)) != 0; }
+// uint set_triangle(int a, int b, int c)
+//{
+//    uint vx = 0u;
+//    vx = vx | (1u << 16u);
+//    vx = vx | (1u << a);
+//    vx = vx | (1u << b);
+//    vx = vx | (1u << c);
+//    return vx;
+//}
+// uint diff_triangles(uint t_1, uint t_2) { return t_1 & ~t_2; }
+// uint sim_triangles(uint t_1, uint t_2) { return t_1 & t_2; }
+// int hamming_weight(uint bits)
+//{
+//    bits = bits - ((bits >> 1u) & 0x55555555u);
+//    bits = (bits & 0x33333333u) + ((bits >> 2u) & 0x33333333u);
+//    return int((((bits + (bits >> 4u)) & 0x0F0F0F0Fu) * 0x01010101u) >> 24u);
+//}
 
 void main()
 {
@@ -208,51 +341,83 @@ void main()
 
     // MC START
 
-    for(int x = 0; x < 1; x++)
+    float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
+    vec3 center = geo_Position[0] + size_voxel * vec3(-1., -1., -1.);
+
+    sample_cube(center, cube);
+
+    int i = 0;
+    int flag_storage = 0;
+    vec3 edge_vertices[12];
+
+    for(i = 0; i < 8; i++)
     {
-        for(int y = 0; y < 1; y++)
+        if(cube[i] > 0.f)
         {
-            for(int z = 0; z < 1; z++)
+            flag_storage = flag_storage | (1 << i);
+        }
+    }
+
+    if(flag_storage != 0)
+    {
+        int edge_flags = cube_edge_flags[flag_storage];
+
+        for(i = 0; i < 12; i++)
+        {
+            if((edge_flags & (1 << i)) != 0)
             {
-                float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
+                float offset = get_offset(cube[edge_connections[i].x], cube[edge_connections[i].y]);
 
-                vec3 center = geo_Position[0] + size_voxel * vec3(x - 1, y - 1, z - 1);
-
-                sample_cube(center, cube);
-
-                int i = 0;
-                int flag_storage = 0;
-                vec3 cube_vertices[12];
-
-                for(i = 0; i < 8; i++)
-                    if(cube[i] > 0)
-                        flag_storage |= 1 << i;
-
-                if(flag_storage != 0)
-                {
-                    int edgeFlags = cube_edge_flags[flag_storage];
-
-                    for(i = 0; i < 12; i++)
-                    {
-                        if((edgeFlags & (1 << i)) != 0)
-                        {
-                            float offset = get_offset(cube[edge_connections[i].x], cube[edge_connections[i].y]);
-
-                            cube_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel;
-                        }
-                    }
-
-                    for(i = 0; i < 5; i++)
-                    {
-                        if(triangle_connections[flag_storage * 16 + 3 * i] >= 0)
-                        {
-                            make_face(cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 0]], cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 1]],
-                                      cube_vertices[triangle_connections[flag_storage * 16 + 3 * i + 2]]);
-                        }
-                    }
-                }
+                edge_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel;
             }
         }
+
+        //        uint triangles[5] = uint[5](0u, 0u, 0u, 0u, 0u);
+
+        for(i = 0; i < 5; i++)
+        {
+            int triplet_position = flag_storage * 16 + 3 * i;
+            if(triangle_connections[triplet_position] != -1)
+            {
+                make_face(edge_vertices[triangle_connections[triplet_position]], edge_vertices[triangle_connections[triplet_position + 1]], edge_vertices[triangle_connections[triplet_position + 2]]);
+                // triangles[i] = set_triangle(triangle_connections[triplet_position], triangle_connections[triplet_position + 1], triangle_connections[triplet_position + 2]);
+            }
+        }
+
+        //        for(i = 0; i < 5; i++)
+        //        {
+        //            if(is_triangle_set(triangles[i]))
+        //            {
+        //                bool found_match = false;
+        //
+        //                for(int k = i + 1; k < 5; k++)
+        //                {
+        //                    if(is_triangle_set(triangles[k]) && hamming_weight(sim_triangles(triangles[i], triangles[k])) == 2)
+        //                    {
+        //                        found_match = true;
+        //
+        //                        draw_full_triangle(triangles[i], edge_vertices);
+        //                        draw_diff_triangle(diff_triangles(triangles[k], triangles[i]), triangles[i], edge_vertices);
+        //
+        //                        EndPrimitive();
+        //
+        //                        triangles[i] = 0u;
+        //                        triangles[k] = 0u;
+        //
+        //                        break;
+        //                    }
+        //                }
+        //
+        //                if(!found_match)
+        //                {
+        //                    draw_full_triangle(triangles[i], edge_vertices);
+        //
+        //                    EndPrimitive();
+        //
+        //                    triangles[i] = 0u;
+        //                }
+        //            }
+        //        }
     }
 
     // MC END

@@ -84,6 +84,9 @@ target_link_libraries(imgui glfw)
 # svg
 add_sublibrary(svg ${CMAKE_CURRENT_SOURCE_DIR}/external/svg "-w")
 ################################
+# tinyply
+add_sublibrary(tinyply ${CMAKE_CURRENT_SOURCE_DIR}/external/tinyply "-w")
+################################
 # catch
 set(CATCH_DIRECTORY catch-1.1)
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/${CATCH_DIRECTORY})

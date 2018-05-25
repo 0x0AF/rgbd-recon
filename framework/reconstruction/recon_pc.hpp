@@ -8,6 +8,35 @@
 #include "volume_sampler.hpp"
 
 #include <globjects/base/ref_ptr.h>
+
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+
+#include <glm/gtx/transform.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
+
+#include <glbinding-aux/ContextInfo.h>
+#include <glbinding-aux/types_to_string.h>
+#include <glbinding/Version.h>
+#include <glbinding/gl/gl.h>
+
+#include <globjects/base/File.h>
+#include <globjects/globjects.h>
+#include <globjects/logging.h>
+
+#include <globjects/Buffer.h>
+#include <globjects/Program.h>
+#include <globjects/Query.h>
+#include <globjects/Shader.h>
+#include <globjects/TransformFeedback.h>
+#include <globjects/Uniform.h>
+#include <globjects/VertexArray.h>
+#include <globjects/VertexAttributeBinding.h>
+
+#include <tinyply.h>
+
 namespace globjects
 {
 class Texture;
@@ -16,6 +45,7 @@ class Framebuffer;
 }
 
 #include <memory>
+#include <atomic>
 
 namespace kinect
 {
@@ -46,28 +76,41 @@ class ReconPerformanceCapture : public Reconstruction
 
   private:
     void divideBox();
-    globjects::Buffer *m_tri_table_buffer, *m_uv_counter_buffer, *m_buffer_bricks, *m_buffer_occupied;
+    void init(float d, float d1);
 
-    globjects::ref_ptr<globjects::Program> m_program, m_program_integration, m_program_solid, m_program_bricks;
+    globjects::Buffer *_tri_table_buffer, *_uv_counter_buffer, *_buffer_bricks, *_buffer_occupied, *_mesh_feedback_buffer, *_vertex_counter_buffer;
+    globjects::TransformFeedback *_transformFeedback;
+    glm::uvec3 _res_volume, _res_bricks;
 
-    glm::uvec3 m_res_volume, m_res_bricks;
-    VolumeSampler m_sampler;
+    VolumeSampler *_sampler;
 
-    glm::fmat4 m_mat_vol_to_world;
+    glm::fmat4 _mat_vol_to_world;
 
-    globjects::ref_ptr<globjects::Texture> m_volume_tsdf;
+    globjects::Program *_program, *_progra_integration, *_progra_solid, *_progra_bricks;
+    globjects::Texture *_volume_tsdf;
 
-    std::vector<brick> m_bricks;
-    std::vector<unsigned> m_active_bricks;
-    std::vector<unsigned> m_bricks_occupied;
+    std::vector<brick> _bricks;
+    std::vector<unsigned> _active_bricks;
+    std::vector<unsigned> _bricks_occupied;
 
-    float m_limit;
-    float m_voxel_size;
-    float m_brick_size;
-    bool m_use_bricks;
-    bool m_draw_bricks;
-    float m_ratio_occupied;
-    unsigned m_min_voxels_per_brick;
+    float _limit;
+    float _voxel_size;
+    float _brick_size;
+    bool _use_bricks;
+    bool _draw_bricks;
+    float _ratio_occupied;
+    unsigned _min_voxels_per_brick;
+
+    bool _capture_mesh = true;
+    std::atomic<uint> _frame_number;
+
+    struct struct_vertex
+    {
+        GLuint _index;
+        glm::vec3 _position;
+        glm::vec3 _normal;
+        float _dummy;
+    };
 };
 }
 

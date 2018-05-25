@@ -60,187 +60,207 @@ void renderer::init()
 }
 void renderer::update_gui()
 {
+    ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiSetCond_FirstUseEver);
+    ImGui::Begin("Settings");
+    if(ImGui::Button("Show textures"))
     {
-        ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiSetCond_FirstUseEver);
-        ImGui::Begin("Settings");
-        if(ImGui::Button("Show textures"))
+        _io->_gui_texture_settings.emplace_back(0, 0);
+    }
+    if(ImGui::Checkbox("Watch OpenGL errors", &_io->_watch_errors))
+    {
+        watch_gl_errors(_io->_watch_errors);
+    };
+    ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+    if(ImGui::CollapsingHeader("Reconstruction Mode", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::RadioButton("Points", &_io->_recon_mode, 0);
+        if(ImGui::RadioButton("Marching Cubes", &_io->_recon_mode, 1))
         {
-            _io->_gui_texture_settings.emplace_back(0, 0);
+            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+            recon_pc->setTsdfLimit(_io->_tsdf_limit);
+            recon_pc->setVoxelSize(_io->_voxel_size);
+            _io->_brick_size = recon_pc->getBrickSize();
+            recon_pc->setBrickSize(_io->_brick_size);
+            recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
+            recon_pc->updateOccupiedBricks();
+            recon_pc->integrate();
         }
-        if(ImGui::Checkbox("Watch OpenGL errors", &_io->_watch_errors))
-        {
-            watch_gl_errors(_io->_watch_errors);
-        };
-        ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-        if(ImGui::CollapsingHeader("Reconstruction Mode", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            ImGui::RadioButton("Points", &_io->_recon_mode, 0);
-            ImGui::RadioButton("Marching Cubes", &_io->_recon_mode, 1);
-            ImGui::RadioButton("Integration", &_io->_recon_mode, 2);
+        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2)){
+            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+            recon_integration->setTsdfLimit(_io->_tsdf_limit);
+            recon_integration->setVoxelSize(_io->_voxel_size);
+            _io->_brick_size = recon_integration->getBrickSize();
+            recon_integration->setBrickSize(_io->_brick_size);
+            recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
+            recon_integration->updateOccupiedBricks();
+            recon_integration->integrate();
         }
-        if(ImGui::CollapsingHeader("Visualisation"))
+    }
+    if(ImGui::CollapsingHeader("Visualisation"))
+    {
+        int prev = _shading_buffer_data.mode;
+        ImGui::RadioButton("Textured", &_shading_buffer_data.mode, 0);
+        ImGui::RadioButton("Shaded", &_shading_buffer_data.mode, 1);
+        ImGui::RadioButton("Normals", &_shading_buffer_data.mode, 2);
+        ImGui::RadioButton("Blending", &_shading_buffer_data.mode, 3);
+        if(prev != _shading_buffer_data.mode)
         {
-            int prev = _shading_buffer_data.mode;
-            ImGui::RadioButton("Textured", &_shading_buffer_data.mode, 0);
-            ImGui::RadioButton("Shaded", &_shading_buffer_data.mode, 1);
-            ImGui::RadioButton("Normals", &_shading_buffer_data.mode, 2);
-            ImGui::RadioButton("Blending", &_shading_buffer_data.mode, 3);
-            if(prev != _shading_buffer_data.mode)
-            {
-                _buffer_shading->setSubData(0, sizeof(shading_data_t), &_shading_buffer_data);
-            }
+            _buffer_shading->setSubData(0, sizeof(shading_data_t), &_shading_buffer_data);
         }
-        if(ImGui::CollapsingHeader("Processing"))
+    }
+    if(ImGui::CollapsingHeader("Processing"))
+    {
+        if(ImGui::Checkbox("Morphological Filter", &_io->_processed))
         {
-            if(ImGui::Checkbox("Morphological Filter", &_io->_processed))
-            {
-                _model->get_nka()->useProcessedDepths(_io->_processed);
-            }
-            if(ImGui::Checkbox("Bilateral Filter", &_io->_bilateral))
-            {
-                _model->get_nka()->filterTextures(_io->_bilateral);
-            }
-            if(ImGui::Checkbox("Boundary Refinement", &_io->_refine))
-            {
-                _model->get_nka()->refineBoundary(_io->_refine);
-            }
+            _model->get_nka()->useProcessedDepths(_io->_processed);
         }
-        if(ImGui::CollapsingHeader("Settings"))
+        if(ImGui::Checkbox("Bilateral Filter", &_io->_bilateral))
         {
-            switch(_io->_recon_mode)
-            {
-            case 0: // points
-            {
-            }
-            break;
-            case 1: // performance capture
-            {
-                std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+            _model->get_nka()->filterTextures(_io->_bilateral);
+        }
+        if(ImGui::Checkbox("Boundary Refinement", &_io->_refine))
+        {
+            _model->get_nka()->refineBoundary(_io->_refine);
+        }
+    }
+    if(ImGui::CollapsingHeader("Settings"))
+    {
+        switch(_io->_recon_mode)
+        {
+        case 0: // points
+        {
+        }
+        break;
+        case 1: // performance capture
+        {
+            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
 
-                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
+            if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
+            {
+                recon_pc->setTsdfLimit(_io->_tsdf_limit);
+            }
+            if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
+            {
+                recon_pc->setVoxelSize(_io->_voxel_size);
+                _io->_brick_size = recon_pc->getBrickSize();
+            }
+            if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
+            {
+                recon_pc->setBrickSize(_io->_brick_size);
+                _io->_brick_size = recon_pc->getBrickSize();
+            }
+            if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
+            {
+                recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
+                recon_pc->updateOccupiedBricks();
+                recon_pc->integrate();
+            }
+            if(_io->_bricking)
+            {
+                ImGui::Columns(2, NULL, false);
+                if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
                 {
-                    recon_pc->setTsdfLimit(_io->_tsdf_limit);
+                    recon_pc->setUseBricks(_io->_bricking);
                 }
-                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
+                ImGui::NextColumn();
+                ImGui::Text("%.3f %% occupied", recon_pc->occupiedRatio() * 100.0f);
+                ImGui::Columns(1);
+
+                if(_io->_bricking)
                 {
-                    recon_pc->setVoxelSize(_io->_voxel_size);
+                    if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
+                    {
+                        recon_pc->setDrawBricks(_io->_draw_bricks);
+                    }
                 }
-                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
+            }
+            else
+            {
+                if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
                 {
-                    recon_pc->setBrickSize(_io->_brick_size);
-                    _io->_brick_size = recon_pc->getBrickSize();
-                }
-                if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
-                {
-                    recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
-                    recon_pc->updateOccupiedBricks();
+                    recon_pc->setUseBricks(_io->_bricking);
                     recon_pc->integrate();
                 }
+            }
+            ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
+        }
+        break;
+        case 2: // raymarched integration
+        {
+            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+
+            if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
+            {
+                recon_integration->setTsdfLimit(_io->_tsdf_limit);
+            }
+            if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
+            {
+                recon_integration->setVoxelSize(_io->_voxel_size);
+                _io->_brick_size = recon_integration->getBrickSize();
+            }
+            if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
+            {
+                recon_integration->setBrickSize(_io->_brick_size);
+                _io->_brick_size = recon_integration->getBrickSize();
+            }
+            if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
+            {
+                recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
+                recon_integration->updateOccupiedBricks();
+                recon_integration->integrate();
+            }
+            if(ImGui::Checkbox("Color hole filling", &_io->_colorfill))
+            {
+                recon_integration->setColorFilling(_io->_colorfill);
+            }
+            if(_io->_bricking)
+            {
+                ImGui::Columns(2, NULL, false);
+                if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
+                {
+                    recon_integration->setUseBricks(_io->_bricking);
+                }
+                ImGui::NextColumn();
+                ImGui::Text("%.3f %% occupied", recon_integration->occupiedRatio() * 100.0f);
+                ImGui::Columns(1);
+
                 if(_io->_bricking)
                 {
-                    ImGui::Columns(2, NULL, false);
-                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
+                    if(ImGui::Checkbox("Skip empty Spaces", &_io->_skip_space))
                     {
-                        recon_pc->setUseBricks(_io->_bricking);
+                        recon_integration->setSpaceSkip(_io->_skip_space);
                     }
-                    ImGui::NextColumn();
-                    ImGui::Text("%.3f %% occupied", recon_pc->occupiedRatio() * 100.0f);
-                    ImGui::Columns(1);
-
-                    if(_io->_bricking)
+                    if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
                     {
-                        if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
-                        {
-                            recon_pc->setDrawBricks(_io->_draw_bricks);
-                        }
-                    }
-                }
-                else
-                {
-                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
-                    {
-                        recon_pc->setUseBricks(_io->_bricking);
-                        recon_pc->integrate();
+                        recon_integration->setDrawBricks(_io->_draw_bricks);
                     }
                 }
             }
-            break;
-            case 2: // raymarched integration
+            else
             {
-                std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-
-                if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
+                if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
                 {
-                    recon_integration->setTsdfLimit(_io->_tsdf_limit);
-                }
-                if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
-                {
-                    recon_integration->setVoxelSize(_io->_voxel_size);
-                    _io->_brick_size = recon_integration->getBrickSize();
-                }
-                if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
-                {
-                    recon_integration->setBrickSize(_io->_brick_size);
-                    _io->_brick_size = recon_integration->getBrickSize();
-                }
-                if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
-                {
-                    recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
-                    recon_integration->updateOccupiedBricks();
+                    recon_integration->setUseBricks(_io->_bricking);
                     recon_integration->integrate();
                 }
-                if(ImGui::Checkbox("Color hole filling", &_io->_colorfill))
-                {
-                    recon_integration->setColorFilling(_io->_colorfill);
-                }
-                if(_io->_bricking)
-                {
-                    ImGui::Columns(2, NULL, false);
-                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
-                    {
-                        recon_integration->setUseBricks(_io->_bricking);
-                    }
-                    ImGui::NextColumn();
-                    ImGui::Text("%.3f %% occupied", recon_integration->occupiedRatio() * 100.0f);
-                    ImGui::Columns(1);
-
-                    if(_io->_bricking)
-                    {
-                        if(ImGui::Checkbox("Skip empty Spaces", &_io->_skip_space))
-                        {
-                            recon_integration->setSpaceSkip(_io->_skip_space);
-                        }
-                        if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
-                        {
-                            recon_integration->setDrawBricks(_io->_draw_bricks);
-                        }
-                    }
-                }
-                else
-                {
-                    if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
-                    {
-                        recon_integration->setUseBricks(_io->_bricking);
-                        recon_integration->integrate();
-                    }
-                }
-                ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
             }
-            break;
-            default:
-                throw std::runtime_error("Unknown reconstruction mode: " + std::to_string(_io->_recon_mode));
-            }
+            ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
         }
-        if(ImGui::CollapsingHeader("Processing Performance"))
-        {
-            ImGui::SameLine();
-            ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
-            ImGui::Text("   Reconstruction");
-            ImGui::SameLine();
-            ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+        break;
+        default:
+            throw std::runtime_error("Unknown reconstruction mode: " + std::to_string(_io->_recon_mode));
         }
-        ImGui::End();
     }
+    if(ImGui::CollapsingHeader("Processing Performance"))
+    {
+        ImGui::SameLine();
+        ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
+        ImGui::Text("   Reconstruction");
+        ImGui::SameLine();
+        ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+    }
+    ImGui::End();
+
     for(unsigned i = 0; i < _io->_gui_texture_settings.size(); ++i)
     {
         auto &setting = _io->_gui_texture_settings[i];

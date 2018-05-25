@@ -4,9 +4,7 @@
 #extension GL_ARB_shader_image_load_store : require
 
 in vec3 pass_Position;
-#ifdef PASS_NORMALS
 in vec3 pass_Normal;
-#endif
 
 uniform mat4 gl_ModelViewMatrix;
 uniform mat4 gl_ProjectionMatrix;
@@ -157,9 +155,6 @@ vec4 get_color(vec3 sample_pos)
 
 void main()
 {
-#ifdef PASS_NORMALS
     out_Color = vec4(pass_Normal, 1.);
-#endif
-
-    out_Color = get_color(pass_Position);
+    //out_Color = get_color(pass_Position);
 }

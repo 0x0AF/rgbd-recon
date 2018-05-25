@@ -203,7 +203,7 @@ PerspectiveCamera::lookAt(Point3 eye, Point3 coi, Vector3 up)
     glLoadIdentity();
     glm::mat4 matrix = glm::lookAt(glm::vec3(eye[0],eye[1],eye[2]),
                                    glm::vec3(coi[0],coi[1],coi[2]),
-                                   glm::vec3(up[0],up[1],up[2]));
+                                   -glm::vec3(up[0],up[1],up[2]));
     glLoadMatrixf(glm::value_ptr(matrix));
     gloostGetv (GL_MODELVIEW_MATRIX, _modelview.data());
   }
