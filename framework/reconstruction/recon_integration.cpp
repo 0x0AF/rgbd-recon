@@ -9,6 +9,8 @@
 #include "texture_blitter.hpp"
 #include "timer_database.hpp"
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/io.hpp>

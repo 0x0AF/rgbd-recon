@@ -155,6 +155,5 @@ vec4 get_color(vec3 sample_pos)
 
 void main()
 {
-    out_Color = vec4(pass_Normal, 1.);
-    //out_Color = get_color(pass_Position);
+    out_Color = get_color(pass_Position);
 }

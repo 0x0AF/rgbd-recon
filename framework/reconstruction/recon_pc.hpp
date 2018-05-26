@@ -13,6 +13,8 @@
 #include <chrono>
 #include <iostream>
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include <glm/gtx/transform.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
@@ -42,10 +44,10 @@ namespace globjects
 class Texture;
 class Program;
 class Framebuffer;
-}
+} // namespace globjects
 
-#include <memory>
 #include <atomic>
+#include <memory>
 
 namespace kinect
 {
@@ -78,15 +80,15 @@ class ReconPerformanceCapture : public Reconstruction
     void divideBox();
     void init(float d, float d1);
 
-    globjects::Buffer *_tri_table_buffer, *_uv_counter_buffer, *_buffer_bricks, *_buffer_occupied, *_mesh_feedback_buffer, *_vertex_counter_buffer;
-    globjects::TransformFeedback *_transformFeedback;
+    globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied, *_vertex_counter_buffer;
+
     glm::uvec3 _res_volume, _res_bricks;
 
     VolumeSampler *_sampler;
 
     glm::fmat4 _mat_vol_to_world;
 
-    globjects::Program *_program, *_progra_integration, *_progra_solid, *_progra_bricks;
+    globjects::Program *_program_marching_cubes, *_program_integration, *_program_solid, *_program_bricks;
     globjects::Texture *_volume_tsdf;
 
     std::vector<brick> _bricks;
@@ -101,17 +103,39 @@ class ReconPerformanceCapture : public Reconstruction
     float _ratio_occupied;
     unsigned _min_voxels_per_brick;
 
-    bool _capture_mesh = true;
-    std::atomic<uint> _frame_number;
+    std::atomic<uint64_t> _frame_number;
 
-    struct struct_vertex
-    {
-        GLuint _index;
-        glm::vec3 _position;
-        glm::vec3 _normal;
-        float _dummy;
-    };
+    /**
+     * Structures kept for reference, none of the following should reside on CPU
+
+        struct struct_vertex
+        {
+            glm::vec3 _position;
+            glm::vec3 _normal;
+        };
+
+        struct struct_ED_node
+        {
+            glm::vec3 _position;
+            glm::mat3 _transformation;
+            glm::vec3 _translation;
+        };
+
+        struct struct_global_deformation
+        {
+            glm::mat3 _rotation;
+            glm::vec3 _translation;
+        };
+
+        std::vector<struct_vertex> _reference_vx;
+        std::vector<struct_ED_node> _ed_nodes;
+        std::vector<float> _skinning_weights;
+        struct_global_deformation _global_deformation;
+    */
+
+    void extract_ref_vx();
+    void draw_data();
 };
-}
+} // namespace kinect
 
 #endif // #ifndef RECON_MC_HPP
