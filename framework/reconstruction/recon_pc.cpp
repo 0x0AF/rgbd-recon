@@ -118,6 +118,10 @@ int ReconPerformanceCapture::TRI_TABLE[] = {
     2,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,  3,  8,  9,  1,  8,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  9,  1,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  3,  8,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
+std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA_VOLUME_INTEGRATION";
+std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
+std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
+
 static int start_image_unit = 3;
 
 ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size) : Reconstruction(cfs, cv, bbox)
@@ -146,6 +150,10 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
     _buffer_reference_mesh_faces->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
 
     setVoxelSize(_voxel_size);
+
+    TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
+    TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
+    TimerDatabase::instance().addTimer(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::init(float limit, float size)
 {
@@ -267,6 +275,8 @@ void ReconPerformanceCapture::draw()
 }
 void ReconPerformanceCapture::extract_ref_mesh()
 {
+    TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
+
     glEnable(GL_RASTERIZER_DISCARD);
 
     _buffer_face_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
@@ -304,9 +314,12 @@ void ReconPerformanceCapture::extract_ref_mesh()
     glDisable(GL_RASTERIZER_DISCARD);
 
     // TODO: sample ED nodes as low res marching cubes (?)
+
+    TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
 }
 void ReconPerformanceCapture::draw_data()
 {
+    TimerDatabase::instance().begin(TIMER_DATA_MESH_DRAW);
     // TODO: blend with warped reference mesh
 
     _program_pc_draw_data->use();
@@ -344,6 +357,8 @@ void ReconPerformanceCapture::draw_data()
     }
 
     globjects::Program::release();
+
+    TimerDatabase::instance().end(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::setVoxelSize(float size)
 {
@@ -364,6 +379,8 @@ void ReconPerformanceCapture::setVoxelSize(float size)
 void ReconPerformanceCapture::setTsdfLimit(float limit) { _limit = limit; }
 void ReconPerformanceCapture::integrate()
 {
+    TimerDatabase::instance().begin(TIMER_DATA_VOLUME_INTEGRATION);
+
     glEnable(GL_RASTERIZER_DISCARD);
     _program_integration->use();
 
@@ -386,6 +403,8 @@ void ReconPerformanceCapture::integrate()
 
     globjects::Program::release();
     glDisable(GL_RASTERIZER_DISCARD);
+
+    TimerDatabase::instance().end(TIMER_DATA_VOLUME_INTEGRATION);
 }
 void ReconPerformanceCapture::setUseBricks(bool active) { _use_bricks = active; }
 void ReconPerformanceCapture::setDrawBricks(bool active) { _draw_bricks = active; }

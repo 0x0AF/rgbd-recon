@@ -74,7 +74,7 @@ void renderer::update_gui()
     if(ImGui::CollapsingHeader("Reconstruction Mode", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::RadioButton("Points", &_io->_recon_mode, 0);
-        if(ImGui::RadioButton("Marching Cubes", &_io->_recon_mode, 1))
+        if(ImGui::RadioButton("Performance Capture", &_io->_recon_mode, 1))
         {
             std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
             recon_pc->setTsdfLimit(_io->_tsdf_limit);
@@ -85,7 +85,8 @@ void renderer::update_gui()
             recon_pc->updateOccupiedBricks();
             recon_pc->integrate();
         }
-        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2)){
+        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2))
+        {
             std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
             recon_integration->setTsdfLimit(_io->_tsdf_limit);
             recon_integration->setVoxelSize(_io->_voxel_size);
@@ -129,6 +130,14 @@ void renderer::update_gui()
         {
         case 0: // points
         {
+            if(ImGui::CollapsingHeader("Processing Performance"))
+            {
+                ImGui::SameLine();
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
+                ImGui::Text("   Reconstruction");
+                ImGui::SameLine();
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+            }
         }
         break;
         case 1: // performance capture
@@ -183,6 +192,22 @@ void renderer::update_gui()
                 }
             }
             ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
+
+            if(ImGui::CollapsingHeader("Processing Performance"))
+            {
+                ImGui::SameLine();
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION) / 1000000.0f);
+                ImGui::Text("   Data volume integration");
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION) / 1000000.0f);
+                ImGui::Text("   Reference mesh extraction");
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_MESH_DRAW) / 1000000.0f);
+                ImGui::Text("   Data mesh draw");
+
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
+                ImGui::Text("   Reconstruction");
+                ImGui::SameLine();
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+            }
         }
         break;
         case 2: // raymarched integration
@@ -245,20 +270,22 @@ void renderer::update_gui()
                 }
             }
             ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
+
+            if(ImGui::CollapsingHeader("Processing Performance"))
+            {
+                ImGui::SameLine();
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
+                ImGui::Text("   Reconstruction");
+                ImGui::SameLine();
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+            }
         }
         break;
         default:
             throw std::runtime_error("Unknown reconstruction mode: " + std::to_string(_io->_recon_mode));
         }
     }
-    if(ImGui::CollapsingHeader("Processing Performance"))
-    {
-        ImGui::SameLine();
-        ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
-        ImGui::Text("   Reconstruction");
-        ImGui::SameLine();
-        ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
-    }
+
     ImGui::End();
 
     for(unsigned i = 0; i < _io->_gui_texture_settings.size(); ++i)

@@ -75,6 +75,7 @@ class ReconPerformanceCapture : public Reconstruction
     void drawOccupiedBricks() const;
 
     static int TRI_TABLE[4096];
+    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW;
 
   private:
     void divideBox();
