@@ -80,7 +80,8 @@ class ReconPerformanceCapture : public Reconstruction
     void divideBox();
     void init(float d, float d1);
 
-    globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied, *_vertex_counter_buffer;
+    globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied;
+    globjects::Buffer *_buffer_vertex_counter, *_buffer_face_counter, *_buffer_reference_mesh_vertices, *_buffer_reference_mesh_faces;
 
     glm::uvec3 _res_volume, _res_bricks;
 
@@ -88,7 +89,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     glm::fmat4 _mat_vol_to_world;
 
-    globjects::Program *_program_marching_cubes, *_program_integration, *_program_solid, *_program_bricks;
+    globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
     globjects::Texture *_volume_tsdf;
 
     std::vector<brick> _bricks;
@@ -133,8 +134,9 @@ class ReconPerformanceCapture : public Reconstruction
         struct_global_deformation _global_deformation;
     */
 
-    void extract_ref_vx();
+    void extract_ref_mesh();
     void draw_data();
+    void init_shaders();
 };
 } // namespace kinect
 

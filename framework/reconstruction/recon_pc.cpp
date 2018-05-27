@@ -30,6 +30,8 @@ using namespace gl;
 
 namespace kinect
 {
+using namespace globjects;
+
 int ReconPerformanceCapture::TRI_TABLE[] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  8,  3,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  1,  9,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,
     8,  3,  9,  8,  1,  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1,  2,  10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0,  8,  3,  1,  2,  10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 9,  2,
@@ -122,78 +124,49 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
 {
     init(limit, size);
 
-    globjects::NamedString::create("/mc.glsl", new globjects::File("glsl/inc_mc.glsl"));
+    init_shaders();
 
-    _program_marching_cubes->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_bricked_mc.gs"),
-                                    globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_texture_blending.fs"));
+    _tri_table_buffer->setData(sizeof(GLint) * 4096, TRI_TABLE, GL_DYNAMIC_COPY);
+    _tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(GLint) * 4096);
 
-    glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
-    glm::fvec3 bbox_translation = glm::fvec3{m_bbox.getPMin()[0], m_bbox.getPMin()[1], m_bbox.getPMin()[2]};
+    _buffer_face_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
+    _buffer_face_counter->setData(sizeof(GLuint), nullptr, GL_DYNAMIC_DRAW);
+    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _buffer_face_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
-    _mat_vol_to_world = glm::scale(glm::fmat4{1.0f}, bbox_dimensions);
-    _mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * _mat_vol_to_world;
+    _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
+    _buffer_vertex_counter->setData(sizeof(GLuint), nullptr, GL_DYNAMIC_DRAW);
+    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 7);
 
-    _program_marching_cubes->setUniform("vol_to_world", _mat_vol_to_world);
-    _program_marching_cubes->setUniform("size_voxel", _voxel_size);
-    _program_marching_cubes->setUniform("volume_tsdf", 29);
+    _buffer_reference_mesh_vertices->setData(24 * 200000, nullptr, GL_DYNAMIC_DRAW);
+    _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
 
-    _program_marching_cubes->setUniform("kinect_colors", 1);
-    _program_marching_cubes->setUniform("kinect_depths", 2);
-    _program_marching_cubes->setUniform("kinect_qualities", 3);
-    _program_marching_cubes->setUniform("kinect_normals", 4);
-    _program_marching_cubes->setUniform("kinect_silhouettes", 5);
-
-    _program_marching_cubes->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
-    _program_marching_cubes->setUniform("cv_uv", m_cv->getUVVolumeUnits());
-    _program_marching_cubes->setUniform("num_kinects", m_num_kinects);
-    _program_marching_cubes->setUniform("limit", _limit);
-
-    _program_integration->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
-    _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
-
-    _program_integration->setUniform("volume_tsdf", start_image_unit);
-    _program_integration->setUniform("kinect_colors", 1);
-    _program_integration->setUniform("kinect_depths", 2);
-    _program_integration->setUniform("kinect_qualities", 3);
-    _program_integration->setUniform("kinect_normals", 4);
-    _program_integration->setUniform("kinect_silhouettes", 5);
-
-    _program_integration->setUniform("num_kinects", m_num_kinects);
-    _program_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
-    _program_integration->setUniform("limit", _limit);
-
-    _program_solid->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
-
-    _program_bricks->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/bricks.fs"),
-                            globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
-
-    _tri_table_buffer->setData(sizeof(int) * 4096, TRI_TABLE, GL_DYNAMIC_COPY);
-    _tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(int) * 4096);
-
-    _vertex_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
-    _vertex_counter_buffer->setData(sizeof(GLuint), 0, GL_DYNAMIC_DRAW);
-    _vertex_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
-    _vertex_counter_buffer->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
+    _buffer_reference_mesh_faces->setData(12 * 200000, nullptr, GL_DYNAMIC_DRAW);
+    _buffer_reference_mesh_faces->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
 
     setVoxelSize(_voxel_size);
 }
-
 void ReconPerformanceCapture::init(float limit, float size)
 {
-    _buffer_bricks = new globjects::Buffer();
-    _buffer_occupied = new globjects::Buffer();
-    _tri_table_buffer = new globjects::Buffer();
-    _vertex_counter_buffer = new globjects::Buffer();
+    _buffer_bricks = new Buffer();
+    _buffer_occupied = new Buffer();
+    _tri_table_buffer = new Buffer();
+    _buffer_vertex_counter = new Buffer();
+    _buffer_face_counter = new Buffer();
+    _buffer_reference_mesh_vertices = new Buffer();
+    _buffer_reference_mesh_faces = new Buffer();
 
-    _program_marching_cubes = new globjects::Program();
-    _program_integration = new globjects::Program();
-    _program_solid = new globjects::Program();
-    _program_bricks = new globjects::Program();
+    _program_pc_draw_data = new Program();
+    _program_pc_extract_reference = new Program();
+    _program_integration = new Program();
+    _program_solid = new Program();
+    _program_bricks = new Program();
 
     _res_volume = glm::uvec3(0);
     _res_bricks = glm::uvec3(0);
     _sampler = new VolumeSampler(glm::uvec3{0});
-    _volume_tsdf = globjects::Texture::createDefault(GL_TEXTURE_3D);
+    _volume_tsdf = Texture::createDefault(GL_TEXTURE_3D);
 
     _mat_vol_to_world = glm::fmat4(1.0f);
     _limit = limit;
@@ -205,13 +178,60 @@ void ReconPerformanceCapture::init(float limit, float size)
     _min_voxels_per_brick = 10;
 
     _frame_number.store(0);
-}
 
+    glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
+    glm::fvec3 bbox_translation = glm::fvec3{m_bbox.getPMin()[0], m_bbox.getPMin()[1], m_bbox.getPMin()[2]};
+
+    _mat_vol_to_world = glm::scale(glm::fmat4{1.0f}, bbox_dimensions);
+    _mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * _mat_vol_to_world;
+}
+void ReconPerformanceCapture::init_shaders()
+{
+    NamedString::create("/mc.glsl", new File("glsl/inc_mc.glsl"));
+
+    _program_pc_draw_data->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_draw_data.gs"),
+                                  Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_texture_blending.fs"));
+    _program_pc_draw_data->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_draw_data->setUniform("size_voxel", _voxel_size);
+    _program_pc_draw_data->setUniform("volume_tsdf", 29);
+    _program_pc_draw_data->setUniform("kinect_colors", 1);
+    _program_pc_draw_data->setUniform("kinect_depths", 2);
+    _program_pc_draw_data->setUniform("kinect_qualities", 3);
+    _program_pc_draw_data->setUniform("kinect_normals", 4);
+    _program_pc_draw_data->setUniform("kinect_silhouettes", 5);
+    _program_pc_draw_data->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
+    _program_pc_draw_data->setUniform("cv_uv", m_cv->getUVVolumeUnits());
+    _program_pc_draw_data->setUniform("num_kinects", m_num_kinects);
+    _program_pc_draw_data->setUniform("limit", _limit);
+
+    _program_pc_extract_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_extract_reference.gs"));
+    _program_pc_extract_reference->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size);
+    _program_pc_extract_reference->setUniform("volume_tsdf", 29);
+
+    _program_integration->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
+    _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
+    _program_integration->setUniform("volume_tsdf", start_image_unit);
+    _program_integration->setUniform("kinect_colors", 1);
+    _program_integration->setUniform("kinect_depths", 2);
+    _program_integration->setUniform("kinect_qualities", 3);
+    _program_integration->setUniform("kinect_normals", 4);
+    _program_integration->setUniform("kinect_silhouettes", 5);
+    _program_integration->setUniform("num_kinects", m_num_kinects);
+    _program_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
+    _program_integration->setUniform("limit", _limit);
+
+    _program_solid->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
+    _program_bricks->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
+}
 ReconPerformanceCapture::~ReconPerformanceCapture()
 {
     _tri_table_buffer->destroy();
 
-    _vertex_counter_buffer->destroy();
+    _buffer_reference_mesh_vertices->destroy();
+    _buffer_reference_mesh_faces->destroy();
+    _buffer_vertex_counter->destroy();
+    _buffer_face_counter->destroy();
     _buffer_bricks->destroy();
     _buffer_occupied->destroy();
 
@@ -230,14 +250,14 @@ void ReconPerformanceCapture::draw()
 {
     if(_frame_number.load() % 16 == 0)
     {
-        extract_ref_vx();
+        extract_ref_mesh();
     }
 
     // TODO: estimate ICP rigid body fit
 
     // TODO: calculate JTJ and JTf in CUDA
 
-    // TODO: run linear LMA (GPUfit) in CUDA interface
+    // TODO: run linear solver (cuSOLVER)
 
     draw_data();
 
@@ -245,37 +265,25 @@ void ReconPerformanceCapture::draw()
 
     _frame_number.store(_frame_number.load() + 1);
 }
-void ReconPerformanceCapture::extract_ref_vx()
+void ReconPerformanceCapture::extract_ref_mesh()
 {
     glEnable(GL_RASTERIZER_DISCARD);
 
-    _vertex_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
-    GLuint *vx_ptr = (GLuint *)_vertex_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    _buffer_face_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
+    GLuint *face_ptr = (GLuint *)_buffer_face_counter->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    face_ptr[0] = 0;
+    _buffer_face_counter->unmap();
+    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+
+    _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
+    GLuint *vx_ptr = (GLuint *)_buffer_vertex_counter->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
     vx_ptr[0] = 0;
-    _vertex_counter_buffer->unmap();
-    _vertex_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
+    _buffer_vertex_counter->unmap();
+    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
 
-    _program_marching_cubes->use();
+    _program_pc_extract_reference->use();
 
-    gloost::Matrix projection_matrix;
-    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
-    gloost::Matrix viewport_translate;
-    viewport_translate.setIdentity();
-    viewport_translate.setTranslate(1.0, 1.0, 1.0);
-    gloost::Matrix viewport_scale;
-    viewport_scale.setIdentity();
-
-    glm::uvec4 viewport_vals{getViewport()};
-    viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
-    gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
-    image_to_eye.invert();
-    _program_marching_cubes->setUniform("img_to_eye_curr", image_to_eye);
-
-    gloost::Matrix modelview;
-    glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
-    glm::fmat4 model_view{modelview};
-    glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
-    _program_marching_cubes->setUniform("NormalMatrix", normal_matrix);
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
     if(_use_bricks)
     {
@@ -289,23 +297,19 @@ void ReconPerformanceCapture::extract_ref_vx()
         _sampler->sample();
     }
 
-    _program_marching_cubes->release();
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+    globjects::Program::release();
 
     glDisable(GL_RASTERIZER_DISCARD);
 
-    // TODO: sample ED nodes as low res marching cubes
+    // TODO: sample ED nodes as low res marching cubes (?)
 }
 void ReconPerformanceCapture::draw_data()
 {
     // TODO: blend with warped reference mesh
 
-    _vertex_counter_buffer->bind(GL_ATOMIC_COUNTER_BUFFER);
-    GLuint *vx_ptr = (GLuint *)_vertex_counter_buffer->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
-    vx_ptr[0] = 0;
-    _vertex_counter_buffer->unmap();
-    _vertex_counter_buffer->unbind(GL_ATOMIC_COUNTER_BUFFER);
-
-    _program_marching_cubes->use();
+    _program_pc_draw_data->use();
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -319,13 +323,13 @@ void ReconPerformanceCapture::draw_data()
     viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
     gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
     image_to_eye.invert();
-    _program_marching_cubes->setUniform("img_to_eye_curr", image_to_eye);
+    _program_pc_draw_data->setUniform("img_to_eye_curr", image_to_eye);
 
     gloost::Matrix modelview;
     glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
     glm::fmat4 model_view{modelview};
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
-    _program_marching_cubes->setUniform("NormalMatrix", normal_matrix);
+    _program_pc_draw_data->setUniform("NormalMatrix", normal_matrix);
 
     if(_use_bricks)
     {
@@ -339,7 +343,7 @@ void ReconPerformanceCapture::draw_data()
         _sampler->sample();
     }
 
-    _program_marching_cubes->release();
+    globjects::Program::release();
 }
 void ReconPerformanceCapture::setVoxelSize(float size)
 {
@@ -348,8 +352,8 @@ void ReconPerformanceCapture::setVoxelSize(float size)
 
     _sampler->resize(_res_volume);
 
-    _program_marching_cubes->setUniform("res_tsdf", _res_volume);
-    _program_marching_cubes->setUniform("size_voxel", _voxel_size / 2.f);
+    _program_pc_draw_data->setUniform("res_tsdf", _res_volume);
+    _program_pc_draw_data->setUniform("size_voxel", _voxel_size / 2.f);
 
     _program_integration->setUniform("res_tsdf", _res_volume);
     _volume_tsdf->image3D(0, GL_R32F, glm::ivec3{_res_volume}, 0, GL_RED, GL_FLOAT, nullptr);
@@ -380,7 +384,7 @@ void ReconPerformanceCapture::integrate()
         _sampler->sample();
     }
 
-    _program_integration->release();
+    globjects::Program::release();
     glDisable(GL_RASTERIZER_DISCARD);
 }
 void ReconPerformanceCapture::setUseBricks(bool active) { _use_bricks = active; }
@@ -429,7 +433,7 @@ void ReconPerformanceCapture::drawOccupiedBricks() const
 
     UnitCube::drawWireInstanced(_bricks_occupied.size());
 
-    _program_solid->release();
+    globjects::Program::release();
 }
 void ReconPerformanceCapture::divideBox()
 {

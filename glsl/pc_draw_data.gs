@@ -2,6 +2,8 @@
 
 #extension GL_ARB_shading_language_include : require
 #extension GL_ARB_shader_storage_buffer_object : require
+#extension GL_ARB_shader_atomic_counters : enable
+#extension GL_ARB_uniform_buffer_object : enable
 
 #include </bricks.glsl>
 
@@ -13,8 +15,6 @@ layout(triangle_strip, max_vertices = 36) out;
 in vec3 geo_Position[];
 in uint geo_Id[];
 
-out uint pass_Index;
-out vec3 pass_Normal;
 out vec3 pass_Position;
 
 uniform mat4 gl_ModelViewMatrix;
@@ -38,16 +38,6 @@ void sample_cube(const vec3 pos, inout float cube[8])
 
 void make_face(vec3 a, vec3 b, vec3 c)
 {
-    vec3 u = b - a;
-    vec3 v = c - a;
-
-    pass_Normal.x = u.y * v.z - u.z * v.y;
-    pass_Normal.y = u.z * v.x - u.x * v.z;
-    pass_Normal.z = u.x * v.y - u.y * v.x;
-
-    pass_Normal = normalize(pass_Normal);
-    pass_Index = atomicCounterIncrement(face_counter);
-
     pass_Position = c;
     gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
 

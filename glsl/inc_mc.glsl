@@ -3,13 +3,9 @@
 
 #extension GL_ARB_shading_language_420pack : require
 #extension GL_ARB_shading_language_include : require
-#extension GL_ARB_uniform_buffer_object : enable
 #extension GL_ARB_shader_storage_buffer_object : require
-#extension GL_ARB_shader_atomic_counters : enable
 
-layout(std430, binding = 5) buffer tri_table { int[] triangle_connections; };
-
-layout(binding = 6) uniform atomic_uint face_counter;
+layout(std430, binding = 5) readonly buffer tri_table { int triangle_connections[4096]; };
 
 int[] cube_edge_flags =
     int[](0x000, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c, 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00, 0x190, 0x099, 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c, 0x99c, 0x895, 0xb9f,
