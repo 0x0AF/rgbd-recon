@@ -28,6 +28,11 @@ using namespace gl;
 #include <globjects/Shader.h>
 #include <globjects/globjects.h>
 
+#include <cuda_runtime.h>
+#include <vector_types.h>
+
+extern "C" void align_non_rigid();
+
 namespace kinect
 {
 using namespace globjects;
@@ -130,23 +135,23 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
 
     init_shaders();
 
-    _tri_table_buffer->setData(sizeof(GLint) * 4096, TRI_TABLE, GL_DYNAMIC_COPY);
+    _tri_table_buffer->setData(sizeof(GLint) * 4096, TRI_TABLE, GL_STATIC_COPY);
     _tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(GLint) * 4096);
 
     _buffer_face_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
-    _buffer_face_counter->setData(sizeof(GLuint), nullptr, GL_DYNAMIC_DRAW);
+    _buffer_face_counter->setData(sizeof(GLuint), nullptr, GL_STREAM_DRAW);
     globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_face_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
     _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
-    _buffer_vertex_counter->setData(sizeof(GLuint), nullptr, GL_DYNAMIC_DRAW);
+    _buffer_vertex_counter->setData(sizeof(GLuint), nullptr, GL_STREAM_DRAW);
     globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 7);
 
-    _buffer_reference_mesh_vertices->setData(24 * 200000, nullptr, GL_DYNAMIC_DRAW);
+    _buffer_reference_mesh_vertices->setData(24 * 200000, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
 
-    _buffer_reference_mesh_faces->setData(12 * 200000, nullptr, GL_DYNAMIC_DRAW);
+    _buffer_reference_mesh_faces->setData(12 * 200000, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_faces->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
 
     setVoxelSize(_voxel_size);
@@ -245,6 +250,7 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
 
     _volume_tsdf->destroy();
 }
+
 void ReconPerformanceCapture::drawF()
 {
     Reconstruction::drawF();
@@ -262,6 +268,8 @@ void ReconPerformanceCapture::draw()
     }
 
     // TODO: estimate ICP rigid body fit
+
+    align_non_rigid();
 
     // TODO: calculate JTJ and JTf in CUDA
 

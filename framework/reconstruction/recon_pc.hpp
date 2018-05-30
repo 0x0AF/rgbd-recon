@@ -1,5 +1,5 @@
-#ifndef RECON_MC_HPP
-#define RECON_MC_HPP
+#ifndef RECON_PC_HPP
+#define RECON_PC_HPP
 
 #include "recon_integration.hpp"
 #include "reconstruction.hpp"
@@ -139,6 +139,6 @@ class ReconPerformanceCapture : public Reconstruction
     void draw_data();
     void init_shaders();
 };
-} // namespace kinect
+}; // namespace kinect
 
-#endif // #ifndef RECON_MC_HPP
+#endif // #ifndef RECON_PC_HPP

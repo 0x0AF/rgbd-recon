@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
     }
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
     glfwWindowHint(GLFW_CONTEXT_ROBUSTNESS, GLFW_LOSE_CONTEXT_ON_RESET);
@@ -296,13 +296,8 @@ int main(int argc, char *argv[])
     ImGui_ImplGlfwGL3_Init(_window, true);
     ImGui::StyleColorsDark();
 
-#ifndef NDEBUG
-    // enable vsync
-    glfwSwapInterval(1);
-#else
     // disable vsync
     glfwSwapInterval(0);
-#endif
 
     glfwSetKeyCallback(_window, key_callback);
     glfwSetCursorPosCallback(_window, mouse_callback);

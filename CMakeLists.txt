@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.0.2)
-project(rgbd-recon)
+cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+project(rgbd-recon LANGUAGES CXX CUDA)
 
 #set the build type if its not set
 if(NOT CMAKE_BUILD_TYPE)
@@ -28,11 +28,6 @@ find_package(Boost 1.54.0 REQUIRED COMPONENTS thread system)
 set(BOOST_INCLUDE_DIRS ${Boost_INCLUDE_DIRS} CACHE PATH "boost include dir")
 set(BOOST_LIBRARIES ${Boost_LIBRARIES} CACHE PATH "boost libraries")
 include_directories(SYSTEM ${BOOST_INCLUDE_DIRS})
-################################
-#CGAL
-set(CGAL_INCLUDE_SEARCH_DIR "/opt/cgal/include")
-set(CGAL_LIBRARY_SEARCH_DIR "/opt/cgal/lib/")
-find_dependency_custom(CGAL "CGAL/basic.h" "CGAL")
 ################################
 #gmp
 set(GMP_INCLUDE_SEARCH_DIR "/opt/gmp/include")
@@ -92,16 +87,16 @@ set(CATCH_DIRECTORY catch-1.1)
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/${CATCH_DIRECTORY})
 
 ################################
-add_definitions(-DGLEW_STATIC)
+#add_definitions(-DGLEW_STATIC)
 # to prevent CGAL assertion fail 
-add_definitions(-frounding-math)
+#add_definitions(-frounding-math)
 
 ################################
 # activate C++ 11
 if(NOT MSVC)
     add_definitions(-std=c++11)
     # show warnings
-    add_definitions(-Wall -Wextra)
+    #add_definitions(-Wall -Wextra)
     # force linking  with c++11 lib
     if(APPLE)
         set(CMAKE_XCODE_ATTRIBUTE_CLANG_CXX_LANGUAGE_STANDARD "c++0x")
