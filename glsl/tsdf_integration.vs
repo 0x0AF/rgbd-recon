@@ -12,7 +12,7 @@ uniform sampler2DArray kinect_silhouettes;
 // calibration
 uniform sampler3D[5] cv_xyz_inv;
 
-layout(r32f) uniform image3D volume_tsdf;
+layout(rg32f) uniform image3D volume_tsdf;
 
 uniform float limit;
 uniform uint num_kinects;
@@ -55,5 +55,5 @@ void main() {
   }
   // coordinates must be even pixels
   ivec3 ipos_vol = ivec3(position * res_tsdf);
-  imageStore(volume_tsdf, ipos_vol, vec4(weighted_tsd, 0.0f, 0.0f, 0.0f));
+  imageStore(volume_tsdf, ipos_vol, vec4(weighted_tsd, total_weight, 0.0f, 0.0f));
 }

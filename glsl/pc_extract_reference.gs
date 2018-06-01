@@ -18,13 +18,12 @@ layout(binding = 7) uniform atomic_uint vertex_counter;
 struct Vertex
 {
     vec3 position;
+    uint pad_1;
     vec3 normal;
+    uint pad_2;
 };
 
-layout(std430, binding = 8) restrict buffer ReferenceMeshVertexBuffer
-{
-    Vertex vertices[];
-};
+layout(std430, binding = 8) restrict buffer ReferenceMeshVertexBuffer { Vertex vertices[]; };
 
 layout(std430, binding = 9) restrict buffer ReferenceMeshFaceBuffer { uvec3 faces[]; };
 
@@ -87,6 +86,7 @@ void main()
     int flag_storage = 0;
     vec3 edge_vertices[12];
 
+    Vertex edge_vertex_buffer[12];
     uint edge_vertices_indices[12];
     vec3 edge_vertices_normals[12];
 
@@ -111,7 +111,7 @@ void main()
                 edge_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel;
 
                 edge_vertices_indices[i] = atomicCounterIncrement(vertex_counter);
-                vertices[edge_vertices_indices[i]].position = edge_vertices[i];
+                edge_vertex_buffer[i].position = edge_vertices[i];
             }
         }
 
@@ -129,7 +129,9 @@ void main()
         {
             if((edge_flags & (1 << i)) != 0)
             {
-                vertices[edge_vertices_indices[i]].normal = edge_vertices_normals[i];
+                edge_vertex_buffer[i].normal = edge_vertices_normals[i];
+
+                vertices[edge_vertices_indices[i]] = edge_vertex_buffer[i];
             }
         }
     }

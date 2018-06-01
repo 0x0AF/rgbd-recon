@@ -108,35 +108,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     std::atomic<uint64_t> _frame_number;
 
-    /**
-     * Structures kept for reference, none of the following should reside on CPU
-
-        struct struct_vertex
-        {
-            glm::vec3 _position;
-            glm::vec3 _normal;
-        };
-
-        struct struct_ED_node
-        {
-            glm::vec3 _position;
-            glm::mat3 _transformation;
-            glm::vec3 _translation;
-        };
-
-        struct struct_global_deformation
-        {
-            glm::mat3 _rotation;
-            glm::vec3 _translation;
-        };
-
-        std::vector<struct_vertex> _reference_vx;
-        std::vector<struct_ED_node> _ed_nodes;
-        std::vector<float> _skinning_weights;
-        struct_global_deformation _global_deformation;
-    */
-
-    void extract_reference_frame();
+    void extract_reference_mesh ();
     void draw_data();
     void init_shaders();
 };
