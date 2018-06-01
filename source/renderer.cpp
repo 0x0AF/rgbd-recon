@@ -83,7 +83,7 @@ void renderer::update_gui()
             recon_pc->setBrickSize(_io->_brick_size);
             recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
             recon_pc->updateOccupiedBricks();
-            recon_pc->integrate();
+            recon_pc->integrate_data_frame ();
         }
         if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2))
         {
@@ -162,7 +162,7 @@ void renderer::update_gui()
             {
                 recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
                 recon_pc->updateOccupiedBricks();
-                recon_pc->integrate();
+                recon_pc->integrate_data_frame ();
             }
             if(_io->_bricking)
             {
@@ -188,7 +188,7 @@ void renderer::update_gui()
                 if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
                 {
                     recon_pc->setUseBricks(_io->_bricking);
-                    recon_pc->integrate();
+                    recon_pc->integrate_data_frame ();
                 }
             }
             ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
@@ -200,6 +200,8 @@ void renderer::update_gui()
                 ImGui::Text("   Data volume integration");
                 ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION) / 1000000.0f);
                 ImGui::Text("   Reference mesh extraction");
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT) / 1000000.0f);
+                ImGui::Text("   Non-rigid alignment");
                 ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_MESH_DRAW) / 1000000.0f);
                 ImGui::Text("   Data mesh draw");
 
@@ -428,8 +430,7 @@ void renderer::draw3d()
         break;
         case 1: // performance capture
         {
-            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
-            recon_pc->integrate();
+            // integrate regardless
         }
         break;
         case 2: // raymarched integration

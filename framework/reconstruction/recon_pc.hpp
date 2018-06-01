@@ -59,7 +59,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     void draw() override;
     void drawF() override;
-    void integrate();
+    void integrate_data_frame();
     void setVoxelSize(float size);
     void setTsdfLimit(float limit);
     void setUseBricks(bool active);
@@ -75,7 +75,7 @@ class ReconPerformanceCapture : public Reconstruction
     void drawOccupiedBricks() const;
 
     static int TRI_TABLE[4096];
-    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW;
+    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_NON_RIGID_ALIGNMENT;
 
   private:
     void divideBox();
@@ -91,7 +91,8 @@ class ReconPerformanceCapture : public Reconstruction
     glm::fmat4 _mat_vol_to_world;
 
     globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
-    globjects::Texture *_volume_tsdf;
+
+    GLuint _volume_tsdf_data, _volume_tsdf_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
@@ -135,10 +136,11 @@ class ReconPerformanceCapture : public Reconstruction
         struct_global_deformation _global_deformation;
     */
 
-    void extract_ref_mesh();
+    void extract_reference_frame();
     void draw_data();
     void init_shaders();
 };
+
 }; // namespace kinect
 
 #endif // #ifndef RECON_PC_HPP

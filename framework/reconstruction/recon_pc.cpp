@@ -21,6 +21,7 @@ using namespace gl;
 #include <globjects/Framebuffer.h>
 #include <globjects/Program.h>
 #include <globjects/Texture.h>
+#include <globjects/TextureHandle.h>
 #include <globjects/VertexArray.h>
 #include <globjects/VertexAttributeBinding.h>
 
@@ -31,7 +32,9 @@ using namespace gl;
 #include <cuda_runtime.h>
 #include <vector_types.h>
 
-extern "C" void align_non_rigid();
+extern "C" void init_cuda(uint16_t res_x, uint16_t res_y, uint16_t res_z);
+extern "C" void align_non_rigid(GLuint buffer_reference_mesh_vertices, GLuint buffer_vertex_counter, GLuint volume_tsdf_data_id);
+extern "C" void deinit_cuda();
 
 namespace kinect
 {
@@ -126,7 +129,7 @@ int ReconPerformanceCapture::TRI_TABLE[] = {
 std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA_VOLUME_INTEGRATION";
 std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
 std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
-
+std::string ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT = "TIMER_NON_RIGID_ALIGNMENT";
 static int start_image_unit = 3;
 
 ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size) : Reconstruction(cfs, cv, bbox)
@@ -140,12 +143,12 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
 
     _buffer_face_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_face_counter->setData(sizeof(GLuint), nullptr, GL_STREAM_DRAW);
-    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_face_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
     _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->setData(sizeof(GLuint), nullptr, GL_STREAM_DRAW);
-    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 7);
 
     _buffer_reference_mesh_vertices->setData(24 * 200000, nullptr, GL_STREAM_COPY);
@@ -156,8 +159,11 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
 
     setVoxelSize(_voxel_size);
 
+    init_cuda(_res_volume.x, _res_volume.y, _res_volume.z);
+
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
     TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
+    TimerDatabase::instance().addTimer(TIMER_NON_RIGID_ALIGNMENT);
     TimerDatabase::instance().addTimer(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::init(float limit, float size)
@@ -179,7 +185,22 @@ void ReconPerformanceCapture::init(float limit, float size)
     _res_volume = glm::uvec3(0);
     _res_bricks = glm::uvec3(0);
     _sampler = new VolumeSampler(glm::uvec3{0});
-    _volume_tsdf = Texture::createDefault(GL_TEXTURE_3D);
+
+    glGenTextures(1, &_volume_tsdf_data);
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+
+    glGenTextures(1, &_volume_tsdf_reference);
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_reference);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
 
     _mat_vol_to_world = glm::fmat4(1.0f);
     _limit = limit;
@@ -239,6 +260,8 @@ void ReconPerformanceCapture::init_shaders()
 }
 ReconPerformanceCapture::~ReconPerformanceCapture()
 {
+    deinit_cuda();
+
     _tri_table_buffer->destroy();
 
     _buffer_reference_mesh_vertices->destroy();
@@ -247,8 +270,6 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_face_counter->destroy();
     _buffer_bricks->destroy();
     _buffer_occupied->destroy();
-
-    _volume_tsdf->destroy();
 }
 
 void ReconPerformanceCapture::drawF()
@@ -262,18 +283,26 @@ void ReconPerformanceCapture::drawF()
 
 void ReconPerformanceCapture::draw()
 {
+    integrate_data_frame();
+
     if(_frame_number.load() % 16 == 0)
     {
-        extract_ref_mesh();
+        extract_reference_frame();
+
+        // clearing costs 0,4 ms on titan, filling from pbo 9
+        float negative = -_limit;
+        glClearTexImage(_volume_tsdf_reference, 0, GL_RED, GL_FLOAT, &negative);
     }
+    else
+    {
+        // TODO: estimate ICP rigid body fit
 
-    // TODO: estimate ICP rigid body fit
+        TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    align_non_rigid();
+        align_non_rigid(8, 7, _volume_tsdf_data);
 
-    // TODO: calculate JTJ and JTf in CUDA
-
-    // TODO: run linear solver (cuSOLVER)
+        TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+    }
 
     draw_data();
 
@@ -281,7 +310,7 @@ void ReconPerformanceCapture::draw()
 
     _frame_number.store(_frame_number.load() + 1);
 }
-void ReconPerformanceCapture::extract_ref_mesh()
+void ReconPerformanceCapture::extract_reference_frame()
 {
     TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
@@ -291,13 +320,13 @@ void ReconPerformanceCapture::extract_ref_mesh()
     GLuint *face_ptr = (GLuint *)_buffer_face_counter->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
     face_ptr[0] = 0;
     _buffer_face_counter->unmap();
-    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
 
     _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
     GLuint *vx_ptr = (GLuint *)_buffer_vertex_counter->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
     vx_ptr[0] = 0;
     _buffer_vertex_counter->unmap();
-    globjects::Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
 
     _program_pc_extract_reference->use();
 
@@ -317,18 +346,15 @@ void ReconPerformanceCapture::extract_ref_mesh()
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-    globjects::Program::release();
+    Program::release();
 
     glDisable(GL_RASTERIZER_DISCARD);
-
-    // TODO: sample ED nodes as low res marching cubes (?)
 
     TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
 }
 void ReconPerformanceCapture::draw_data()
 {
     TimerDatabase::instance().begin(TIMER_DATA_MESH_DRAW);
-    // TODO: blend with warped reference mesh
 
     _program_pc_draw_data->use();
 
@@ -364,7 +390,7 @@ void ReconPerformanceCapture::draw_data()
         _sampler->sample();
     }
 
-    globjects::Program::release();
+    Program::release();
 
     TimerDatabase::instance().end(TIMER_DATA_MESH_DRAW);
 }
@@ -378,14 +404,33 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     _program_pc_draw_data->setUniform("res_tsdf", _res_volume);
     _program_pc_draw_data->setUniform("size_voxel", _voxel_size / 2.f);
 
+    _program_pc_extract_reference->setUniform("res_tsdf", _res_volume);
+    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size / 2.f);
+
     _program_integration->setUniform("res_tsdf", _res_volume);
-    _volume_tsdf->image3D(0, GL_R32F, glm::ivec3{_res_volume}, 0, GL_RED, GL_FLOAT, nullptr);
-    _volume_tsdf->bindActive(GL_TEXTURE0 + 29);
+
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_reference);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RED, GL_FLOAT, nullptr);
+
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RED, GL_FLOAT, nullptr);
+    glBindTextureUnit(29, _volume_tsdf_data);
 
     setBrickSize(_brick_size);
 }
 void ReconPerformanceCapture::setTsdfLimit(float limit) { _limit = limit; }
-void ReconPerformanceCapture::integrate()
+void ReconPerformanceCapture::integrate_data_frame()
 {
     TimerDatabase::instance().begin(TIMER_DATA_VOLUME_INTEGRATION);
 
@@ -394,8 +439,8 @@ void ReconPerformanceCapture::integrate()
 
     // clearing costs 0,4 ms on titan, filling from pbo 9
     float negative = -_limit;
-    _volume_tsdf->clearImage(0, GL_RED, GL_FLOAT, &negative);
-    _volume_tsdf->bindImageTexture(start_image_unit, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32F);
+    glClearTexImage(_volume_tsdf_data, 0, GL_RED, GL_FLOAT, &negative);
+    glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_R32F);
 
     if(_use_bricks)
     {
@@ -409,7 +454,7 @@ void ReconPerformanceCapture::integrate()
         _sampler->sample();
     }
 
-    globjects::Program::release();
+    Program::release();
     glDisable(GL_RASTERIZER_DISCARD);
 
     TimerDatabase::instance().end(TIMER_DATA_VOLUME_INTEGRATION);
@@ -460,7 +505,7 @@ void ReconPerformanceCapture::drawOccupiedBricks() const
 
     UnitCube::drawWireInstanced(_bricks_occupied.size());
 
-    globjects::Program::release();
+    Program::release();
 }
 void ReconPerformanceCapture::divideBox()
 {

@@ -85,12 +85,9 @@ add_sublibrary(tinyply ${CMAKE_CURRENT_SOURCE_DIR}/external/tinyply "-w")
 # catch
 set(CATCH_DIRECTORY catch-1.1)
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/${CATCH_DIRECTORY})
-
 ################################
-#add_definitions(-DGLEW_STATIC)
-# to prevent CGAL assertion fail 
-#add_definitions(-frounding-math)
-
+# cuda-helpers
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/cuda-helpers)
 ################################
 # activate C++ 11
 if(NOT MSVC)
