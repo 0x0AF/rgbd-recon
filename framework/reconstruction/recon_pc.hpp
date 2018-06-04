@@ -79,7 +79,7 @@ class ReconPerformanceCapture : public Reconstruction
 
   private:
     void divideBox();
-    void init(float d, float d1);
+    void init(float limit, float size);
 
     globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied;
     globjects::Buffer *_buffer_vertex_counter, *_buffer_face_counter, *_buffer_reference_mesh_vertices, *_buffer_reference_mesh_faces;
@@ -108,7 +108,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     std::atomic<uint64_t> _frame_number;
 
-    void extract_reference_mesh ();
+    void extract_reference_mesh();
     void draw_data();
     void init_shaders();
 };

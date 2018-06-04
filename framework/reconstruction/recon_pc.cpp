@@ -35,6 +35,7 @@ using namespace gl;
 extern "C" void init_cuda(uint16_t res_x, uint16_t res_y, uint16_t res_z);
 extern "C" void align_non_rigid(GLuint buffer_reference_mesh_vertices, GLuint buffer_vertex_counter, GLuint volume_tsdf_data_id, GLuint volume_tsdf_reference_id);
 extern "C" void copy_reference_volume(GLuint volume_tsdf_data_id, GLuint volume_tsdf_reference_id);
+extern "C" void sample_ed_nodes(GLuint buffer_reference_mesh_vertices, GLuint buffer_vertex_counter);
 extern "C" void deinit_cuda();
 
 namespace kinect
@@ -152,10 +153,10 @@ ReconPerformanceCapture::ReconPerformanceCapture(CalibrationFiles const &cfs, Ca
     Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 7);
 
-    _buffer_reference_mesh_vertices->setData(32 * 200000, nullptr, GL_STREAM_COPY);
+    _buffer_reference_mesh_vertices->setData(32 * 262144, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
 
-    _buffer_reference_mesh_faces->setData(12 * 200000, nullptr, GL_STREAM_COPY);
+    _buffer_reference_mesh_faces->setData(12 * 262144, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_faces->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
 
     setVoxelSize(_voxel_size);
@@ -292,6 +293,7 @@ void ReconPerformanceCapture::draw()
 
         copy_reference_volume(_volume_tsdf_data, _volume_tsdf_reference);
         extract_reference_mesh();
+        sample_ed_nodes(_buffer_reference_mesh_vertices->id(), _buffer_vertex_counter->id());
 
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }

@@ -10,7 +10,7 @@ add_library(framework STATIC ${FRAMEWORK_SOURCE} ${FRAMEWORK_SOURCE_CUDA} ${FRAM
 set_target_properties(framework PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 # self built libraries
-target_link_libraries(framework gloost fastdxt ${SQUISH_LIBRARIES} globjects::globjects tinyply)
+target_link_libraries(framework gloost fastdxt ${SQUISH_LIBRARIES} globjects::globjects tinyply ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY})
 # global libraries
 target_link_libraries(framework GLU zmq ${BOOST_LIBRARIES} gmp mpfr)
 
