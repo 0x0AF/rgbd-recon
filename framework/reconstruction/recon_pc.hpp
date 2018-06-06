@@ -6,6 +6,8 @@
 #include "view.hpp"
 #include "view_lod.hpp"
 #include "volume_sampler.hpp"
+#include <NetKinectArray.h>
+#include <TextureArray.h>
 
 #include <globjects/base/ref_ptr.h>
 
@@ -39,6 +41,8 @@
 
 #include <tinyply.h>
 
+#include <recon_pc.cuh>
+
 namespace globjects
 {
 class Texture;
@@ -54,35 +58,33 @@ namespace kinect
 class ReconPerformanceCapture : public Reconstruction
 {
   public:
-    ReconPerformanceCapture(CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size);
+    ReconPerformanceCapture(NetKinectArray const &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size, float ed_size);
     ~ReconPerformanceCapture();
 
     void draw() override;
     void drawF() override;
     void integrate_data_frame();
-    void setVoxelSize(float size);
-    void setTsdfLimit(float limit);
-    void setUseBricks(bool active);
-    void setDrawBricks(bool active);
-    void setBrickSize(float limit);
 
     float occupiedRatio() const;
     float getBrickSize() const;
 
+    void setDrawBricks(bool active);
+    void setUseBricks(bool active);
+    void setMinVoxelsPerBrick(unsigned i);
+    void setTsdfLimit(float limit);
+
     void clearOccupiedBricks() const;
     void updateOccupiedBricks();
-    void setMinVoxelsPerBrick(unsigned i);
     void drawOccupiedBricks() const;
 
     static int TRI_TABLE[4096];
     static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_NON_RIGID_ALIGNMENT;
 
   private:
-    void divideBox();
-    void init(float limit, float size);
+    struct_native_handles _native_handles;
 
     globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied;
-    globjects::Buffer *_buffer_vertex_counter, *_buffer_face_counter, *_buffer_reference_mesh_vertices, *_buffer_reference_mesh_faces;
+    globjects::Buffer *_buffer_vertex_counter, *_buffer_reference_mesh_vertices;
 
     glm::uvec3 _res_volume, _res_bricks;
 
@@ -100,6 +102,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     float _limit;
     float _voxel_size;
+    float _ed_cell_size;
     float _brick_size;
     bool _use_bricks;
     bool _draw_bricks;
@@ -108,9 +111,15 @@ class ReconPerformanceCapture : public Reconstruction
 
     std::atomic<uint64_t> _frame_number;
 
+    void init(float limit, float size, float ed_cell_size);
+    void init_shaders();
+    void divideBox();
     void extract_reference_mesh();
     void draw_data();
-    void init_shaders();
+
+    // privatized temporarily
+    void setVoxelSize(float size);
+    void setBrickSize(float limit);
 };
 
 }; // namespace kinect

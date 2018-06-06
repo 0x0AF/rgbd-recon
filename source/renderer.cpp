@@ -78,24 +78,24 @@ void renderer::update_gui()
         {
             std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
             recon_pc->setTsdfLimit(_io->_tsdf_limit);
-            recon_pc->setVoxelSize(_io->_voxel_size);
+            //            recon_pc->setVoxelSize(_io->_voxel_size);
             _io->_brick_size = recon_pc->getBrickSize();
-            recon_pc->setBrickSize(_io->_brick_size);
+            //            recon_pc->setBrickSize(_io->_brick_size);
             recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
             recon_pc->updateOccupiedBricks();
-            recon_pc->integrate_data_frame ();
+            recon_pc->integrate_data_frame();
         }
-        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2))
-        {
-            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-            recon_integration->setTsdfLimit(_io->_tsdf_limit);
-            recon_integration->setVoxelSize(_io->_voxel_size);
-            _io->_brick_size = recon_integration->getBrickSize();
-            recon_integration->setBrickSize(_io->_brick_size);
-            recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
-            recon_integration->updateOccupiedBricks();
-            recon_integration->integrate();
-        }
+//        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2))
+//        {
+//            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+//            recon_integration->setTsdfLimit(_io->_tsdf_limit);
+//            recon_integration->setVoxelSize(_io->_voxel_size);
+//            _io->_brick_size = recon_integration->getBrickSize();
+//            recon_integration->setBrickSize(_io->_brick_size);
+//            recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
+//            recon_integration->updateOccupiedBricks();
+//            recon_integration->integrate();
+//        }
     }
     if(ImGui::CollapsingHeader("Visualisation"))
     {
@@ -150,26 +150,26 @@ void renderer::update_gui()
             }
             if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
             {
-                recon_pc->setVoxelSize(_io->_voxel_size);
+                // recon_pc->setVoxelSize(_io->_voxel_size);
                 _io->_brick_size = recon_pc->getBrickSize();
             }
             if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
             {
-                recon_pc->setBrickSize(_io->_brick_size);
+                // recon_pc->setBrickSize(_io->_brick_size);
                 _io->_brick_size = recon_pc->getBrickSize();
             }
             if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
             {
                 recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
                 recon_pc->updateOccupiedBricks();
-                recon_pc->integrate_data_frame ();
+                recon_pc->integrate_data_frame();
             }
             if(_io->_bricking)
             {
                 ImGui::Columns(2, NULL, false);
                 if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
                 {
-                    recon_pc->setUseBricks(_io->_bricking);
+                    // recon_pc->setUseBricks(_io->_bricking);
                 }
                 ImGui::NextColumn();
                 ImGui::Text("%.3f %% occupied", recon_pc->occupiedRatio() * 100.0f);
@@ -188,7 +188,7 @@ void renderer::update_gui()
                 if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
                 {
                     recon_pc->setUseBricks(_io->_bricking);
-                    recon_pc->integrate_data_frame ();
+                    recon_pc->integrate_data_frame();
                 }
             }
             ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);

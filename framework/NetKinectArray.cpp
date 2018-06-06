@@ -776,5 +776,6 @@ void NetKinectArray::readFromFiles()
         m_pbo_depths.dirty = true;
     }
 }
+const std::unique_ptr<TextureArray> &NetKinectArray::getDepthArrayRaw() const { return m_depthArray_raw; }
 
 } // namespace kinect

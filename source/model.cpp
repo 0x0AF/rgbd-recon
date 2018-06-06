@@ -88,11 +88,11 @@ void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector
     _cv->setStartTextureUnitInv(30);
 
     _recon_points = std::make_shared<kinect::ReconPoints>(*_calib_files, _cv.get(), *_bbox);
-    _recon_pc = std::make_shared<kinect::ReconPerformanceCapture>(*_calib_files, _cv.get(), *_bbox, io._tsdf_limit, io._voxel_size);
-    _recon_integration = std::make_shared<kinect::ReconIntegration>(*_calib_files, _cv.get(), *_bbox, io._tsdf_limit, io._voxel_size);
+    _recon_pc = std::make_shared<kinect::ReconPerformanceCapture>(*_nka, *_calib_files, _cv.get(), *_bbox, io._tsdf_limit, io._voxel_size, io._ed_cell_size);
+    //_recon_integration = std::make_shared<kinect::ReconIntegration>(*_calib_files, _cv.get(), *_bbox, io._tsdf_limit, io._voxel_size);
     _recons.emplace_back(_recon_points);
     _recons.emplace_back(_recon_pc);
-    _recons.emplace_back(_recon_integration);
+    //_recons.emplace_back(_recon_integration);
 
     _calibvis = std::make_shared<kinect::ReconCalibs>(*_calib_files, _cv.get(), *_bbox);
 
@@ -102,17 +102,17 @@ void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector
     _nka->filterTextures(io._bilateral);
     _nka->refineBoundary(io._refine);
     _recon_pc->setTsdfLimit(io._tsdf_limit);
-    _recon_pc->setVoxelSize(io._voxel_size);
-    _recon_pc->setBrickSize(io._brick_size);
+    //    _recon_pc->setVoxelSize(io._voxel_size);
+    //    _recon_pc->setBrickSize(io._brick_size);
     _recon_pc->setDrawBricks(io._draw_bricks);
     _recon_pc->setUseBricks(io._bricking);
-    _recon_integration->setTsdfLimit(io._tsdf_limit);
-    _recon_integration->setVoxelSize(io._voxel_size);
-    _recon_integration->setBrickSize(io._brick_size);
-    _recon_integration->setColorFilling(io._colorfill);
-    _recon_integration->setSpaceSkip(io._skip_space);
-    _recon_integration->setDrawBricks(io._draw_bricks);
-    _recon_integration->setUseBricks(io._bricking);
+//    _recon_integration->setTsdfLimit(io._tsdf_limit);
+//    _recon_integration->setVoxelSize(io._voxel_size);
+//    _recon_integration->setBrickSize(io._brick_size);
+//    _recon_integration->setColorFilling(io._colorfill);
+//    _recon_integration->setSpaceSkip(io._skip_space);
+//    _recon_integration->setDrawBricks(io._draw_bricks);
+//    _recon_integration->setUseBricks(io._bricking);
 
     io._aspect = (float)(io._screenWidth * 1.0 / io._screenHeight);
 
@@ -199,7 +199,7 @@ model::~model()
 
     _recon_points.reset();
     _recon_pc.reset();
-    _recon_integration.reset();
+    //_recon_integration.reset();
 }
 const std::shared_ptr<gloost::BoundingBox> &model::get_bbox() const { return _bbox; }
 const std::shared_ptr<gloost::PerspectiveCamera> &model::get_camera() const { return _camera; }

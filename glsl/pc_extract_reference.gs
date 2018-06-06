@@ -12,8 +12,7 @@
 layout(points) in;
 layout(triangle_strip, max_vertices = 36) out;
 
-layout(binding = 6) uniform atomic_uint face_counter;
-layout(binding = 7) uniform atomic_uint vertex_counter;
+layout(binding = 6) uniform atomic_uint vertex_counter;
 
 struct Vertex
 {
@@ -23,9 +22,7 @@ struct Vertex
     uint pad_2;
 };
 
-layout(std430, binding = 8) restrict buffer ReferenceMeshVertexBuffer { Vertex vertices[]; };
-
-layout(std430, binding = 9) restrict buffer ReferenceMeshFaceBuffer { uvec3 faces[]; };
+layout(std430, binding = 7) restrict buffer ReferenceMeshVertexBuffer { Vertex vertices[]; };
 
 in vec3 geo_Position[];
 in uint geo_Id[];
@@ -47,8 +44,6 @@ void sample_cube(const vec3 pos, inout float cube[8])
 
 void store_face(uvec3 face, inout vec3 edge_vertices[12], inout uint edge_vertices_indices[12], inout vec3 edge_vertices_normals[12])
 {
-    uint face_buffer_index = atomicCounterIncrement(face_counter);
-
     vec3 normal;
 
     vec3 u = edge_vertices[face.y] - edge_vertices[face.x];
@@ -59,8 +54,6 @@ void store_face(uvec3 face, inout vec3 edge_vertices[12], inout uint edge_vertic
     normal.z = u.x * v.y - u.y * v.x;
 
     normal = normalize(normal);
-
-    faces[face_buffer_index] = uvec3(edge_vertices_indices[face.z], edge_vertices_indices[face.y], edge_vertices_indices[face.x]);
 
     edge_vertices_normals[face.x] = (edge_vertices_normals[face.x] + normal) / 2.f;
     edge_vertices_normals[face.y] = (edge_vertices_normals[face.y] + normal) / 2.f;

@@ -108,13 +108,14 @@ class model
         bool _draw_bricks = false;
         bool _watch_errors = true;
         int _num_kinect = 1;
-        float _voxel_size = 0.035f;
-        float _brick_size = 0.12f;
+        float _voxel_size = 0.04f;
+        float _ed_cell_size = 0.24f;
+        float _brick_size = 0.24f;
         float _tsdf_limit = 0.03f;
         float _zoom = 1.25f;
         double _time_prev = 0.0f;
 
-        int _min_voxels = 12;
+        int _min_voxels = 512;
 
         bool _loaded_conf = false;
         unsigned _time_limit = 1;
@@ -159,7 +160,7 @@ class model
 
     std::shared_ptr<kinect::ReconPoints> _recon_points;
     std::shared_ptr<kinect::ReconPerformanceCapture> _recon_pc;
-    std::shared_ptr<kinect::ReconIntegration> _recon_integration;
+    //std::shared_ptr<kinect::ReconIntegration> _recon_integration;
     std::vector<std::shared_ptr<kinect::Reconstruction>> _recons;
 
     std::shared_ptr<kinect::ReconCalibs> _calibvis;

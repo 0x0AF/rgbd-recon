@@ -61,9 +61,11 @@ namespace kinect {
     glm::uvec2 getDepthResolution() const;
     glm::uvec2 getColorResolution() const;
 
-    int getTextureUnit(std::string const& name) const; 
+    int getTextureUnit(std::string const& name) const;
 
-  private:
+    const std::unique_ptr<TextureArray> &getDepthArrayRaw () const;
+
+   private:
     void bindToTextureUnits() const;
     void processBackground();
     void processDepth();
