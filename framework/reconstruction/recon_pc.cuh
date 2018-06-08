@@ -9,7 +9,6 @@ struct struct_native_handles
   GLuint buffer_vertex_counter;
   GLuint buffer_reference_vertices;
 
-  GLuint volume_tsdf_reference;
   GLuint volume_tsdf_data;
 
   GLuint array2d_kinect_depths;

@@ -154,7 +154,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 7);
 
     setVoxelSize(_voxel_size);
-    setBrickSize (_brick_size);
+    setBrickSize(_brick_size);
 
     _native_handles.buffer_bricks = _buffer_bricks->id();
     _native_handles.buffer_occupied = _buffer_occupied->id();
@@ -163,7 +163,6 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     _native_handles.buffer_reference_vertices = _buffer_reference_mesh_vertices->id();
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
-    _native_handles.volume_tsdf_reference = _volume_tsdf_reference;
 
     _native_handles.array2d_kinect_depths = nka.getDepthArrayRaw()->getGLHandle();
 
@@ -194,14 +193,6 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
 
     glGenTextures(1, &_volume_tsdf_data);
     glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-
-    glGenTextures(1, &_volume_tsdf_reference);
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_reference);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
@@ -290,7 +281,7 @@ void ReconPerformanceCapture::draw()
 {
     integrate_data_frame();
 
-    if(_frame_number.load() % 16 == 0)
+    if(_frame_number.load() % 256 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
@@ -410,14 +401,6 @@ void ReconPerformanceCapture::setVoxelSize(float size)
 
     _program_integration->setUniform("res_tsdf", _res_volume);
 
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_reference);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-
     glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -425,7 +408,6 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-
     glBindTextureUnit(29, _volume_tsdf_data);
 
     setBrickSize(_brick_size);
@@ -439,7 +421,7 @@ void ReconPerformanceCapture::integrate_data_frame()
     _program_integration->use();
 
     // clearing costs 0,4 ms on titan, filling from pbo 9
-    float negative = -_limit;
+    float2 negative{-_limit, 0.f};
     glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
     glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
 

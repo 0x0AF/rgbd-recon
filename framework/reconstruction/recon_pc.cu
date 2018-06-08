@@ -52,48 +52,43 @@
 
 cudaGraphicsResource *cgr_buffer_reference_mesh_vertices = nullptr;
 cudaGraphicsResource *cgr_buffer_vertex_counter = nullptr;
-
 cudaGraphicsResource *cgr_buffer_bricks = nullptr;
 cudaGraphicsResource *cgr_buffer_occupied = nullptr;
-
 cudaGraphicsResource *cgr_volume_tsdf_data = nullptr;
-cudaGraphicsResource *cgr_volume_tsdf_ref = nullptr;
-
 cudaGraphicsResource *cgr_array2d_kinect_depths = nullptr;
 
-surface<void, 3> _volume_tsdf_data;
-surface<void, 3> _volume_tsdf_ref;
+surface<void, cudaSurfaceType3D> _volume_tsdf_data;
+surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
 
-surface<void, 2> _array2d_kinect_depths;
+surface<void, cudaSurfaceType2DLayered> _array2d_kinect_depths;
 
 cudaExtent _volume_res;
 struct_native_handles _native_handles;
 
+cudaArray *_volume_array_tsdf_ref = nullptr;
 struct_ed_node *_ed_graph = nullptr;
 float *_jtj = nullptr;
 float *_jtf = nullptr;
 float *_h = nullptr;
 
-const unsigned ED_GRAPH_NODE_RES = 9;
-const unsigned BRICK_RES = 9;
-const unsigned BRICK_VOXEL_DIM = 6;
-const unsigned BRICK_VOXELS = 216;
-const unsigned VOLUME_VOXEL_DIM = 50;
+const unsigned ED_GRAPH_NODE_RES = 9u;
+const unsigned BRICK_RES = 9u;
+const unsigned BRICK_VOXEL_DIM = 6u;
+const unsigned BRICK_VOXELS = 216u;
+const unsigned VOLUME_VOXEL_DIM = 50u;
 
-__global__ void kernel_copy_reference(GLuint *brick_list, size_t brick_count)
+__global__ void kernel_copy_reference(GLuint *occupied_bricks, size_t occupied_brick_count)
 {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx < brick_count)
+    if(idx < occupied_brick_count)
     {
-        unsigned int brick_id = brick_list[idx];
+        unsigned int brick_id = occupied_bricks[idx];
 
-        if(brick_id == 0)
+        if(brick_id == 0u)
         {
             return;
         }
-
-        // printf("\nbrick %u\n", brick_id);
 
         glm::uvec3 brick = glm::uvec3(0u);
         brick.z = brick_id / (BRICK_RES * BRICK_RES);
@@ -102,20 +97,31 @@ __global__ void kernel_copy_reference(GLuint *brick_list, size_t brick_count)
         brick_id %= BRICK_RES;
         brick.x = brick_id;
 
-        for(unsigned i = 0; i < BRICK_VOXELS; i++)
+        // printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
+
+        for(unsigned int i = 0u; i < BRICK_VOXELS; i++)
         {
             unsigned int position_id = i;
 
             glm::uvec3 position = glm::uvec3(0u);
-            position.z = i / (BRICK_VOXEL_DIM);
+            position.z = position_id / (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
             position_id %= (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
-            position.y = brick_id / BRICK_VOXEL_DIM;
-            position_id %= (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
-            position.x = brick_id;
+            position.y = position_id / BRICK_VOXEL_DIM;
+            position_id %= (BRICK_VOXEL_DIM);
+            position.x = position_id;
+
+            glm::uvec3 world = brick * BRICK_VOXEL_DIM + position;
+
+            if(world.x >= VOLUME_VOXEL_DIM || world.y >= VOLUME_VOXEL_DIM || world.z >= VOLUME_VOXEL_DIM)
+            {
+                continue;
+            }
+
+            // printf("\nbrick %u, position %u: (%u,%u,%u)\n", occupied_bricks[idx], i, world.x, world.y, world.z);
 
             float2 data;
-            surf3Dread(&data, _volume_tsdf_data, (brick.x + position.x) * sizeof(float2), brick.y + position.y, brick.z + position.z);
-            surf3Dwrite(data, _volume_tsdf_ref, (brick.x + position.x) * sizeof(float2), brick.y + position.y, brick.z + position.z);
+            surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+            surf3Dwrite(data, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
         }
     }
 }
@@ -361,20 +367,18 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
     free(vx_pds);
 }
 
-__global__ void kernel_fuse_volume(GLuint *brick_list, size_t brick_count)
+__global__ void kernel_fuse_volume(GLuint *occupied_bricks, size_t occupied_brick_count)
 {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx < brick_count)
+    if(idx < occupied_brick_count)
     {
-        unsigned int brick_id = brick_list[idx];
+        unsigned int brick_id = occupied_bricks[idx];
 
-        if(brick_id == 0)
+        if(brick_id == 0u)
         {
             return;
         }
-
-        // printf("\nbrick %u\n", brick_id);
 
         glm::uvec3 brick = glm::uvec3(0u);
         brick.z = brick_id / (BRICK_RES * BRICK_RES);
@@ -383,20 +387,31 @@ __global__ void kernel_fuse_volume(GLuint *brick_list, size_t brick_count)
         brick_id %= BRICK_RES;
         brick.x = brick_id;
 
-        for(unsigned i = 0; i < BRICK_VOXELS; i++)
+        // printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
+
+        for(unsigned int i = 0u; i < BRICK_VOXELS; i++)
         {
             unsigned int position_id = i;
 
             glm::uvec3 position = glm::uvec3(0u);
-            position.z = i / (BRICK_VOXEL_DIM);
+            position.z = position_id / (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
             position_id %= (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
-            position.y = brick_id / BRICK_VOXEL_DIM;
-            position_id %= (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
-            position.x = brick_id;
+            position.y = position_id / BRICK_VOXEL_DIM;
+            position_id %= (BRICK_VOXEL_DIM);
+            position.x = position_id;
+
+            glm::uvec3 world = brick * BRICK_VOXEL_DIM + position;
+
+            if(world.x >= VOLUME_VOXEL_DIM || world.y >= VOLUME_VOXEL_DIM || world.z >= VOLUME_VOXEL_DIM)
+            {
+                continue;
+            }
+
+            // printf("\nbrick %u, position %u: (%u,%u,%u)\n", occupied_bricks[idx], i, world.x, world.y, world.z);
 
             float2 data, ref;
-            surf3Dread(&data, _volume_tsdf_data, (brick.x + position.x) * sizeof(float2), brick.y + position.y, brick.z + position.z);
-            surf3Dread(&ref, _volume_tsdf_ref, (brick.x + position.x) * sizeof(float2), brick.y + position.y, brick.z + position.z);
+            surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+            surf3Dread(&ref, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 
             float2 fused;
 
@@ -411,7 +426,7 @@ __global__ void kernel_fuse_volume(GLuint *brick_list, size_t brick_count)
                 fused.x = data.y > ref.y ? data.x : ref.x;
             }
 
-            surf3Dwrite(fused, _volume_tsdf_data, (brick.x + position.x) * sizeof(float2), brick.y + position.y, brick.z + position.z);
+            surf3Dwrite(fused, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
         }
     }
 }
@@ -616,27 +631,22 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_
 
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cgr_buffer_vertex_counter, native_handles.buffer_vertex_counter, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cgr_buffer_reference_mesh_vertices, native_handles.buffer_reference_vertices, cudaGraphicsRegisterFlagsReadOnly));
-
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cgr_buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cgr_buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsReadOnly));
-
     checkCudaErrors(cudaGraphicsGLRegisterImage(&cgr_volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-    checkCudaErrors(cudaGraphicsGLRegisterImage(&cgr_volume_tsdf_ref, native_handles.volume_tsdf_reference, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-
     checkCudaErrors(cudaGraphicsGLRegisterImage(&cgr_array2d_kinect_depths, native_handles.array2d_kinect_depths, GL_TEXTURE_2D_ARRAY, cudaGraphicsRegisterFlagsReadOnly));
+
+    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaMalloc3DArray(&_volume_array_tsdf_ref, &channel_desc, _volume_res, cudaArraySurfaceLoadStore));
 }
 
 extern "C" void deinit_cuda()
 {
     checkCudaErrors(cudaGraphicsUnregisterResource(cgr_buffer_vertex_counter));
     checkCudaErrors(cudaGraphicsUnregisterResource(cgr_buffer_reference_mesh_vertices));
-
     checkCudaErrors(cudaGraphicsUnregisterResource(cgr_buffer_bricks));
     checkCudaErrors(cudaGraphicsUnregisterResource(cgr_buffer_occupied));
-
     checkCudaErrors(cudaGraphicsUnregisterResource(cgr_volume_tsdf_data));
-    checkCudaErrors(cudaGraphicsUnregisterResource(cgr_volume_tsdf_ref));
-
     checkCudaErrors(cudaGraphicsUnregisterResource(cgr_array2d_kinect_depths));
 
     if(_ed_graph != nullptr)
@@ -658,36 +668,35 @@ extern "C" void deinit_cuda()
     {
         checkCudaErrors(cudaFree(_h));
     }
+
+    if(_volume_array_tsdf_ref != nullptr)
+    {
+        checkCudaErrors(cudaFree(_volume_array_tsdf_ref));
+    }
 }
 
 extern "C" void copy_reference_volume()
 {
-    cudaArray *volume_array_tsdf_data = nullptr;
-    cudaArray *volume_array_tsdf_ref = nullptr;
-
-    size_t brick_bytes;
-    GLuint *brick_list;
-
-    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
-
     checkCudaErrors(cudaGraphicsMapResources(1, &cgr_volume_tsdf_data, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &cgr_volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &cgr_buffer_occupied, 0));
 
+    cudaArray *volume_array_tsdf_data = nullptr;
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, cgr_volume_tsdf_data, 0, 0));
-    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref, cgr_volume_tsdf_ref, 0, 0));
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&brick_list, &brick_bytes, cgr_buffer_occupied));
 
-    unsigned max_bricks = ((unsigned)brick_bytes) / sizeof(unsigned);
+    size_t occupied_brick_bytes;
+    GLuint *brick_list;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&brick_list, &occupied_brick_bytes, cgr_buffer_occupied));
 
+    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _volume_array_tsdf_ref, &channel_desc));
 
     int blockSize;
     int minGridSize;
 
     cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, kernel_copy_reference, 0, 0);
 
+    unsigned max_bricks = ((unsigned)occupied_brick_bytes) / sizeof(unsigned);
     size_t gridSize = (max_bricks + blockSize - 1) / blockSize;
 
     kernel_copy_reference<<<gridSize, blockSize>>>(brick_list, max_bricks);
@@ -697,7 +706,6 @@ extern "C" void copy_reference_volume()
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_buffer_occupied, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_volume_tsdf_data, 0));
 }
 
@@ -753,7 +761,6 @@ extern "C" void sample_ed_nodes()
 extern "C" void align_non_rigid()
 {
     cudaArray *volume_array_tsdf_data = nullptr;
-    cudaArray *volume_array_tsdf_ref = nullptr;
 
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
 
@@ -768,16 +775,14 @@ extern "C" void align_non_rigid()
     checkCudaErrors(cudaGraphicsMapResources(1, &cgr_buffer_reference_mesh_vertices, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &cgr_buffer_occupied, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &cgr_volume_tsdf_data, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &cgr_volume_tsdf_ref, 0));
 
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_counter, &vx_bytes, cgr_buffer_vertex_counter));
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, cgr_buffer_reference_mesh_vertices));
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&brick_list, &brick_bytes, cgr_buffer_occupied));
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, cgr_volume_tsdf_data, 0, 0));
-    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref, cgr_volume_tsdf_ref, 0, 0));
 
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _volume_array_tsdf_ref, &channel_desc));
 
     // kernel_jtj_jtf<<<dim3(8, 8, 8), dim3(4, 4, 4)>>>(_jtj, _jtf, vx_counter, vx_ptr, _ed_graph);
 
@@ -806,7 +811,6 @@ extern "C" void align_non_rigid()
 
     cudaDeviceSynchronize();
 
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_volume_tsdf_data, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_buffer_occupied, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cgr_buffer_reference_mesh_vertices, 0));

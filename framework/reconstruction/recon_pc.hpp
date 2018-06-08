@@ -94,7 +94,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
 
-    GLuint _volume_tsdf_data, _volume_tsdf_reference;
+    GLuint _volume_tsdf_data;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
