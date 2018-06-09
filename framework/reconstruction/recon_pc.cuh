@@ -17,16 +17,15 @@ struct struct_native_handles
 struct struct_vertex
 {
   glm::vec3 position;
-  int pad_1;
+  unsigned int brick_id; // TODO: fill at extraction time
   glm::vec3 normal;
-  int pad_2;
+  unsigned int ed_cell_id;
 };
 
 struct struct_ed_node
 {
-  bool set;
-  glm::vec3 position;
-  glm::mat3 affine;
+  glm::vec3 position{-1.f};
+  glm::quat affine;
   glm::vec3 translation;
 };
 

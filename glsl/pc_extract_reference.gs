@@ -17,7 +17,7 @@ layout(binding = 6) uniform atomic_uint vertex_counter;
 struct Vertex
 {
     vec3 position;
-    uint pad_1;
+    uint brick_id;
     vec3 normal;
     uint pad_2;
 };
@@ -63,7 +63,8 @@ void store_face(uvec3 face, inout vec3 edge_vertices[12], inout uint edge_vertic
 void main()
 {
     uvec3 index = index_3d(geo_Id[0]);
-    if(!brick_occupied(get_id(index)))
+    uint brick_id = get_id(index);
+    if(!brick_occupied(brick_id))
     {
         return;
     }

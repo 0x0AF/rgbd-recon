@@ -287,7 +287,7 @@ void ReconPerformanceCapture::draw()
 
         copy_reference_volume();
         extract_reference_mesh();
-        // sample_ed_nodes(_buffer_reference_mesh_vertices->id(), _buffer_vertex_counter->id());
+        sample_ed_nodes();
 
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
