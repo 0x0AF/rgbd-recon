@@ -76,7 +76,7 @@ class model
         std::string _server_socket = "127.0.0.1:7000";
         std::vector<std::pair<int, int>> _gui_texture_settings{};
 
-        float _clear_color[4] = {0.1, 0.0, 0.0, 0.1};
+        float _clear_color[4] = {0.3, 0.0, 0.0, 0.3};
         unsigned _stereo_mode = 0;
         float _screenWidthReal = 1.28;
         float _screenHeightReal = 0.72;
@@ -108,7 +108,7 @@ class model
         bool _draw_bricks = false;
         bool _watch_errors = true;
         int _num_kinect = 1;
-        float _voxel_size = 0.04f;
+        float _voxel_size = 0.06f;
         float _ed_cell_size = 0.24f;
         float _brick_size = 0.24f;
         float _tsdf_limit = 0.03f;

@@ -33,8 +33,9 @@ using namespace gl;
 #include <vector_types.h>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_handles);
-extern "C" void align_non_rigid();
-extern "C" void copy_reference_volume();
+extern "C" void pcg_solve();
+extern "C" void fuse_data();
+extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" void deinit_cuda();
 
@@ -132,6 +133,7 @@ std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA
 std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
 std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
 std::string ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT = "TIMER_NON_RIGID_ALIGNMENT";
+std::string ReconPerformanceCapture::TIMER_FUSION = "TIMER_FUSION";
 static int start_image_unit = 3;
 
 ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size,
@@ -156,6 +158,9 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     setVoxelSize(_voxel_size);
     setBrickSize(_brick_size);
 
+    printf("\nres volume %u\n", _res_volume.x);
+    printf("\nres bricks %u\n", _res_bricks.x);
+
     _native_handles.buffer_bricks = _buffer_bricks->id();
     _native_handles.buffer_occupied = _buffer_occupied->id();
 
@@ -166,11 +171,17 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
 
     _native_handles.array2d_kinect_depths = nka.getDepthArrayRaw()->getGLHandle();
 
+    for(uint8_t i = 0; i < m_num_kinects; i++)
+    {
+        _native_handles.volume_cv_xyz_inv[i] = cv->getVolumesXYZInv().at(i)->id();
+    }
+
     init_cuda(_res_volume, _native_handles);
 
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
     TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
     TimerDatabase::instance().addTimer(TIMER_NON_RIGID_ALIGNMENT);
+    TimerDatabase::instance().addTimer(TIMER_FUSION);
     TimerDatabase::instance().addTimer(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
@@ -187,7 +198,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_solid = new Program();
     _program_bricks = new Program();
 
-    _res_volume = glm::uvec3(50, 50, 50);
+    _res_volume = glm::uvec3(34, 34, 34);
     _res_bricks = glm::uvec3(9, 9, 9);
     _sampler = new VolumeSampler(_res_volume);
 
@@ -281,26 +292,30 @@ void ReconPerformanceCapture::draw()
 {
     integrate_data_frame();
 
-    if(_frame_number.load() % 256 == 0)
+    if(_frame_number.load() % 16 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
-        copy_reference_volume();
+        copy_reference();
         extract_reference_mesh();
         sample_ed_nodes();
 
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
-    else
-    {
-        // TODO: estimate ICP rigid body fit
 
-        TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
+    // TODO: estimate ICP rigid body fit
 
-        align_non_rigid();
+    TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-        TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
-    }
+    pcg_solve();
+
+    TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+
+    TimerDatabase::instance().begin(TIMER_FUSION);
+
+    fuse_data();
+
+    TimerDatabase::instance().end(TIMER_FUSION);
 
     draw_data();
 

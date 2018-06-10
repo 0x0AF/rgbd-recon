@@ -248,5 +248,6 @@ std::vector<glm::fvec3> CalibVolumes::getCameraPositions() const
 }
 
 gloost::BoundingBox const &CalibVolumes::getBBox() const { return m_bbox; }
+const std::vector<globjects::Texture *> &CalibVolumes::getVolumesXYZInv () const { return m_volumes_xyz_inv; }
 
 } // namespace kinect

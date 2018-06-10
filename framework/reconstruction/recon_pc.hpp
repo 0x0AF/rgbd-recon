@@ -41,7 +41,7 @@
 
 #include <tinyply.h>
 
-#include <recon_pc.cuh>
+#include <reconstruction/cuda/structures.cuh>
 
 namespace globjects
 {
@@ -78,7 +78,7 @@ class ReconPerformanceCapture : public Reconstruction
     void drawOccupiedBricks() const;
 
     static int TRI_TABLE[4096];
-    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_NON_RIGID_ALIGNMENT;
+    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_NON_RIGID_ALIGNMENT, TIMER_FUSION;
 
   private:
     struct_native_handles _native_handles;
