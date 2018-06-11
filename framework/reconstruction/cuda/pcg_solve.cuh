@@ -10,6 +10,8 @@
 #include <device_launch_parameters.h>
 #include <helper_cuda.h>
 
+#define TSDF_LOOKUP
+
 /*
  * Warp a position in volume voxel space with a single ED node
  * */
@@ -29,24 +31,36 @@ __device__ glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, con
 __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
-    const float skinning_weight = expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
+    const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
 
     glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight);
-    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight);
 
-    float residuals = 0.f;
+    float residual = 0.f;
+
+    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
+    // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+
+    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM || wp_voxel_space.y >= VOLUME_VOXEL_DIM || wp_voxel_space.z >= VOLUME_VOXEL_DIM)
+    {
+        // TODO: warped out of volume!
+        return 0.f;
+    }
+
+#ifdef TSDF_LOOKUP
+    float2 data;
+    surf3Dread(&data, _volume_tsdf_data, wp_voxel_space.x * sizeof(float2), wp_voxel_space.y, wp_voxel_space.z);
+
+    if(data.x > 0. && data.x < 0.03f)
+    {
+        residual += data.x;
+    }
+#endif
+
+#ifdef CV_LOOKUP
+    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight);
 
     for(int i = 0; i < 4; i++)
     {
-        glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
-        // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
-
-        if(wp_voxel_space.x >= VOLUME_VOXEL_DIM || wp_voxel_space.y >= VOLUME_VOXEL_DIM || wp_voxel_space.z >= VOLUME_VOXEL_DIM)
-        {
-            // TODO: warped out of volume!
-            continue;
-        }
-
         float4 data;
 
         switch(i)
@@ -87,10 +101,11 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         glm::vec3 extracted_position = glm::vec3(wp_voxel_space) + glm::vec3(1.f - data.z) * (float)VOLUME_VOXEL_DIM;
         // extracted_position *= (1 + 0.1 * fracf(sinf(warped_position.x)));
 
-        residuals += glm::abs(glm::dot(warped_normal, glm::vec3(wp_voxel_space) - extracted_position));
+        residual += glm::abs(glm::dot(warped_normal, glm::vec3(wp_voxel_space) - extracted_position));
     }
+#endif
 
-    return residuals;
+    return residual;
 }
 
 __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node &ed_node, const int &partial_derivative_index, const float &vx_residual)
@@ -106,29 +121,27 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node &ed_node, 
     return (residual_pos - vx_residual) / 0.002f;
 }
 
-__device__ float *evaluate_ed_node_residuals(struct_ed_node &ed_node)
+__device__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
 {
-    float *residuals = new float[2];
+    float residual = 0.f;
 
     glm::mat3 mat_1 = (glm::transpose(glm::toMat3(ed_node.affine)) * glm::toMat3(ed_node.affine) - glm::mat3());
-
-    residuals[0] = 0.f;
 
     for(int i = 0; i < 3; i++)
     {
         for(int k = 0; k < 3; k++)
         {
-            residuals[0] += mat_1[i][k] * mat_1[i][k];
+            residual += mat_1[i][k] * mat_1[i][k];
         }
     }
 
-    residuals[0] = (float)sqrt(residuals[0]);
-    residuals[0] += glm::determinant(glm::toMat3(ed_node.affine)) - 1;
+    residual = (float)sqrt(residual);
+    residual += glm::determinant(glm::toMat3(ed_node.affine)) - 1;
 
     // TODO: figure out smooth component
-    residuals[1] = 0.f;
+    // residuals[1] = 0.f;
 
-    return residuals;
+    return residual;
 }
 
 __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int ed_nodes_count, struct_ed_node *ed_graph)
@@ -213,6 +226,8 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
 
 __host__ void solve_for_h()
 {
+    cusparseStatus_t status;
+
     cusparseMatDescr_t descr = nullptr;
     cusparseCreateMatDescr(&descr);
     cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -231,27 +246,39 @@ __host__ void solve_for_h()
     int *nnz_per_row_col = nullptr;
     checkCudaErrors(cudaMalloc(&nnz_per_row_col, sizeof(int) * 2));
 
-    cusparseSnnz(cusparse_handle, CUSPARSE_DIRECTION_ROW, N, N, descr, _jtj, N, nnz_per_row_col, &csr_nnz);
     cudaDeviceSynchronize();
+    status = cusparseSnnz(cusparse_handle, CUSPARSE_DIRECTION_ROW, N, N, descr, _jtj, N, nnz_per_row_col, &csr_nnz);
+    cudaDeviceSynchronize();
+
+    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+    {
+        printf("\ncusparseStatus_t: %u\n", status);
+    }
 
     // printf("\ncusparseStatus_t: %u\n", status);
 
     getLastCudaError("cusparseSnnz failure");
 
-    printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
+    // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
 
     checkCudaErrors(cudaMalloc(&csr_val_jtj, sizeof(float) * csr_nnz));
     checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
     checkCudaErrors(cudaMalloc(&csr_col_ind_jtj, sizeof(int) * csr_nnz));
 
-    cusparseSdense2csr(cusparse_handle, N, N, descr, _jtj, N, nnz_per_row_col, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj);
     cudaDeviceSynchronize();
+    status = cusparseSdense2csr(cusparse_handle, N, N, descr, _jtj, N, nnz_per_row_col, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj);
+    cudaDeviceSynchronize();
+
+    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+    {
+        printf("\ncusparseStatus_t: %u\n", status);
+    }
 
     checkCudaErrors(cudaFree(nnz_per_row_col));
 
     getLastCudaError("cusparseSdense2csr failure");
 
-    const int max_iter = 256;
+    const int max_iter = 16;
     const float tol = 1e-12f;
 
     float r0, r1, alpha, alpham1, beta;
@@ -265,7 +292,7 @@ __host__ void solve_for_h()
     r0 = 0.f;
 
     cudaDeviceSynchronize();
-    cusparseStatus_t status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj, _h, &beta, pcg_Ax);
+    status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj, _h, &beta, pcg_Ax);
     cudaDeviceSynchronize();
 
     if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
@@ -275,52 +302,69 @@ __host__ void solve_for_h()
 
     getLastCudaError("cusparseScsrmv failure");
 
-    cublasSaxpy(cublas_handle, N, &alpham1, pcg_Ax, 1, _jtf, 1);
-    cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+    // TODO: use for dampening
+    float mu = 1.0f;
 
-    printf("\ninitial residual = %e\n", sqrt(r1));
-
-    int k = 1;
-
-    while(r1 > tol * tol && k <= max_iter)
+    for(unsigned int lm_step = 0; lm_step < 16; lm_step++)
     {
-        if(k > 1)
+        cublasSaxpy(cublas_handle, N, &alpham1, pcg_Ax, 1, _jtf, 1);
+        cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+
+        float init_res = sqrt(r1);
+
+        // printf("\ninitial residual = %e\n", sqrt(r1));
+
+        int k = 1;
+
+        while(r1 > tol * tol && k <= max_iter)
         {
-            b = r1 / r0;
-            cublasSscal(cublas_handle, N, &b, pcg_p, 1);
-            cublasSaxpy(cublas_handle, N, &alpha, _jtf, 1, pcg_p, 1);
+            if(k > 1)
+            {
+                b = r1 / r0;
+                cublasSscal(cublas_handle, N, &b, pcg_p, 1);
+                cublasSaxpy(cublas_handle, N, &alpha, _jtf, 1, pcg_p, 1);
+            }
+            else
+            {
+                cublasScopy(cublas_handle, N, _jtf, 1, pcg_p, 1);
+            }
+
+            cudaDeviceSynchronize();
+            status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj, pcg_p, &beta, pcg_Ax);
+            cudaDeviceSynchronize();
+
+            if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+            {
+                printf("\ncusparseStatus_t: %u\n", status);
+            }
+
+            getLastCudaError("cusparseScsrmv failure");
+
+            cublasSdot(cublas_handle, N, pcg_p, 1, pcg_Ax, 1, &dot);
+            a = r1 / dot;
+
+            cublasSaxpy(cublas_handle, N, &a, pcg_p, 1, _h, 1);
+            na = -a;
+            cublasSaxpy(cublas_handle, N, &na, pcg_Ax, 1, _jtf, 1);
+
+            r0 = r1;
+            cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+            k++;
+        }
+
+        // printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
+
+        if(sqrt(r1) < init_res)
+        {
+            // sort of dampening with mu
+            cublasSaxpy(cublas_handle, N, &alpha, _h, mu, (float *)_ed_graph, 1);
+            mu -= 0.06;
         }
         else
         {
-            cublasScopy(cublas_handle, N, _jtf, 1, pcg_p, 1);
+            mu += 0.06;
         }
-
-        cudaDeviceSynchronize();
-        cusparseStatus_t status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj, pcg_p, &beta, pcg_Ax);
-        cudaDeviceSynchronize();
-
-        if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-        {
-            printf("\ncusparseStatus_t: %u\n", status);
-        }
-
-        getLastCudaError("cusparseScsrmv failure");
-
-        cublasSdot(cublas_handle, N, pcg_p, 1, pcg_Ax, 1, &dot);
-        a = r1 / dot;
-
-        cublasSaxpy(cublas_handle, N, &a, pcg_p, 1, _h, 1);
-        na = -a;
-        cublasSaxpy(cublas_handle, N, &na, pcg_Ax, 1, _jtf, 1);
-
-        r0 = r1;
-        cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
-        cudaDeviceSynchronize();
-        printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
-        k++;
     }
-
-    cudaDeviceSynchronize();
 
     checkCudaErrors(cudaFree(csr_val_jtj));
     checkCudaErrors(cudaFree(csr_row_ptr_jtj));
@@ -330,6 +374,7 @@ __host__ void solve_for_h()
 
 extern "C" void pcg_solve()
 {
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_occupied, 0));
@@ -341,6 +386,9 @@ extern "C" void pcg_solve()
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_kinect_depths, 0));
 
+    cudaArray *volume_array_tsdf_data = nullptr;
+    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, _cgr.volume_tsdf_data, 0, 0));
+
     size_t vx_bytes;
     GLuint *vx_counter;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_counter, &vx_bytes, _cgr.buffer_vertex_counter));
@@ -351,6 +399,9 @@ extern "C" void pcg_solve()
     size_t brick_bytes;
     GLuint *brick_list;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&brick_list, &brick_bytes, _cgr.buffer_occupied));
+
+    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
 
     cudaArray *volume_array_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     for(unsigned int i = 0; i < 4; i++)
@@ -385,6 +436,8 @@ extern "C" void pcg_solve()
     {
         checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
     }
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
 
     cudaDeviceSynchronize();
 

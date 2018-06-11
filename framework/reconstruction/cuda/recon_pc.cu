@@ -30,6 +30,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_
         if(deviceProperties.major >= 6 && deviceProperties.minor >= 1)
         {
             cudaSetDevice(deviceIndex);
+            cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
         }
     }
 

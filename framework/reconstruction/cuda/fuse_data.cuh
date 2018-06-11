@@ -10,7 +10,7 @@
 #include <device_launch_parameters.h>
 #include <helper_cuda.h>
 
-__global__ void kernel_fuse_data(GLuint *occupied_bricks, size_t occupied_brick_count)
+__global__ void kernel_fuse_data(GLuint *occupied_bricks, size_t occupied_brick_count, unsigned int *bricks_inv_index, unsigned int ed_nodes_count, struct_ed_node *ed_graph)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -55,8 +55,36 @@ __global__ void kernel_fuse_data(GLuint *occupied_bricks, size_t occupied_brick_
 
         // printf("\nbrick %u, position %u: (%u,%u,%u)\n", occupied_bricks[idx], i, world.x, world.y, world.z);
 
+        glm::uvec3 ed_cell_index3d = position / ED_CELL_VOXEL_DIM;
+        unsigned int ed_cell = ed_cell_index3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_index3d.y * ED_CELL_RES + ed_cell_index3d.x;
+        unsigned int brick_pos_inv_index = bricks_inv_index[occupied_bricks[idx]];
+        unsigned int ed_cell_pos = brick_pos_inv_index * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES + ed_cell;
+
+        if(ed_cell_pos > ed_nodes_count)
+        {
+            continue;
+        }
+
+        if(ed_graph[ed_cell_pos].position.z * ED_CELL_RES * ED_CELL_RES + ed_graph[ed_cell_pos].position.y * ED_CELL_RES + ed_graph[ed_cell_pos].position.x == 0u)
+        {
+            // unset ed_node
+            continue;
+        }
+
+        glm::vec3 dist = glm::vec3(world) - ed_graph[ed_cell_pos].position;
+
+        // printf("\n|dist|: %f\n", glm::length(dist));
+
+        const float skinning_weight = 1.f; //expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
+        glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_graph[ed_cell_pos], skinning_weight));
+
+        if(warped_position.x >= VOLUME_VOXEL_DIM || warped_position.y >= VOLUME_VOXEL_DIM || warped_position.z >= VOLUME_VOXEL_DIM)
+        {
+            continue;
+        }
+
         float2 data, ref;
-        surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+        surf3Dread(&data, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
         surf3Dread(&ref, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 
         float2 fused;
@@ -70,9 +98,11 @@ __global__ void kernel_fuse_data(GLuint *occupied_bricks, size_t occupied_brick_
         else
         {
             fused.x = data.y > ref.y ? data.x : ref.x;
+            fused.y = data.y > ref.y ? data.y : ref.y;
         }
 
-        surf3Dwrite(ref, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+        surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+        surf3Dwrite(fused, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
     }
 }
 
@@ -98,7 +128,7 @@ extern "C" void fuse_data()
 
     unsigned max_bricks = ((unsigned)occupied_brick_bytes) / sizeof(unsigned);
     size_t grid_size = (max_bricks + block_size - 1) / block_size;
-    kernel_fuse_data<<<grid_size, block_size>>>(brick_list, max_bricks);
+    kernel_fuse_data<<<grid_size, block_size>>>(brick_list, max_bricks, _bricks_inv_index, _ed_nodes_count, _ed_graph);
 
     getLastCudaError("render kernel failed");
 
