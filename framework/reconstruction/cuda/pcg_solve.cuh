@@ -108,17 +108,37 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
     return residual;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node &ed_node, const int &partial_derivative_index, const float &vx_residual)
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual)
 {
     float *mapped_ed_node = (float *)&ed_node;
 
-    mapped_ed_node[partial_derivative_index] += 0.001f;
+    mapped_ed_node[partial_derivative_index] += 0.0001f;
 
     float residual_pos = evaluate_vx_residual(vertex, ed_node);
 
-    mapped_ed_node[partial_derivative_index] -= 0.001f;
+    mapped_ed_node[partial_derivative_index] -= 0.0001f;
 
-    return (residual_pos - vx_residual) / 0.002f;
+    // printf("\nresidual_pos: %f\n", residual_pos);
+
+    if(isnan(residual_pos))
+    {
+        printf("\nresidual_pos is NaN!\n");
+
+        residual_pos = 0.f;
+    }
+
+    float partial_derivative = residual_pos / 0.0002f - vx_residual / 0.0002f;
+
+    // printf("\npartial_derivative: %f\n", partial_derivative);
+
+    if(isnan(partial_derivative))
+    {
+        printf("\npartial_derivative is NaN!\n");
+
+        partial_derivative = 0.f;
+    }
+
+    return partial_derivative;
 }
 
 __device__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
@@ -189,11 +209,31 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
             // printf("\ned_node + vertex match\n");
 
             float vx_residual = evaluate_vx_residual(vx, ed_node);
+
+            if(isnan(sqrt(vx_residual)))
+            {
+                printf("\nvx_residual is NaN!\n");
+
+                vx_residual = 0.f;
+            }
+
+            if(vx_residual == 0.f)
+            {
+                continue;
+            }
+
             float *vx_pds = (float *)malloc(sizeof(float) * 10u);
 
             for(unsigned int component = 0; component < 10u; component++)
             {
                 vx_pds[component] = evaluate_vx_pd(vx, ed_node, component, vx_residual);
+
+                if(isnan(sqrt(vx_pds[component])))
+                {
+                    printf("\nvx_pds[%u] is NaN!\n", component);
+
+                    vx_pds[component] = 0.f;
+                }
             }
 
             for(unsigned int component_i = 0; component_i < 10u; component_i++)
@@ -314,6 +354,11 @@ __host__ void solve_for_h()
 
         // printf("\ninitial residual = %e\n", sqrt(r1));
 
+        //        if(isnanf(sqrt(r1)))
+        //        {
+        //            fprintf(stderr, "\nnan in initial residual!\n");
+        //        }
+
         int k = 1;
 
         while(r1 > tol * tol && k <= max_iter)
@@ -350,6 +395,11 @@ __host__ void solve_for_h()
             r0 = r1;
             cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
             k++;
+
+            //            if(isnanf(sqrt(r1)))
+            //            {
+            //                fprintf(stderr, "\nnan in solution!\n");
+            //            }
         }
 
         // printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));

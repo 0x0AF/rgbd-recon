@@ -34,7 +34,7 @@ struct struct_vertex
 
 struct struct_ed_node
 {
-  glm::vec3 position{-1.f};
+  glm::vec3 position;
   glm::quat affine;
   glm::vec3 translation;
 };
