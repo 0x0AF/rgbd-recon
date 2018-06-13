@@ -158,8 +158,8 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     setVoxelSize(_voxel_size);
     setBrickSize(_brick_size);
 
-    printf("\nres volume %u\n", _res_volume.x);
-    printf("\nres bricks %u\n", _res_bricks.x);
+    printf("\nres volume (%u,%u,%u)\n", _res_volume.x, _res_volume.y, _res_volume.z);
+    printf("\nres bricks (%u,%u,%u)\n", _res_bricks.x, _res_bricks.y, _res_bricks.z);
 
     _native_handles.buffer_bricks = _buffer_bricks->id();
     _native_handles.buffer_occupied = _buffer_occupied->id();
@@ -198,8 +198,8 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_solid = new Program();
     _program_bricks = new Program();
 
-    _res_volume = glm::uvec3(34, 34, 34);
-    _res_bricks = glm::uvec3(9, 9, 9);
+    _res_volume = glm::uvec3(71, 56, 65);
+    _res_bricks = glm::uvec3(6, 5, 6);
     _sampler = new VolumeSampler(_res_volume);
 
     glGenTextures(1, &_volume_tsdf_data);
@@ -409,10 +409,10 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     _sampler->resize(_res_volume);
 
     _program_pc_draw_data->setUniform("res_tsdf", _res_volume);
-    _program_pc_draw_data->setUniform("size_voxel", _voxel_size / 2.f);
+    _program_pc_draw_data->setUniform("size_voxel", _voxel_size);
 
     _program_pc_extract_reference->setUniform("res_tsdf", _res_volume);
-    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size / 2.f);
+    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size);
 
     _program_integration->setUniform("res_tsdf", _res_volume);
 

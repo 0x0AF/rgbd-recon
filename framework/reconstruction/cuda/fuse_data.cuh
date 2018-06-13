@@ -14,12 +14,12 @@ __global__ void kernel_fuse_data(GLuint *occupied_bricks, size_t occupied_brick_
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx >= occupied_brick_count)
+    if(idx >= occupied_brick_count * BRICK_VOXELS)
     {
         return;
     }
 
-    unsigned int brick_id = occupied_bricks[idx];
+    unsigned int brick_id = occupied_bricks[idx / BRICK_VOXELS];
 
     if(brick_id == 0u)
     {
@@ -27,83 +27,80 @@ __global__ void kernel_fuse_data(GLuint *occupied_bricks, size_t occupied_brick_
     }
 
     glm::uvec3 brick = glm::uvec3(0u);
-    brick.z = brick_id / (BRICK_RES * BRICK_RES);
-    brick_id %= (BRICK_RES * BRICK_RES);
-    brick.y = brick_id / BRICK_RES;
-    brick_id %= BRICK_RES;
+    brick.z = brick_id / (BRICK_RES_Y * BRICK_RES_Z);
+    brick_id %= (BRICK_RES_Y * BRICK_RES_Z);
+    brick.y = brick_id / BRICK_RES_Y;
+    brick_id %= BRICK_RES_X;
     brick.x = brick_id;
 
     // printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
 
-    for(unsigned int i = 0u; i < BRICK_VOXELS; i++)
+    unsigned int position_id = idx % BRICK_VOXELS;
+
+    glm::uvec3 position = glm::uvec3(0u);
+    position.z = position_id / (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
+    position_id %= (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
+    position.y = position_id / BRICK_VOXEL_DIM;
+    position_id %= (BRICK_VOXEL_DIM);
+    position.x = position_id;
+
+    glm::uvec3 world = brick * BRICK_VOXEL_DIM + position;
+
+    if(world.x >= VOLUME_VOXEL_DIM_X || world.y >= VOLUME_VOXEL_DIM_Y || world.z >= VOLUME_VOXEL_DIM_Z)
     {
-        unsigned int position_id = i;
-
-        glm::uvec3 position = glm::uvec3(0u);
-        position.z = position_id / (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
-        position_id %= (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
-        position.y = position_id / BRICK_VOXEL_DIM;
-        position_id %= (BRICK_VOXEL_DIM);
-        position.x = position_id;
-
-        glm::uvec3 world = brick * BRICK_VOXEL_DIM + position;
-
-        if(world.x >= VOLUME_VOXEL_DIM || world.y >= VOLUME_VOXEL_DIM || world.z >= VOLUME_VOXEL_DIM)
-        {
-            continue;
-        }
-
-        // printf("\nbrick %u, position %u: (%u,%u,%u)\n", occupied_bricks[idx], i, world.x, world.y, world.z);
-
-        glm::uvec3 ed_cell_index3d = position / ED_CELL_VOXEL_DIM;
-        unsigned int ed_cell = ed_cell_index3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_index3d.y * ED_CELL_RES + ed_cell_index3d.x;
-        unsigned int brick_pos_inv_index = bricks_inv_index[occupied_bricks[idx]];
-        unsigned int ed_cell_pos = brick_pos_inv_index * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES + ed_cell;
-
-        if(ed_cell_pos > ed_nodes_count)
-        {
-            continue;
-        }
-
-        if(ed_graph[ed_cell_pos].position.z * ED_CELL_RES * ED_CELL_RES + ed_graph[ed_cell_pos].position.y * ED_CELL_RES + ed_graph[ed_cell_pos].position.x == 0u)
-        {
-            // unset ed_node
-            continue;
-        }
-
-        glm::vec3 dist = glm::vec3(world) - ed_graph[ed_cell_pos].position;
-
-        // printf("\n|dist|: %f\n", glm::length(dist));
-
-        const float skinning_weight = 1.f; //expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
-        glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_graph[ed_cell_pos], skinning_weight));
-
-        if(warped_position.x >= VOLUME_VOXEL_DIM || warped_position.y >= VOLUME_VOXEL_DIM || warped_position.z >= VOLUME_VOXEL_DIM)
-        {
-            continue;
-        }
-
-        float2 data, ref;
-        surf3Dread(&data, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-        surf3Dread(&ref, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
-
-        float2 fused;
-
-        fused.y = ref.y + data.y;
-
-        if(fused.y > 0.001f)
-        {
-            fused.x = data.x * data.y / fused.y + ref.x * ref.y / fused.y;
-        }
-        else
-        {
-            fused.x = data.y > ref.y ? data.x : ref.x;
-            fused.y = data.y > ref.y ? data.y : ref.y;
-        }
-
-        surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-        surf3Dwrite(fused, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+        return;
     }
+
+    // printf("\nbrick %u, position %u: (%u,%u,%u)\n", occupied_bricks[idx], idx % BRICK_VOXELS, world.x, world.y, world.z);
+
+    glm::uvec3 ed_cell_index3d = position / ED_CELL_VOXEL_DIM;
+    unsigned int ed_cell = ed_cell_index3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_index3d.y * ED_CELL_RES + ed_cell_index3d.x;
+    unsigned int brick_pos_inv_index = bricks_inv_index[occupied_bricks[idx / BRICK_VOXELS]];
+    unsigned int ed_cell_pos = brick_pos_inv_index * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES + ed_cell;
+
+    if(ed_cell_pos > ed_nodes_count)
+    {
+        return;
+    }
+
+    if(ed_graph[ed_cell_pos].position.z * ED_CELL_RES * ED_CELL_RES + ed_graph[ed_cell_pos].position.y * ED_CELL_RES + ed_graph[ed_cell_pos].position.x == 0u)
+    {
+        // unset ed_node
+        return;
+    }
+
+    glm::vec3 dist = glm::vec3(world) - ed_graph[ed_cell_pos].position;
+
+    // printf("\n|dist|: %f\n", glm::length(dist));
+
+    const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
+    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_graph[ed_cell_pos], skinning_weight));
+
+    if(warped_position.x >= VOLUME_VOXEL_DIM_X || warped_position.y >= VOLUME_VOXEL_DIM_Y || warped_position.z >= VOLUME_VOXEL_DIM_Z)
+    {
+        return;
+    }
+
+    float2 data, ref;
+    surf3Dread(&data, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    surf3Dread(&ref, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+
+    float2 fused;
+
+    fused.y = ref.y + data.y;
+
+    if(fused.y > 0.001f)
+    {
+        fused.x = data.x * data.y / fused.y + ref.x * ref.y / fused.y;
+    }
+    else
+    {
+        fused.x = data.y > ref.y ? data.x : ref.x;
+        fused.y = data.y > ref.y ? data.y : ref.y;
+    }
+
+    surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    surf3Dwrite(fused, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 }
 
 extern "C" void fuse_data()
@@ -126,9 +123,10 @@ extern "C" void fuse_data()
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_fuse_data, 0, 0);
 
-    unsigned max_bricks = ((unsigned)occupied_brick_bytes) / sizeof(unsigned);
-    size_t grid_size = (max_bricks + block_size - 1) / block_size;
-    kernel_fuse_data<<<grid_size, block_size>>>(brick_list, max_bricks, _bricks_inv_index, _ed_nodes_count, _ed_graph);
+    unsigned occupied_brick_count = ((unsigned)occupied_brick_bytes) / sizeof(unsigned);
+    unsigned max_brick_voxels = occupied_brick_count * BRICK_VOXELS;
+    size_t grid_size = (max_brick_voxels + block_size - 1) / block_size;
+    kernel_fuse_data<<<grid_size, block_size>>>(brick_list, occupied_brick_count, _bricks_inv_index, _ed_nodes_count, _ed_graph);
 
     getLastCudaError("render kernel failed");
 

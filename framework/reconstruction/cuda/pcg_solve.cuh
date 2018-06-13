@@ -40,7 +40,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
     glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
     // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
 
-    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM || wp_voxel_space.y >= VOLUME_VOXEL_DIM || wp_voxel_space.z >= VOLUME_VOXEL_DIM)
+    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
     {
         // TODO: warped out of volume!
         return 0.f;
@@ -204,7 +204,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
                 continue;
             }
 
-            vx.position = vx.position * (float)VOLUME_VOXEL_DIM;
+            vx.position = vx.position * glm::vec3(VOLUME_VOXEL_DIM_X, VOLUME_VOXEL_DIM_Y, VOLUME_VOXEL_DIM_Z);
 
             // printf("\ned_node + vertex match\n");
 
@@ -352,7 +352,7 @@ __host__ void solve_for_h()
 
         float init_res = sqrt(r1);
 
-        // printf("\ninitial residual = %e\n", sqrt(r1));
+        printf("\ninitial residual = %e\n", sqrt(r1));
 
         //        if(isnanf(sqrt(r1)))
         //        {
@@ -402,7 +402,7 @@ __host__ void solve_for_h()
             //            }
         }
 
-        // printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
+        printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
 
         if(sqrt(r1) < init_res)
         {

@@ -4,10 +4,16 @@
 const unsigned ED_CELL_RES = 1u;
 const unsigned ED_CELL_VOXEL_DIM = 4u;
 const unsigned ED_CELL_VOXELS = 64u;
-const unsigned BRICK_RES = 9u;
 const unsigned BRICK_VOXEL_DIM = 4u;
 const unsigned BRICK_VOXELS = 64u;
-const unsigned VOLUME_VOXEL_DIM = 34u;
+
+const unsigned BRICK_RES_X = 6u;
+const unsigned BRICK_RES_Y = 5u;
+const unsigned BRICK_RES_Z = 6u;
+
+const unsigned VOLUME_VOXEL_DIM_X = 71u;
+const unsigned VOLUME_VOXEL_DIM_Y = 56u;
+const unsigned VOLUME_VOXEL_DIM_Z = 65u;
 
 struct struct_native_handles
 {

@@ -18,7 +18,7 @@ __device__ unsigned int identify_ed_cell_pos(glm::vec3 position, unsigned int *b
     glm::uvec3 pos_voxel_space = glm::uvec3(position);
     glm::uvec3 brick_index3d = pos_voxel_space / BRICK_VOXEL_DIM;
 
-    unsigned int brick_id = brick_index3d.z * BRICK_RES * BRICK_RES + brick_index3d.y * BRICK_RES + brick_index3d.x;
+    unsigned int brick_id = brick_index3d.z * BRICK_RES_Y * BRICK_RES_Z + brick_index3d.y * BRICK_RES_Y + brick_index3d.x;
 
     // printf("\nbrick_id  %u\n", brick_id);
 
@@ -57,7 +57,7 @@ __global__ void kernel_sample_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr
             return;
         }
 
-        glm::vec3 position_voxel_space = vx_ptr[vertex_position].position * (float)VOLUME_VOXEL_DIM;
+        glm::vec3 position_voxel_space = vx_ptr[vertex_position].position * glm::vec3(VOLUME_VOXEL_DIM_X, VOLUME_VOXEL_DIM_Y, VOLUME_VOXEL_DIM_Z);
 
         unsigned int ed_cell_pos = identify_ed_cell_pos(position_voxel_space, bricks_inv_index);
 
