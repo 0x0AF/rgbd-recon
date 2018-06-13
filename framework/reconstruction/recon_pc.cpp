@@ -199,7 +199,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_bricks = new Program();
 
     _res_volume = glm::uvec3(71, 56, 65);
-    _res_bricks = glm::uvec3(6, 5, 6);
+    _res_bricks = glm::uvec3(8, 7, 8);
     _sampler = new VolumeSampler(_res_volume);
 
     glGenTextures(1, &_volume_tsdf_data);
@@ -212,7 +212,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
 
     _mat_vol_to_world = glm::fmat4(1.0f);
     _limit = limit;
-    _brick_size = 0.24f;
+    _brick_size = 0.18f;
     _voxel_size = size;
     _ed_cell_size = ed_cell_size;
     _use_bricks = true;

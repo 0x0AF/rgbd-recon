@@ -7,8 +7,8 @@
 #include <reconstruction/cuda/resources.cuh>
 
 #include <cuda_runtime.h>
-#include <helper_cuda.h>
 #include <device_launch_parameters.h>
+#include <helper_cuda.h>
 
 /*
  * Identify enclosing ED cell in volume voxel space
@@ -82,87 +82,103 @@ __global__ void kernel_sample_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr
 
 extern "C" void sample_ed_nodes()
 {
-  if(_ed_graph != nullptr)
+    if(_ed_graph != nullptr)
     {
-      checkCudaErrors(cudaFree(_ed_graph));
+        checkCudaErrors(cudaFree(_ed_graph));
     }
 
-  if(_jtf != nullptr)
+    if(_jtf != nullptr)
     {
-      checkCudaErrors(cudaFree(_jtf));
+        checkCudaErrors(cudaFree(_jtf));
     }
 
-  if(_jtj != nullptr)
+    if(_jtj_vals != nullptr)
     {
-      checkCudaErrors(cudaFree(_jtj));
+        checkCudaErrors(cudaFree(_jtj_vals));
     }
 
-  if(_h != nullptr)
+    if(_jtj_rows != nullptr)
     {
-      checkCudaErrors(cudaFree(_h));
+        checkCudaErrors(cudaFree(_jtj_rows));
     }
 
-  if(pcg_Ax != nullptr)
+    if(_jtj_cols != nullptr)
     {
-      checkCudaErrors(cudaFree(pcg_Ax));
+        checkCudaErrors(cudaFree(_jtj_cols));
     }
 
-  if(pcg_omega != nullptr)
+    if(_h != nullptr)
     {
-      checkCudaErrors(cudaFree(pcg_omega));
+        checkCudaErrors(cudaFree(_h));
     }
 
-  if(pcg_p != nullptr)
+    if(pcg_Ax != nullptr)
     {
-      checkCudaErrors(cudaFree(pcg_p));
+        checkCudaErrors(cudaFree(pcg_Ax));
     }
 
-  cudaDeviceSynchronize();
+    if(pcg_omega != nullptr)
+    {
+        checkCudaErrors(cudaFree(pcg_omega));
+    }
 
-  checkCudaErrors(cudaMalloc(&_ed_graph, _ed_nodes_count * sizeof(struct_ed_node)));
+    if(pcg_p != nullptr)
+    {
+        checkCudaErrors(cudaFree(pcg_p));
+    }
 
-  checkCudaErrors(cudaMalloc(&_jtj, _ed_nodes_component_count * _ed_nodes_component_count * sizeof(float)));
-  checkCudaErrors(cudaMalloc(&_jtf, _ed_nodes_component_count * sizeof(float)));
-  checkCudaErrors(cudaMalloc(&_h, _ed_nodes_component_count * sizeof(float)));
+    cudaDeviceSynchronize();
 
-  checkCudaErrors(cudaMalloc(&pcg_p, _ed_nodes_component_count * sizeof(float)));
-  checkCudaErrors(cudaMalloc(&pcg_omega, _ed_nodes_component_count * sizeof(float)));
-  checkCudaErrors(cudaMalloc(&pcg_Ax, _ed_nodes_component_count * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_ed_graph, _ed_nodes_count * sizeof(struct_ed_node)));
 
-  cudaMemset(_ed_graph, 0, _ed_nodes_component_count * sizeof(float));
+    checkCudaErrors(cudaMalloc(&_jtj_vals, _ed_nodes_component_count * ED_COMPONENT_COUNT * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_jtj_rows, _ed_nodes_component_count * ED_COMPONENT_COUNT * sizeof(int)));
+    checkCudaErrors(cudaMalloc(&_jtj_cols, _ed_nodes_component_count * ED_COMPONENT_COUNT * sizeof(int)));
 
-  cudaMemset(_jtj, 0, _ed_nodes_component_count * _ed_nodes_component_count * sizeof(float));
-  cudaMemset(_jtf, 0, _ed_nodes_component_count * sizeof(float));
-  cudaMemset(_h, 0, _ed_nodes_component_count * sizeof(float));
+    checkCudaErrors(cudaMalloc(&_jtf, _ed_nodes_component_count * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_h, _ed_nodes_component_count * sizeof(float)));
 
-  cudaMemset(pcg_p, 0, _ed_nodes_component_count * sizeof(float));
-  cudaMemset(pcg_omega, 0, _ed_nodes_component_count * sizeof(float));
-  cudaMemset(pcg_Ax, 0, _ed_nodes_component_count * sizeof(float));
+    checkCudaErrors(cudaMalloc(&pcg_p, _ed_nodes_component_count * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&pcg_omega, _ed_nodes_component_count * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&pcg_Ax, _ed_nodes_component_count * sizeof(float)));
 
-  checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter, 0));
-  checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
+    cudaMemset(_ed_graph, 0, _ed_nodes_component_count * sizeof(float));
 
-  size_t vx_bytes;
-  GLuint *vx_counter;
-  checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_counter, &vx_bytes, _cgr.buffer_vertex_counter));
+    cudaMemset(_jtj_vals, 0, _ed_nodes_component_count * ED_COMPONENT_COUNT * sizeof(float));
+    cudaMemset(_jtj_rows, 0, _ed_nodes_component_count * ED_COMPONENT_COUNT * sizeof(int));
+    cudaMemset(_jtj_cols, 0, _ed_nodes_component_count * ED_COMPONENT_COUNT * sizeof(int));
 
-  struct_vertex *vx_ptr;
-  checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_reference_mesh_vertices));
+    cudaMemset(_jtf, 0, _ed_nodes_component_count * sizeof(float));
+    cudaMemset(_h, 0, _ed_nodes_component_count * sizeof(float));
 
-  // printf("\nvx_bytes: %zu\n", vx_bytes);
+    cudaMemset(pcg_p, 0, _ed_nodes_component_count * sizeof(float));
+    cudaMemset(pcg_omega, 0, _ed_nodes_component_count * sizeof(float));
+    cudaMemset(pcg_Ax, 0, _ed_nodes_component_count * sizeof(float));
 
-  int blockSize;
-  int minGridSize;
-  cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, kernel_sample_ed_nodes, 0, 0);
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
 
-  unsigned max_vertices = ((unsigned)vx_bytes) / sizeof(struct_vertex);
-  size_t gridSize = (max_vertices + blockSize - 1) / blockSize;
-  kernel_sample_ed_nodes<<<gridSize, blockSize>>>(vx_counter, vx_ptr, _bricks_inv_index, _ed_graph, _ed_nodes_count);
+    size_t vx_bytes;
+    GLuint *vx_counter;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_counter, &vx_bytes, _cgr.buffer_vertex_counter));
 
-  getLastCudaError("render kernel failed");
+    struct_vertex *vx_ptr;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_reference_mesh_vertices));
 
-  cudaDeviceSynchronize();
+    // printf("\nvx_bytes: %zu\n", vx_bytes);
 
-  checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
-  checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_vertex_counter, 0));
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_sample_ed_nodes, 0, 0);
+
+    unsigned max_vertices = ((unsigned)vx_bytes) / sizeof(struct_vertex);
+    size_t grid_size = (max_vertices + block_size - 1) / block_size;
+    kernel_sample_ed_nodes<<<grid_size, block_size>>>(vx_counter, vx_ptr, _bricks_inv_index, _ed_graph, _ed_nodes_count);
+
+    getLastCudaError("render kernel failed");
+
+    cudaDeviceSynchronize();
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_vertex_counter, 0));
 }

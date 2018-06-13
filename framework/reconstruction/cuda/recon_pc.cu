@@ -103,9 +103,19 @@ extern "C" void deinit_cuda()
         checkCudaErrors(cudaFree(_jtf));
     }
 
-    if(_jtj != nullptr)
+  if(_jtj_vals != nullptr)
     {
-        checkCudaErrors(cudaFree(_jtj));
+      checkCudaErrors(cudaFree(_jtj_vals));
+    }
+
+  if(_jtj_rows != nullptr)
+    {
+      checkCudaErrors(cudaFree(_jtj_rows));
+    }
+
+  if(_jtj_cols != nullptr)
+    {
+      checkCudaErrors(cudaFree(_jtj_cols));
     }
 
     if(_h != nullptr)

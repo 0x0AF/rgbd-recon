@@ -1,15 +1,19 @@
 #ifndef RECON_PC_CUDA_STRUCTURES
 #define RECON_PC_CUDA_STRUCTURES
 
-const unsigned ED_CELL_RES = 1u;
-const unsigned ED_CELL_VOXEL_DIM = 4u;
-const unsigned ED_CELL_VOXELS = 64u;
-const unsigned BRICK_VOXEL_DIM = 4u;
-const unsigned BRICK_VOXELS = 64u;
+const unsigned ED_COMPONENT_COUNT = 10u;
+const unsigned JTJ_JTF_BLOCK_SIZE = 64u;
 
-const unsigned BRICK_RES_X = 6u;
-const unsigned BRICK_RES_Y = 5u;
-const unsigned BRICK_RES_Z = 6u;
+const unsigned ED_CELL_RES = 3u;
+const unsigned ED_CELL_VOXEL_DIM = 3u;
+const unsigned ED_CELL_VOXELS = 9u;
+
+const unsigned BRICK_VOXEL_DIM = 9u;
+const unsigned BRICK_VOXELS = 900u;
+
+const unsigned BRICK_RES_X = 8u;
+const unsigned BRICK_RES_Y = 7u;
+const unsigned BRICK_RES_Z = 8u;
 
 const unsigned VOLUME_VOXEL_DIM_X = 71u;
 const unsigned VOLUME_VOXEL_DIM_Y = 56u;

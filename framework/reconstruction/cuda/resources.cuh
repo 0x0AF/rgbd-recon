@@ -33,7 +33,9 @@ unsigned int _active_bricks_count = 0u;
 unsigned int _ed_nodes_count = 0u;
 unsigned int _ed_nodes_component_count = 0u;
 
-float *_jtj = nullptr;
+float *_jtj_vals = nullptr;
+int *_jtj_rows = nullptr;
+int *_jtj_cols = nullptr;
 float *_jtf = nullptr;
 float *_h = nullptr;
 
