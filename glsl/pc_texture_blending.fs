@@ -153,7 +153,4 @@ vec4 get_color(vec3 sample_pos)
     }
 }
 
-void main()
-{
-    out_Color = get_color(pass_Position);
-}
+void main() { out_Color = get_color(pass_Position); }

@@ -318,163 +318,139 @@ __global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
     memcpy(jtj_cols + idx * JTJ_JTF_BLOCK_SIZE * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT, jtj_diag_coo_col_blocks, sizeof(float) * 6400);
 }
 
-//__host__ void solve_for_h()
-//{
-//    cusparseStatus_t status;
-//
-//    cusparseMatDescr_t descr = nullptr;
-//    cusparseCreateMatDescr(&descr);
-//    cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
-//    cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO);
-//
-//    getLastCudaError("cusparseCreateMatDescr failure");
-//    cudaDeviceSynchronize();
-//
-//    float *csr_val_jtj = nullptr;
-//    int *csr_row_ptr_jtj = nullptr;
-//    int *csr_col_ind_jtj = nullptr;
-//    int csr_nnz = 0;
-//
-//    int N = (int)_ed_nodes_component_count;
-//
-//    int *nnz_per_row_col = nullptr;
-//    checkCudaErrors(cudaMalloc(&nnz_per_row_col, sizeof(int) * 2));
-//
-//    cudaDeviceSynchronize();
-//    status = cusparseSnnz(cusparse_handle, CUSPARSE_DIRECTION_ROW, N, N, descr, _jtj, N, nnz_per_row_col, &csr_nnz);
-//    cudaDeviceSynchronize();
-//
-//    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-//    {
-//        printf("\ncusparseStatus_t: %u\n", status);
-//    }
-//
-//    // printf("\ncusparseStatus_t: %u\n", status);
-//
-//    getLastCudaError("cusparseSnnz failure");
-//
-//    // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
-//
-//    checkCudaErrors(cudaMalloc(&csr_val_jtj, sizeof(float) * csr_nnz));
-//    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
-//    checkCudaErrors(cudaMalloc(&csr_col_ind_jtj, sizeof(int) * csr_nnz));
-//
-//    cudaDeviceSynchronize();
-//    status = cusparseSdense2csr(cusparse_handle, N, N, descr, _jtj, N, nnz_per_row_col, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj);
-//    cudaDeviceSynchronize();
-//
-//    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-//    {
-//        printf("\ncusparseStatus_t: %u\n", status);
-//    }
-//
-//    checkCudaErrors(cudaFree(nnz_per_row_col));
-//
-//    getLastCudaError("cusparseSdense2csr failure");
-//
-//    const int max_iter = 16;
-//    const float tol = 1e-12f;
-//
-//    float r0, r1, alpha, alpham1, beta;
-//    float dot;
-//
-//    float a, b, na;
-//
-//    alpha = 1.0f;
-//    alpham1 = -1.0f;
-//    beta = 0.f;
-//    r0 = 0.f;
-//
-//    cudaDeviceSynchronize();
-//    status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj, _h, &beta, pcg_Ax);
-//    cudaDeviceSynchronize();
-//
-//    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-//    {
-//        printf("\ncusparseStatus_t: %u\n", status);
-//    }
-//
-//    getLastCudaError("cusparseScsrmv failure");
-//
-//    // TODO: use for dampening
-//    float mu = 1.0f;
-//
-//    for(unsigned int lm_step = 0; lm_step < 16; lm_step++)
-//    {
-//        cublasSaxpy(cublas_handle, N, &alpham1, pcg_Ax, 1, _jtf, 1);
-//        cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
-//
-//        float init_res = sqrt(r1);
-//
-//        printf("\ninitial residual = %e\n", sqrt(r1));
-//
-//        //        if(isnanf(sqrt(r1)))
-//        //        {
-//        //            fprintf(stderr, "\nnan in initial residual!\n");
-//        //        }
-//
-//        int k = 1;
-//
-//        while(r1 > tol * tol && k <= max_iter)
-//        {
-//            if(k > 1)
-//            {
-//                b = r1 / r0;
-//                cublasSscal(cublas_handle, N, &b, pcg_p, 1);
-//                cublasSaxpy(cublas_handle, N, &alpha, _jtf, 1, pcg_p, 1);
-//            }
-//            else
-//            {
-//                cublasScopy(cublas_handle, N, _jtf, 1, pcg_p, 1);
-//            }
-//
-//            cudaDeviceSynchronize();
-//            status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, csr_val_jtj, csr_row_ptr_jtj, csr_col_ind_jtj, pcg_p, &beta, pcg_Ax);
-//            cudaDeviceSynchronize();
-//
-//            if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-//            {
-//                printf("\ncusparseStatus_t: %u\n", status);
-//            }
-//
-//            getLastCudaError("cusparseScsrmv failure");
-//
-//            cublasSdot(cublas_handle, N, pcg_p, 1, pcg_Ax, 1, &dot);
-//            a = r1 / dot;
-//
-//            cublasSaxpy(cublas_handle, N, &a, pcg_p, 1, _h, 1);
-//            na = -a;
-//            cublasSaxpy(cublas_handle, N, &na, pcg_Ax, 1, _jtf, 1);
-//
-//            r0 = r1;
-//            cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
-//            k++;
-//
-//            //            if(isnanf(sqrt(r1)))
-//            //            {
-//            //                fprintf(stderr, "\nnan in solution!\n");
-//            //            }
-//        }
-//
-//        printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
-//
-//        if(sqrt(r1) < init_res)
-//        {
-//            // sort of dampening with mu
-//            cublasSaxpy(cublas_handle, N, &alpha, _h, mu, (float *)_ed_graph, 1);
-//            mu -= 0.06;
-//        }
-//        else
-//        {
-//            mu += 0.06;
-//        }
-//    }
-//
-//    checkCudaErrors(cudaFree(csr_val_jtj));
-//    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
-//    checkCudaErrors(cudaFree(csr_col_ind_jtj));
-//    cusparseDestroyMatDescr(descr);
-//}
+__host__ void solve_for_h()
+{
+    cusparseStatus_t status;
+
+    cusparseMatDescr_t descr = nullptr;
+    cusparseCreateMatDescr(&descr);
+    cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
+    cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO);
+
+    getLastCudaError("cusparseCreateMatDescr failure");
+    cudaDeviceSynchronize();
+
+    int *csr_row_ptr_jtj = nullptr;
+    int csr_nnz = _ed_nodes_component_count * ED_COMPONENT_COUNT;
+
+    int N = (int)_ed_nodes_component_count;
+
+    // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
+
+    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
+
+    cudaDeviceSynchronize();
+    status = cusparseXcoo2csr(cusparse_handle, _jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
+    cudaDeviceSynchronize();
+
+    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+    {
+        printf("\ncusparseStatus_t: %u\n", status);
+    }
+
+    getLastCudaError("cusparseXcoo2csr failure");
+
+    const int max_iter = 16;
+    const float tol = 1e-12f;
+
+    float r0, r1, alpha, alpham1, beta;
+    float dot;
+
+    float a, b, na;
+
+    alpha = 1.0f;
+    alpham1 = -1.0f;
+    beta = 0.f;
+    r0 = 0.f;
+
+    cudaDeviceSynchronize();
+    status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, _h, &beta, pcg_Ax);
+    cudaDeviceSynchronize();
+
+    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+    {
+        printf("\ncusparseStatus_t: %u\n", status);
+    }
+
+    getLastCudaError("cusparseScsrmv failure");
+
+    // TODO: use for dampening
+    float mu = 1.0f;
+
+    for(unsigned int lm_step = 0; lm_step < 16; lm_step++)
+    {
+        cublasSaxpy(cublas_handle, N, &alpham1, pcg_Ax, 1, _jtf, 1);
+        cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+
+        float init_res = sqrt(r1);
+
+        printf("\ninitial residual = %e\n", sqrt(r1));
+
+        //        if(isnanf(sqrt(r1)))
+        //        {
+        //            fprintf(stderr, "\nnan in initial residual!\n");
+        //        }
+
+        int k = 1;
+
+        while(r1 > tol * tol && k <= max_iter)
+        {
+            if(k > 1)
+            {
+                b = r1 / r0;
+                cublasSscal(cublas_handle, N, &b, pcg_p, 1);
+                cublasSaxpy(cublas_handle, N, &alpha, _jtf, 1, pcg_p, 1);
+            }
+            else
+            {
+                cublasScopy(cublas_handle, N, _jtf, 1, pcg_p, 1);
+            }
+
+            cudaDeviceSynchronize();
+            status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, pcg_p, &beta, pcg_Ax);
+            cudaDeviceSynchronize();
+
+            if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+            {
+                printf("\ncusparseStatus_t: %u\n", status);
+            }
+
+            getLastCudaError("cusparseScsrmv failure");
+
+            cublasSdot(cublas_handle, N, pcg_p, 1, pcg_Ax, 1, &dot);
+            a = r1 / dot;
+
+            cublasSaxpy(cublas_handle, N, &a, pcg_p, 1, _h, 1);
+            na = -a;
+            cublasSaxpy(cublas_handle, N, &na, pcg_Ax, 1, _jtf, 1);
+
+            r0 = r1;
+            cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+            k++;
+
+            //            if(isnanf(sqrt(r1)))
+            //            {
+            //                fprintf(stderr, "\nnan in solution!\n");
+            //            }
+        }
+
+        printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
+
+        if(sqrt(r1) < init_res)
+        {
+            // sort of dampening with mu
+            cublasSaxpy(cublas_handle, N, &alpha, _h, mu, (float *)_ed_graph, 1);
+            mu -= 0.06;
+        }
+        else
+        {
+            mu += 0.06;
+        }
+    }
+
+    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
+    cusparseDestroyMatDescr(descr);
+}
 
 extern "C" void pcg_solve()
 {

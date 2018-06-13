@@ -9,6 +9,8 @@
 
 #include </mc.glsl>
 
+// #define PASS_NORMALS
+
 layout(points) in;
 layout(triangle_strip, max_vertices = 36) out;
 
@@ -16,12 +18,16 @@ in vec3 geo_Position[];
 in uint geo_Id[];
 
 out vec3 pass_Position;
+#ifdef PASS_NORMALS
+out vec3 pass_Normal;
+#endif
 
 uniform mat4 gl_ModelViewMatrix;
 uniform mat4 gl_ProjectionMatrix;
 uniform mat4 gl_NormalMatrix;
 
 uniform float size_voxel;
+uniform uvec3 res_tsdf;
 
 uniform mat4 vol_to_world;
 uniform sampler3D volume_tsdf;
@@ -32,12 +38,26 @@ void sample_cube(const vec3 pos, inout float cube[8])
 {
     for(uint i = 0u; i < 8; i++)
     {
-        cube[i] = sample_volume(pos + vertex_offsets[i] * size_voxel);
+        cube[i] = sample_volume(pos + vertex_offsets[i] * size_voxel / res_tsdf * max(res_tsdf.x, max(res_tsdf.y, res_tsdf.z)));
     }
 }
 
 void make_face(vec3 a, vec3 b, vec3 c)
 {
+#ifdef PASS_NORMALS
+    vec3 normal;
+
+    vec3 u = b - a;
+    vec3 v = c - a;
+
+    normal.x = u.y * v.z - u.z * v.y;
+    normal.y = u.z * v.x - u.x * v.z;
+    normal.z = u.x * v.y - u.y * v.x;
+
+    normal = normalize(normal);
+    pass_Normal = normal;
+#endif
+
     pass_Position = c;
     gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(c, 1.0);
 
@@ -67,7 +87,7 @@ void main()
     // MC START
 
     float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
-    vec3 center = geo_Position[0] + size_voxel * vec3(-1., -1., -1.);
+    vec3 center = geo_Position[0] + size_voxel * vec3(-1., -1., -1.) / res_tsdf * max(res_tsdf.x, max(res_tsdf.y, res_tsdf.z));
 
     sample_cube(center, cube);
 
@@ -93,7 +113,7 @@ void main()
             {
                 float offset = get_offset(cube[edge_connections[i].x], cube[edge_connections[i].y]);
 
-                edge_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel;
+                edge_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel / res_tsdf * max(res_tsdf.x, max(res_tsdf.y, res_tsdf.z));
             }
         }
 

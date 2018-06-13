@@ -39,6 +39,8 @@ extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" void deinit_cuda();
 
+// #define PASS_NORMALS
+
 namespace kinect
 {
 using namespace globjects;
@@ -233,7 +235,11 @@ void ReconPerformanceCapture::init_shaders()
     NamedString::create("/mc.glsl", new File("glsl/inc_mc.glsl"));
 
     _program_pc_draw_data->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_draw_data.gs"),
+#ifdef PASS_NORMALS
+                                  Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_vertex_normals.fs"));
+#else
                                   Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_texture_blending.fs"));
+#endif
     _program_pc_draw_data->setUniform("vol_to_world", _mat_vol_to_world);
     _program_pc_draw_data->setUniform("size_voxel", _voxel_size);
     _program_pc_draw_data->setUniform("volume_tsdf", 29);
@@ -409,10 +415,10 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     _sampler->resize(_res_volume);
 
     _program_pc_draw_data->setUniform("res_tsdf", _res_volume);
-    _program_pc_draw_data->setUniform("size_voxel", _voxel_size);
+    _program_pc_draw_data->setUniform("size_voxel", _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
 
     _program_pc_extract_reference->setUniform("res_tsdf", _res_volume);
-    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size);
+    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
 
     _program_integration->setUniform("res_tsdf", _res_volume);
 
