@@ -1,7 +1,7 @@
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -18,11 +18,8 @@
 #include <reconstruction/cuda/util.cuh>
 
 #include <reconstruction/cuda/copy_reference.cuh>
-
 #include <reconstruction/cuda/ed_sample.cuh>
-
 #include <reconstruction/cuda/pcg_solve.cuh>
-
 #include <reconstruction/cuda/fuse_data.cuh>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_handles)

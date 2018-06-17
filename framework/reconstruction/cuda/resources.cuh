@@ -1,10 +1,10 @@
 #ifndef RECON_PC_CUDA_RESOURCES
 #define RECON_PC_CUDA_RESOURCES
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include <reconstruction/cuda/glm.cuh>
 #include <cuda_gl_interop.h>

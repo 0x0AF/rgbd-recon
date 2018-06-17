@@ -1,12 +1,3 @@
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; -O3 -gencode arch=compute_61,code=sm_61)
-
-add_executable(kinect_client_pc kinect_client_pc.cpp renderer.cpp renderer.h model.cpp model.h)
-
-set_property(TARGET kinect_client_pc PROPERTY CUDA_SEPARABLE_COMPILATION ON)
-
-target_link_libraries(kinect_client_pc PUBLIC framework glfw ${GLFW_LIBRARIES} imgui tinyply ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY} ${CUDA_CUBLAS_LIBRARIES} ${CUDA_LIBRARIES})
-install(TARGETS kinect_client_pc DESTINATION bin)
-
 # Download and unpack googletest at configure time
 configure_file(CMakeLists.txt.in ${CMAKE_BINARY_DIR}/googletest-download/CMakeLists.txt)
 execute_process(COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .
@@ -39,6 +30,19 @@ if (CMAKE_VERSION VERSION_LESS 2.8.11)
     include_directories("${gtest_SOURCE_DIR}/include")
 endif ()
 
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; -O3 -gencode arch=compute_61,code=sm_61)
+
+add_executable(kinect_client_pc kinect_client_pc.cpp renderer.cpp renderer.h model.cpp model.h)
+
+set_property(TARGET kinect_client_pc PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+
+target_link_libraries(kinect_client_pc PUBLIC framework glfw ${GLFW_LIBRARIES} imgui tinyply ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY} ${CUDA_CUBLAS_LIBRARIES} ${CUDA_LIBRARIES})
+install(TARGETS kinect_client_pc DESTINATION bin)
+
 add_executable(unit_tests unit_tests.cpp)
-target_link_libraries(unit_tests PUBLIC framework glfw ${GLFW_LIBRARIES} imgui tinyply gtest_main  ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY})
+
+set_property(TARGET unit_tests PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+
+target_link_libraries(unit_tests PUBLIC framework glfw ${GLFW_LIBRARIES} imgui tinyply ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY} ${CUDA_CUBLAS_LIBRARIES} ${CUDA_LIBRARIES} gtest_main)
 add_test(NAME unit_test COMMAND unit_tests)
+install(TARGETS unit_tests DESTINATION bin)

@@ -2,7 +2,7 @@
 
 #define TSDF_LOOKUP
 
-__device__ glm::uvec3 index_3d(unsigned int brick_id)
+__device__ __host__ glm::uvec3 index_3d(unsigned int brick_id)
 {
     glm::uvec3 brick = glm::uvec3(0u);
     brick.z = brick_id / (BRICK_RES_X * BRICK_RES_Y);
@@ -14,7 +14,7 @@ __device__ glm::uvec3 index_3d(unsigned int brick_id)
     return brick;
 }
 
-__device__ glm::uvec3 position_3d(unsigned int position_id)
+__device__ __host__ glm::uvec3 position_3d(unsigned int position_id)
 {
     glm::uvec3 position = glm::uvec3(0u);
     position.z = position_id / (BRICK_VOXEL_DIM * BRICK_VOXEL_DIM);
@@ -26,7 +26,7 @@ __device__ glm::uvec3 position_3d(unsigned int position_id)
     return position;
 }
 
-__device__ glm::uvec3 ed_cell_3d(unsigned int ed_cell_id)
+__device__ __host__ glm::uvec3 ed_cell_3d(unsigned int ed_cell_id)
 {
     glm::uvec3 ed_cell_position = glm::uvec3(0u);
     ed_cell_position.z = ed_cell_id / (ED_CELL_RES * ED_CELL_RES);
@@ -38,7 +38,7 @@ __device__ glm::uvec3 ed_cell_3d(unsigned int ed_cell_id)
     return ed_cell_position;
 }
 
-__device__ unsigned int ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_3d.y * ED_CELL_RES + ed_cell_3d.x; }
+__device__ __host__ unsigned int ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_3d.y * ED_CELL_RES + ed_cell_3d.x; }
 
 __device__ glm::uvec3 ed_cell_voxel_3d(unsigned int ed_cell_voxel_id)
 {
@@ -52,7 +52,7 @@ __device__ glm::uvec3 ed_cell_voxel_3d(unsigned int ed_cell_voxel_id)
     return ed_cell_voxel_3d;
 }
 
-__device__ unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d)
+__device__ __host__ unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d)
 {
     return ed_cell_voxel_3d.z * ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM + ed_cell_voxel_3d.y * ED_CELL_VOXEL_DIM + ed_cell_voxel_3d.x;
 }
@@ -60,7 +60,7 @@ __device__ unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d)
 /*
  * Identify enclosing ED cell in volume voxel space
  * */
-__device__ unsigned int identify_ed_cell_pos(const glm::vec3 position, const unsigned int *bricks_inv_index)
+__device__ __host__ unsigned int identify_ed_cell_pos(const glm::vec3 position, const unsigned int *bricks_inv_index)
 {
     glm::uvec3 pos_voxel_space = glm::uvec3(position);
     glm::uvec3 brick_index3d = pos_voxel_space / BRICK_VOXEL_DIM;
@@ -92,7 +92,7 @@ __device__ unsigned int identify_ed_cell_pos(const glm::vec3 position, const uns
 /*
  * Warp a position in volume voxel space with a single ED node
  * */
-__device__ glm::vec3 warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight)
+__device__ __host__ glm::vec3 warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight)
 {
     return skinning_weight * (glm::mat3(ed_node.affine) * dist + ed_node.position + ed_node.translation);
 }
@@ -100,7 +100,7 @@ __device__ glm::vec3 warp_position(glm::vec3 &dist, struct_ed_node &ed_node, con
 /*
  * Warp a normal in volume voxel space with a single ED node
  * */
-__device__ glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight)
+__device__ __host__ glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight)
 {
     return skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal);
 }
@@ -240,3 +240,12 @@ __device__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
 
     return residual;
 }
+
+extern "C" glm::uvec3 test_index_3d(unsigned int brick_id) { return index_3d(brick_id); }
+extern "C" glm::uvec3 test_position_3d(unsigned int position_id) { return position_3d(position_id); }
+extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id) { return ed_cell_3d(ed_cell_id); }
+extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_id(ed_cell_3d); };
+extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d) { return ed_cell_voxel_id(ed_cell_voxel_3d); }
+extern "C" unsigned int test_identify_ed_cell_pos(const glm::vec3 position, const unsigned int *bricks_inv_index) { return identify_ed_cell_pos(position, bricks_inv_index); }
+extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight) { return warp_position(dist, ed_node, skinning_weight); }
+extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight) { return warp_normal(normal, ed_node, skinning_weight); }
