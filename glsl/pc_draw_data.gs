@@ -9,7 +9,7 @@
 
 #include </mc.glsl>
 
-// #define PASS_NORMALS
+#define PASS_NORMALS
 
 layout(points) in;
 layout(triangle_strip, max_vertices = 36) out;

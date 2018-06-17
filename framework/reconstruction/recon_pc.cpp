@@ -39,7 +39,7 @@ extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" void deinit_cuda();
 
-// #define PASS_NORMALS
+#define PASS_NORMALS
 
 namespace kinect
 {
@@ -220,7 +220,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _use_bricks = true;
     _draw_bricks = false;
     _ratio_occupied = 0.0f;
-    _min_voxels_per_brick = 512;
+    _min_voxels_per_brick = 32;
 
     _frame_number.store(0);
 
@@ -324,8 +324,6 @@ void ReconPerformanceCapture::draw()
     TimerDatabase::instance().end(TIMER_FUSION);
 
     draw_data();
-
-    // TODO: fuse back into reference mesh
 
     _frame_number.store(_frame_number.load() + 1);
 }

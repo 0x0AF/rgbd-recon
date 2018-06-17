@@ -1,10 +1,20 @@
 #ifndef RECON_PC_CUDA_RESOURCES
 #define RECON_PC_CUDA_RESOURCES
 
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <reconstruction/cuda/glm.cuh>
 #include <cuda_gl_interop.h>
 #include <cublas_v2.h>
 #include <cusparse_v2.h>
 #include <reconstruction/cuda/structures.cuh>
+
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+#include <helper_cuda.h>
 
 struct struct_graphic_resources
 {
@@ -23,6 +33,7 @@ cudaArray *_volume_array_tsdf_ref = nullptr;
 struct_graphic_resources _cgr;
 struct_native_handles _native_handles;
 
+unsigned int *_bricks_dense_index = nullptr;
 unsigned int *_bricks_inv_index = nullptr;
 struct_ed_node *_ed_graph = nullptr;
 

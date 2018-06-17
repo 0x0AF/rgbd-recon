@@ -1,48 +1,6 @@
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/resources.cuh>
 
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <helper_cuda.h>
-
-/*
- * Identify enclosing ED cell in volume voxel space
- * */
-__device__ unsigned int identify_ed_cell_pos(glm::vec3 position, unsigned int *bricks_inv_index)
-{
-    glm::uvec3 pos_voxel_space = glm::uvec3(position);
-    glm::uvec3 brick_index3d = pos_voxel_space / BRICK_VOXEL_DIM;
-
-    unsigned int brick_id = brick_index3d.z * BRICK_RES_Y * BRICK_RES_Z + brick_index3d.y * BRICK_RES_Y + brick_index3d.x;
-
-    // printf("\nbrick_id  %u\n", brick_id);
-
-    glm::uvec3 relative_pos = pos_voxel_space - brick_index3d * BRICK_VOXEL_DIM;
-    glm::uvec3 ed_cell_index3d = relative_pos / ED_CELL_VOXEL_DIM;
-
-    // printf("\nrelative_pos (%u,%u,%u)\n", relative_pos.x, relative_pos.y, relative_pos.z);
-
-    unsigned int ed_cell = ed_cell_index3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_index3d.y * ED_CELL_RES + ed_cell_index3d.x;
-
-    // printf("\ned_cell %u\n", ed_cell);
-
-    unsigned int brick_pos_inv_index = bricks_inv_index[brick_id];
-
-    // printf("\nbrick_id, brick_pos_inv_index [%u,%u]\n", brick_id, brick_pos_inv_index);
-
-    unsigned int ed_cell_pos = brick_pos_inv_index * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES + ed_cell;
-
-    // printf("\ned_cell_pos %u\n", ed_cell_pos);
-
-    return ed_cell_pos;
-}
-
-__global__ void kernel_sample_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int *bricks_inv_index, struct_ed_node *ed_graph, unsigned int ed_node_countt)
+__global__ void kernel_sample_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, const unsigned int *bricks_inv_index, struct_ed_node *ed_graph, unsigned int ed_node_countt)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -59,7 +17,7 @@ __global__ void kernel_sample_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr
 
         glm::vec3 position_voxel_space = vx_ptr[vertex_position].position * glm::vec3(VOLUME_VOXEL_DIM_X, VOLUME_VOXEL_DIM_Y, VOLUME_VOXEL_DIM_Z);
 
-        unsigned int ed_cell_pos = identify_ed_cell_pos(position_voxel_space, bricks_inv_index);
+        const unsigned int ed_cell_pos = identify_ed_cell_pos(position_voxel_space, bricks_inv_index);
 
         if(ed_cell_pos >= ed_node_countt)
         {

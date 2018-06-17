@@ -5,19 +5,19 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 const unsigned JTJ_JTF_BLOCK_SIZE = 64u;
 
 const unsigned ED_CELL_RES = 3u;
-const unsigned ED_CELL_VOXEL_DIM = 3u;
-const unsigned ED_CELL_VOXELS = 9u;
+const unsigned ED_CELL_VOXEL_DIM = 6u;
+const unsigned ED_CELL_VOXELS = 216u;
 
-const unsigned BRICK_VOXEL_DIM = 9u;
-const unsigned BRICK_VOXELS = 900u;
+const unsigned BRICK_VOXEL_DIM = 18u;
+const unsigned BRICK_VOXELS = 5832u;
 
 const unsigned BRICK_RES_X = 8u;
 const unsigned BRICK_RES_Y = 7u;
 const unsigned BRICK_RES_Z = 8u;
 
-const unsigned VOLUME_VOXEL_DIM_X = 71u;
-const unsigned VOLUME_VOXEL_DIM_Y = 56u;
-const unsigned VOLUME_VOXEL_DIM_Z = 65u;
+const unsigned VOLUME_VOXEL_DIM_X = 141u;
+const unsigned VOLUME_VOXEL_DIM_Y = 111u;
+const unsigned VOLUME_VOXEL_DIM_Z = 130u;
 
 struct struct_native_handles
 {

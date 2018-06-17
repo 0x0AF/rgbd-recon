@@ -9,12 +9,20 @@
 #include <cuda_runtime.h>
 #include <helper_cuda.h>
 
+#include <cuda_gl_interop.h>
+#include <cublas_v2.h>
+#include <cusparse_v2.h>
+
 #include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/resources.cuh>
+#include <reconstruction/cuda/util.cuh>
 
 #include <reconstruction/cuda/copy_reference.cuh>
+
 #include <reconstruction/cuda/ed_sample.cuh>
+
 #include <reconstruction/cuda/pcg_solve.cuh>
+
 #include <reconstruction/cuda/fuse_data.cuh>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_handles)
