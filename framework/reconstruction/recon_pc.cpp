@@ -298,7 +298,7 @@ void ReconPerformanceCapture::draw()
 {
     integrate_data_frame();
 
-    if(_frame_number.load() % 16 == 0)
+    if(_frame_number.load() % 1024 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
@@ -313,7 +313,7 @@ void ReconPerformanceCapture::draw()
 
     TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    pcg_solve();
+    // pcg_solve();
 
     TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
 

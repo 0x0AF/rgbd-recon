@@ -156,8 +156,7 @@ TEST(UtilTest, WarpNormalNoImpact)
     ed_node.affine = glm::quat(glm::mat3());
     ed_node.translation = glm::vec3(0.0f);
 
-    glm::vec3 position = glm::vec3(1.0f);
-    glm::vec3 normal = glm::vec3(1.0f);
+    glm::vec3 normal = glm::vec3(-0.015034f,0.000000f,-0.015034f);
     const float skinning_weight = 1.f;
 
     glm::vec3 warped_normal = test_warp_normal(normal, ed_node, skinning_weight);

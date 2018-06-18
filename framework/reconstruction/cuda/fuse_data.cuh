@@ -53,7 +53,7 @@ __global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int 
         return;
     }
 
-    __shared__ float2 ed_cell_voxels[ED_CELL_VOXELS];
+    __shared__ float2 ed_cell_voxels[ED_CELL_VOXELS]; // 1,728 Kb
 
     unsigned int edc_voxel_id = position_id % ED_CELL_VOXELS;
 
@@ -125,19 +125,34 @@ __global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int 
         gradient.z = voxel_z.x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
 
-    glm::vec3 warped_gradient = warp_normal(gradient, ed_node, skinning_weight);
+    glm::vec3 gradient_vector = glm::normalize(gradient);
+    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, skinning_weight);
+    glm::vec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
 
-    if(position_id == 0)
+    glm::bvec3 is_nan = glm::isnan(warped_gradient);
+
+    if(is_nan.x || is_nan.y || is_nan.z)
     {
-        printf("\ngradient: (%f,%f,%f), warped gradient: (%f,%f,%f)\n", gradient.x, gradient.y, gradient.z, warped_gradient.x, warped_gradient.y, warped_gradient.z);
+        // printf("\nNaN in gradient warp evaluation\n");
+        warped_gradient = glm::vec3(0.f);
     }
+
+    //    if(position_id == 0)
+    //    {
+    //        printf("\ngradient: (%f,%f,%f), warped gradient: (%f,%f,%f)\n", gradient.x, gradient.y, gradient.z, warped_gradient.x, warped_gradient.y, warped_gradient.z);
+    //    }
 
     // reference frame SDF prediction
 
     float2 prediction;
 
-    prediction.x = ed_cell_voxels[ed_cell].x + glm::dot(warped_gradient, glm::vec3(warped_position) - glm::vec3(world));
-    prediction.y = 0; // TODO: proper blending weight
+    prediction.x = ed_cell_voxels[edc_voxel_id].x + glm::dot(warped_gradient, glm::vec3(warped_position) - glm::vec3(world));
+    prediction.y = 1.0f; // TODO: proper blending weight
+
+    //    if(position_id == 0)
+    //    {
+    //        printf("\nprediction: %f\n", prediction.x);
+    //    }
 
     // TODO: blending
 
@@ -158,9 +173,16 @@ __global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int 
         fused.y = data.y > prediction.y ? data.y : prediction.y;
     }
 
-    // surf3Dwrite(float2{-0.03f, 0.0f}, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
-    surf3Dwrite(float2{-0.03f, 0.0f}, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    __syncthreads();
+
+    //    if(position_id == 0)
+    //    {
+    //        printf("\nref: %f, prediction: %f, fused: %f\n", ed_cell_voxels[ed_cell].x, prediction.x, fused.x);
+    //    }
+
+    surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    //surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // TODO: turn on reference fusion once solver is producing valid warps
     // surf3Dwrite(fused, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 }
 
@@ -175,13 +197,12 @@ extern "C" void fuse_data()
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _volume_array_tsdf_ref, &channel_desc));
 
-    int block_size;
-    int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_fuse_data, 0, 0);
+    unsigned int active_brick_voxels = _active_bricks_count * BRICK_VOXELS;
+    size_t grid_size = (active_brick_voxels + ED_CELL_VOXELS - 1) / ED_CELL_VOXELS;
 
-    unsigned active_brick_voxels = _active_bricks_count * BRICK_VOXELS;
-    size_t grid_size = (active_brick_voxels + block_size - 1) / block_size;
-    kernel_fuse_data<<<grid_size, block_size>>>(_active_bricks_count, _bricks_inv_index, _bricks_dense_index, _ed_nodes_count, _ed_graph);
+    // printf("\ngrid_size: %lu, block_size: %u\n", grid_size, ED_CELL_VOXELS);
+
+    kernel_fuse_data<<<grid_size, ED_CELL_VOXELS>>>(_active_bricks_count, _bricks_inv_index, _bricks_dense_index, _ed_nodes_count, _ed_graph);
 
     getLastCudaError("render kernel failed");
 

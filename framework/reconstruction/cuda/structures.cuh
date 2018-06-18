@@ -2,7 +2,7 @@
 #define RECON_PC_CUDA_STRUCTURES
 
 const unsigned ED_COMPONENT_COUNT = 10u;
-const unsigned JTJ_JTF_BLOCK_SIZE = 64u;
+const unsigned JTJ_JTF_BLOCK_SIZE = 640u;
 
 const unsigned ED_CELL_RES = 3u;
 const unsigned ED_CELL_VOXEL_DIM = 6u;
@@ -44,9 +44,9 @@ struct struct_vertex
 
 struct struct_ed_node
 {
-  glm::vec3 position;
-  glm::quat affine;
-  glm::vec3 translation;
+  glm::vec3 position{0.f};
+  glm::quat affine{glm::mat4(1.f)};
+  glm::vec3 translation{0.f};
 };
 
 #endif // RECON_PC_CUDA_STRUCTURES

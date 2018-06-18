@@ -36,6 +36,8 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_
         {
             cudaSetDevice(deviceIndex);
             cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
+            cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
+            cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
         }
     }
 
