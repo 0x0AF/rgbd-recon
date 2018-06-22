@@ -49,6 +49,7 @@ public:
   gloost::BoundingBox const& getBBox() const;
 
   const std::vector<globjects::Texture *> &getVolumesXYZInv () const;
+  const std::vector<globjects::Texture *> &getVolumesXYZ () const;
 
  private:
   void bindToTextureUnits();

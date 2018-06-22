@@ -82,6 +82,7 @@ class ReconPerformanceCapture : public Reconstruction
 
   private:
     struct_native_handles _native_handles;
+    struct_measures _measures;
 
     globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied;
     globjects::Buffer *_buffer_vertex_counter, *_buffer_reference_mesh_vertices;

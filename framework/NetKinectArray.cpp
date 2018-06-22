@@ -777,5 +777,6 @@ void NetKinectArray::readFromFiles()
     }
 }
 const std::unique_ptr<TextureArray> &NetKinectArray::getDepthArrayRaw() const { return m_depthArray_raw; }
+const double_buffer<globjects::ref_ptr<globjects::Texture>> &NetKinectArray::getDepth2() const { return m_textures_depth2; }
 
 } // namespace kinect

@@ -9,8 +9,8 @@
 #include <cuda_runtime.h>
 #include <helper_cuda.h>
 
-#include <cuda_gl_interop.h>
 #include <cublas_v2.h>
+#include <cuda_gl_interop.h>
 #include <cusparse_v2.h>
 
 #include <reconstruction/cuda/glm.cuh>
@@ -19,10 +19,10 @@
 
 #include <reconstruction/cuda/copy_reference.cuh>
 #include <reconstruction/cuda/ed_sample.cuh>
-#include <reconstruction/cuda/pcg_solve.cuh>
 #include <reconstruction/cuda/fuse_data.cuh>
+#include <reconstruction/cuda/pcg_solve.cuh>
 
-extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_handles)
+extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles)
 {
     cudaDeviceReset();
 
@@ -60,16 +60,20 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.array2d_kinect_depths, native_handles.array2d_kinect_depths, GL_TEXTURE_2D_ARRAY_EXT, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.array2d_kinect_depths, native_handles.array2d_kinect_depths, GL_TEXTURE_2D_ARRAY_EXT, cudaGraphicsRegisterFlagsSurfaceLoadStore));
 
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz_inv[i], native_handles.volume_cv_xyz_inv[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz[i], native_handles.volume_cv_xyz[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
     }
 
     cudaExtent volume_extent = make_cudaExtent(volume_res.x, volume_res.y, volume_res.z);
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaMalloc3DArray(&_volume_array_tsdf_ref, &channel_desc, volume_extent, cudaArraySurfaceLoadStore));
+
+    checkCudaErrors(cudaMalloc(&_measures, sizeof(struct_measures)));
+    checkCudaErrors(cudaMemcpy(_measures, &measures, sizeof(struct_measures), cudaMemcpyHostToDevice));
 
     cublasCreate(&cublas_handle);
     getLastCudaError("cublasCreate failure");
@@ -93,6 +97,7 @@ extern "C" void deinit_cuda()
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz_inv[i]));
+        checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz[i]));
     }
 
     if(_volume_array_tsdf_ref != nullptr)
@@ -110,19 +115,19 @@ extern "C" void deinit_cuda()
         checkCudaErrors(cudaFree(_jtf));
     }
 
-  if(_jtj_vals != nullptr)
+    if(_jtj_vals != nullptr)
     {
-      checkCudaErrors(cudaFree(_jtj_vals));
+        checkCudaErrors(cudaFree(_jtj_vals));
     }
 
-  if(_jtj_rows != nullptr)
+    if(_jtj_rows != nullptr)
     {
-      checkCudaErrors(cudaFree(_jtj_rows));
+        checkCudaErrors(cudaFree(_jtj_rows));
     }
 
-  if(_jtj_cols != nullptr)
+    if(_jtj_cols != nullptr)
     {
-      checkCudaErrors(cudaFree(_jtj_cols));
+        checkCudaErrors(cudaFree(_jtj_cols));
     }
 
     if(_h != nullptr)

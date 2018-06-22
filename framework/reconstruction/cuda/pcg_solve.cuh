@@ -1,48 +1,44 @@
 #include <reconstruction/cuda/resources.cuh>
 
-__global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int ed_nodes_count, struct_ed_node *ed_graph)
+// #define DEBUG_JTJ
+
+#ifdef DEBUG_JTJ
+
+#include "../../../external/csv/ostream.hpp"
+
+#endif
+
+__global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int active_ed_vx_count, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count,
+                               struct_ed_dense_index_entry *ed_dense_index, struct_ed_node *ed_graph, struct_measures *measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    __shared__ float jtj_diag_coo_val_blocks[6400]; // 25,6 Kb
-    __shared__ float jtf_blocks[640];               // 2,56 Kb
+    __shared__ float shared_jtj_coo_val_block[ED_COMPONENT_COUNT * ED_COMPONENT_COUNT];
+    __shared__ float shared_jtf_block[ED_COMPONENT_COUNT];
 
     unsigned int ed_node_offset = idx / ED_COMPONENT_COUNT;
-    if(ed_node_offset >= ed_nodes_count)
+    if(ed_node_offset >= active_ed_nodes_count)
     {
         // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
         return;
     }
 
     struct_ed_node ed_node = ed_graph[ed_node_offset];
+    struct_ed_dense_index_entry ed_entry = ed_dense_index[ed_node_offset];
 
-    if(ed_node.position.z * ED_CELL_RES * ED_CELL_RES + ed_node.position.y * ED_CELL_RES + ed_node.position.x == 0u)
-    {
-        // unset ed_node
-        return;
-    }
-
-    unsigned int block_ed_node_component_offset = idx % JTJ_JTF_BLOCK_SIZE;
-    unsigned int block_ed_node_offset = block_ed_node_component_offset / ED_COMPONENT_COUNT;
     unsigned int component = idx % ED_COMPONENT_COUNT;
 
     // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
-    for(unsigned long vx_idx = 0; vx_idx < vx_counter[0]; vx_idx++)
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = vx_ptr[vx_idx];
-
-        if(vx.ed_cell_id != ed_node_offset)
-        {
-            // is not influenced by ed_node
-            continue;
-        }
-
-        vx.position = vx.position * glm::vec3(VOLUME_VOXEL_DIM_X, VOLUME_VOXEL_DIM_Y, VOLUME_VOXEL_DIM_Z);
+        struct_vertex vx = sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = evaluate_vx_residual(vx, ed_node);
+        float vx_residual = evaluate_vx_residual(vx, ed_node, measures);
+
+        // printf("\nvx_residual: %f\n", vx_residual);
 
         if(isnan(vx_residual))
         {
@@ -51,20 +47,28 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
             vx_residual = 0.f;
         }
 
-        __shared__ float vx_pds[640]; // 2,56 Kb
+        __shared__ float vx_pds[ED_COMPONENT_COUNT];
 
-        vx_pds[block_ed_node_component_offset + component] = evaluate_vx_pd(vx, ed_node, component, vx_residual);
+        vx_pds[component] = evaluate_vx_pd(vx, ed_node, component, vx_residual, measures);
 
-        if(isnan(vx_pds[block_ed_node_component_offset + component]))
+        if(isnan(vx_pds[component]))
         {
             printf("\nvx_pds[%u] is NaN!\n", component);
 
-            vx_pds[block_ed_node_component_offset + component] = 0.f;
+            vx_pds[component] = 0.f;
         }
 
         __syncthreads();
 
-        float jtf_value = vx_pds[block_ed_node_component_offset + component] * vx_residual;
+        //        if(idx == 0)
+        //        {
+        //            for(int i = 0; i < ED_COMPONENT_COUNT; i++)
+        //            {
+        //                printf("\nvx_pds[%u]: %f\n", i, vx_pds[i]);
+        //            }
+        //        }
+
+        float jtf_value = vx_pds[component] * vx_residual;
 
         if(isnan(jtf_value))
         {
@@ -73,13 +77,13 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
             jtf_value = 0.f;
         }
 
-        jtf_blocks[block_ed_node_component_offset + component] += jtf_value;
+        shared_jtf_block[component] += jtf_value;
 
         for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
         {
-            unsigned int jtj_pos = block_ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT + component * ED_COMPONENT_COUNT + component_k;
+            unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
 
-            float jtj_value = vx_pds[block_ed_node_component_offset + component] * vx_pds[block_ed_node_component_offset + component_k];
+            float jtj_value = vx_pds[component] * vx_pds[component_k];
 
             if(isnan(jtj_value))
             {
@@ -88,7 +92,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
                 jtj_value = 0.f;
             }
 
-            jtj_diag_coo_val_blocks[jtj_pos] += jtj_value;
+            shared_jtj_coo_val_block[jtj_pos] += jtj_value;
         }
 
         __syncthreads();
@@ -98,17 +102,55 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, GLuint *vx_counter, struc
 
     __syncthreads();
 
-    unsigned int block_id = idx / JTJ_JTF_BLOCK_SIZE;
+    //    if(idx == 0)
+    //    {
+    //        for(int i = 0; i < ED_COMPONENT_COUNT; i++)
+    //        {
+    //            printf("\nshared_jtf_block[%u]: %f\n", i, shared_jtf_block[i]);
+    //        }
+    //    }
 
-    memcpy(jtf + block_id * JTJ_JTF_BLOCK_SIZE, jtf_blocks, sizeof(float) * 640);
-    memcpy(jtj + block_id * JTJ_JTF_BLOCK_SIZE * ED_COMPONENT_COUNT, jtj_diag_coo_val_blocks, sizeof(float) * 6400);
+    memcpy(&jtf[ed_node_offset * ED_COMPONENT_COUNT], &shared_jtf_block[0], sizeof(float) * ED_COMPONENT_COUNT);
+    memcpy(&jtj[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[0], sizeof(float) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int ed_nodes_count)
+__global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int active_ed_nodes_count)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    __shared__ float jtj_diag_coo_row_blocks[6400]; // 25,6 Kb
+    __shared__ int jtj_diag_coo_row_blocks[ED_COMPONENT_COUNT * ED_COMPONENT_COUNT];
+
+    // printf("\ned_per_thread: %u\n", ed_per_thread);
+
+    unsigned int ed_node_offset = idx / ED_COMPONENT_COUNT;
+    if(ed_node_offset >= active_ed_nodes_count)
+    {
+        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+        return;
+    }
+
+    unsigned int component = idx % ED_COMPONENT_COUNT;
+
+    // printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+
+    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
+    {
+        unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
+        jtj_diag_coo_row_blocks[jtj_pos] = ed_node_offset * ED_COMPONENT_COUNT + component_k;
+    }
+
+    // printf("\njtf[%u]\n", ed_node_offset * 10u);
+
+    __syncthreads();
+
+    memcpy(&jtj_rows[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_row_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
+}
+
+__global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    __shared__ int jtj_diag_coo_col_blocks[ED_COMPONENT_COUNT * ED_COMPONENT_COUNT];
 
     // printf("\ned_per_thread: %u\n", ed_per_thread);
 
@@ -119,51 +161,13 @@ __global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int ed_nodes_count)
         return;
     }
 
-    unsigned int block_ed_node_component_offset = idx % JTJ_JTF_BLOCK_SIZE;
     unsigned int component = idx % ED_COMPONENT_COUNT;
-    unsigned int block_ed_node_offset = block_ed_node_component_offset / ED_COMPONENT_COUNT;
 
     // printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
 
     for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
     {
-        unsigned int jtj_pos = block_ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT + component * ED_COMPONENT_COUNT + component_k;
-        jtj_diag_coo_row_blocks[jtj_pos] = ed_node_offset * ED_COMPONENT_COUNT + component_k;
-    }
-
-    // printf("\njtf[%u]\n", ed_node_offset * 10u);
-
-    __syncthreads();
-
-    unsigned int block_id = idx / JTJ_JTF_BLOCK_SIZE;
-
-    memcpy(jtj_rows + block_id * JTJ_JTF_BLOCK_SIZE * ED_COMPONENT_COUNT, jtj_diag_coo_row_blocks, sizeof(float) * 6400);
-}
-
-__global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
-{
-    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
-
-    __shared__ float jtj_diag_coo_col_blocks[6400]; // 25,6 Kb
-
-    // printf("\ned_per_thread: %u\n", ed_per_thread);
-
-    unsigned int ed_node_offset = idx / ED_COMPONENT_COUNT;
-    if(ed_node_offset >= ed_nodes_count)
-    {
-        printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
-        return;
-    }
-
-    unsigned int block_ed_node_component_offset = idx % JTJ_JTF_BLOCK_SIZE;
-    unsigned int component = idx % ED_COMPONENT_COUNT;
-    unsigned int block_ed_node_offset = block_ed_node_component_offset / ED_COMPONENT_COUNT;
-
-    // printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
-
-    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
-    {
-        unsigned int jtj_pos = block_ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT + component * ED_COMPONENT_COUNT + component_k;
+        unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
         jtj_diag_coo_col_blocks[jtj_pos] = ed_node_offset * ED_COMPONENT_COUNT + component;
     }
 
@@ -171,9 +175,7 @@ __global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
 
     __syncthreads();
 
-    unsigned int block_id = idx / JTJ_JTF_BLOCK_SIZE;
-
-    memcpy(jtj_cols + block_id * JTJ_JTF_BLOCK_SIZE * ED_COMPONENT_COUNT, jtj_diag_coo_col_blocks, sizeof(float) * 6400);
+    memcpy(&jtj_cols[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_col_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
 __host__ void solve_for_h()
@@ -189,9 +191,9 @@ __host__ void solve_for_h()
     cudaDeviceSynchronize();
 
     int *csr_row_ptr_jtj = nullptr;
-    int csr_nnz = _ed_nodes_component_count * ED_COMPONENT_COUNT;
+    int csr_nnz = _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
 
-    int N = (int)_ed_nodes_component_count;
+    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
 
     // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
 
@@ -310,88 +312,127 @@ __host__ void solve_for_h()
     cusparseDestroyMatDescr(descr);
 }
 
+#ifdef DEBUG_JTJ
+
+__host__ void print_out_jtj()
+{
+    float *host_jtj_vals;
+    int *host_jtj_rows;
+    int *host_jtj_cols;
+
+    host_jtj_vals = (float *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float));
+    host_jtj_rows = (int *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int));
+    host_jtj_cols = (int *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int));
+
+    cudaMemcpy(&host_jtj_vals[0], &_jtj_vals[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_jtj_rows[0], &_jtj_rows[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_jtj_cols[0], &_jtj_cols[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
+
+    std::ofstream fs("jtj_" + std::to_string(rand()) + ".csv");
+    text::csv::csv_ostream csvs(fs);
+
+    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+    {
+        csvs << host_jtj_vals[i];
+    }
+    csvs << text::csv::endl;
+
+    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+    {
+        csvs << host_jtj_rows[i];
+    }
+    csvs << text::csv::endl;
+
+    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+    {
+        csvs << host_jtj_cols[i];
+    }
+    csvs << text::csv::endl;
+
+    fs.close();
+
+    free(host_jtj_vals);
+    free(host_jtj_rows);
+    free(host_jtj_cols);
+}
+
+#endif
+
 extern "C" void pcg_solve()
 {
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_occupied, 0));
-
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
+        checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_cv_xyz[i], 0));
     }
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_kinect_depths, 0));
 
-    cudaArray *volume_array_tsdf_data = nullptr;
-    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, _cgr.volume_tsdf_data, 0, 0));
-
-    size_t vx_bytes;
-    GLuint *vx_counter;
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_counter, &vx_bytes, _cgr.buffer_vertex_counter));
-
-    struct_vertex *vx_ptr;
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_reference_mesh_vertices));
-
-    size_t brick_bytes;
-    GLuint *brick_list;
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&brick_list, &brick_bytes, _cgr.buffer_occupied));
-
-    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-
+    cudaArray *array_kd[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *volume_array_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
+    cudaArray *volume_array_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
+
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz_inv[i], _cgr.volume_cv_xyz_inv[i], 0, 0));
+        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz[i], _cgr.volume_cv_xyz[i], 0, 0));
+        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&array_kd[i], _cgr.array2d_kinect_depths, i, 0));
     }
-    cudaChannelFormatDesc channel_desc_cv = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_0, volume_array_cv_xyz_inv[0], &channel_desc_cv));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc_cv));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_2, volume_array_cv_xyz_inv[2], &channel_desc_cv));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv));
 
-    cudaArray *_array_kd = nullptr;
-    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&_array_kd, _cgr.array2d_kinect_depths, 0, 0));
-    // cudaChannelFormatDesc channel_desc_kd = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-    // checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths, _array_kd, &channel_desc_kd));
+    cudaChannelFormatDesc channel_desc_cv_xyz_inv = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_0, volume_array_cv_xyz_inv[0], &channel_desc_cv_xyz_inv));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc_cv_xyz_inv));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_2, volume_array_cv_xyz_inv[2], &channel_desc_cv_xyz_inv));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv_xyz_inv));
 
-    size_t grid_size = (_ed_nodes_component_count + JTJ_JTF_BLOCK_SIZE - 1) / JTJ_JTF_BLOCK_SIZE;
-    kernel_jtj_jtf<<<grid_size, JTJ_JTF_BLOCK_SIZE>>>(_jtj_vals, _jtf, vx_counter, vx_ptr, _ed_nodes_count, _ed_graph);
+    cudaChannelFormatDesc channel_desc_cv_xyz = cudaCreateChannelDesc(32, 32, 32, 0, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_0, volume_array_cv_xyz[0], &channel_desc_cv_xyz));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc_cv_xyz));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_2, volume_array_cv_xyz[2], &channel_desc_cv_xyz));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_3, volume_array_cv_xyz[3], &channel_desc_cv_xyz));
+
+    cudaChannelFormatDesc channel_desc_kd = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_0, array_kd[0], &channel_desc_kd));
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_2, array_kd[2], &channel_desc_kd));
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));
+
+    size_t grid_size = (_active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
+    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph, _measures);
 
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
 
-    //    kernel_jtj_coo_rows<<<grid_size, JTJ_JTF_BLOCK_SIZE>>>(_jtj_rows, _ed_nodes_count);
-    //
-    //    getLastCudaError("render kernel failed");
-    //
-    //    cudaDeviceSynchronize();
-    //
-    //    kernel_jtj_coo_cols<<<grid_size, JTJ_JTF_BLOCK_SIZE>>>(_jtj_cols, _ed_nodes_count);
-    //
-    //    getLastCudaError("render kernel failed");
-    //
-    //    cudaDeviceSynchronize();
+    kernel_jtj_coo_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_rows, _active_ed_nodes_count);
+
+    getLastCudaError("render kernel failed");
+
+    cudaDeviceSynchronize();
+
+    kernel_jtj_coo_cols<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_cols, _active_ed_nodes_count);
+
+    getLastCudaError("render kernel failed");
+
+    cudaDeviceSynchronize();
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_kinect_depths, 0));
 
     for(unsigned int i = 0; i < 4; i++)
     {
+        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz[i], 0));
         checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
     }
-
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
-
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_occupied, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_vertex_counter, 0));
 
     cudaDeviceSynchronize();
 
     solve_for_h();
+
+#ifdef DEBUG_JTJ
+
+    print_out_jtj();
+
+#endif
 
     getLastCudaError("render kernel failed");
 

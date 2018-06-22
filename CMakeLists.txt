@@ -89,6 +89,9 @@ list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/${CATCH_DIRECTORY}
 # cuda-helpers
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/cuda-helpers)
 ################################
+# csv
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/csv)
+################################
 # activate C++ 11
 if(NOT MSVC)
     add_definitions(-std=c++11)

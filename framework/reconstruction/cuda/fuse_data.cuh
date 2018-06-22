@@ -1,22 +1,26 @@
 #include <reconstruction/cuda/resources.cuh>
 
-__global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int *bricks_inv_index, const unsigned int *bricks_dense_index, unsigned int ed_nodes_count, struct_ed_node *ed_graph)
+__global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_dense_index_entry *ed_dense_index, struct_ed_node *ed_graph)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx >= active_bricks_count * BRICK_VOXELS)
+    if(idx >= active_ed_nodes_count * ED_CELL_VOXELS)
     {
         // printf("\nactive voxel count overshot: %u, active_bricks_count * BRICK_VOXELS: %lu\n", idx, active_bricks_count * BRICK_VOXELS);
         return;
     }
 
-    unsigned int brick_id = bricks_dense_index[idx / BRICK_VOXELS];
-    unsigned int position_id = idx % BRICK_VOXELS;
+    unsigned int ed_node_offset = idx / ED_CELL_VOXELS;
 
-    // printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
+    unsigned int brick_id = ed_dense_index[ed_node_offset].brick_id;
+    unsigned int ed_cell_id = ed_dense_index[ed_node_offset].ed_cell_id;
+    unsigned int edc_voxel_id = idx % ED_CELL_VOXELS;
+
+    struct_ed_node ed_node = ed_graph[idx / ED_CELL_VOXELS];
 
     glm::uvec3 brick = index_3d(brick_id) * BRICK_VOXEL_DIM;
-    glm::uvec3 position = position_3d(position_id);
+    glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id);
+    glm::uvec3 position = ed_cell_3d(ed_cell_id) + ed_cell_index3d;
     glm::uvec3 world = brick + position;
 
     //    if(position_id == 0)
@@ -26,36 +30,21 @@ __global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int 
 
     if(world.x >= VOLUME_VOXEL_DIM_X || world.y >= VOLUME_VOXEL_DIM_Y || world.z >= VOLUME_VOXEL_DIM_Z)
     {
-        // printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
+        printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
         return;
     }
 
-    //    if(position_id == 0)
+    //    if(edc_voxel_id == 0)
     //    {
-    //        printf("\nbrick %u, position %u: (%u,%u,%u)\n", brick_id, position_id, world.x, world.y, world.z);
+    //        printf("\ned node %u: (%f,%f,%f)\n", ed_node_offset, ed_node.position.x, ed_node.position.y, ed_node.position.z);
     //    }
 
-    glm::uvec3 ed_cell_index3d = position / ED_CELL_VOXEL_DIM;
-    unsigned int ed_cell = ed_cell_id(ed_cell_index3d);
-    unsigned int ed_cell_pos = bricks_inv_index[brick_id] * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES + ed_cell;
-
-    if(ed_cell_pos >= ed_nodes_count)
-    {
-        printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_cell_pos, ed_nodes_count);
-        return;
-    }
-
-    struct_ed_node ed_node = ed_graph[ed_cell_pos];
-
-    if(ed_node.position.z * ED_CELL_RES * ED_CELL_RES + ed_node.position.y * ED_CELL_RES + ed_node.position.x == 0u)
-    {
-        // printf("\ned_node not set: %lu\n", ed_cell_pos);
-        return;
-    }
+    //    if(edc_voxel_id == 0)
+    //    {
+    //        printf("\ned node %u, position: (%u,%u,%u)\n", idx / ED_CELL_VOXELS, world.x, world.y, world.z);
+    //    }
 
     __shared__ float2 ed_cell_voxels[ED_CELL_VOXELS]; // 1,728 Kb
-
-    unsigned int edc_voxel_id = position_id % ED_CELL_VOXELS;
 
     surf3Dread(&ed_cell_voxels[edc_voxel_id], _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 
@@ -65,18 +54,21 @@ __global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int 
 
     glm::vec3 dist = glm::vec3(world) - ed_node.position;
 
-    // printf("\n|dist|: %f\n", glm::length(dist));
+    //    if(edc_voxel_id == 0)
+    //    {
+    //        printf("\n|dist|: %f\n", glm::length(dist));
+    //    }
 
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
     glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, skinning_weight));
 
     if(warped_position.x >= VOLUME_VOXEL_DIM_X || warped_position.y >= VOLUME_VOXEL_DIM_Y || warped_position.z >= VOLUME_VOXEL_DIM_Z)
     {
-        printf("warped out of volume: (%u,%u,%u)", warped_position.x, warped_position.y, warped_position.z);
+        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
         return;
     }
 
-    //    if(position_id == 0)
+    //    if(edc_voxel_id == 0)
     //    {
     //        glm::vec3 diff = glm::vec3(warped_position) - glm::vec3(world);
     //        printf("\ndiff %u: (%u,%u,%u)\n", glm::length(diff), warped_position.x, warped_position.y, warped_position.z);
@@ -180,8 +172,11 @@ __global__ void kernel_fuse_data(size_t active_bricks_count, const unsigned int 
     //        printf("\nref: %f, prediction: %f, fused: %f\n", ed_cell_voxels[ed_cell].x, prediction.x, fused.x);
     //    }
 
-    surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    //surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+    surf3Dwrite(ed_cell_voxels[edc_voxel_id].x, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
     // TODO: turn on reference fusion once solver is producing valid warps
     // surf3Dwrite(fused, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 }
@@ -197,12 +192,12 @@ extern "C" void fuse_data()
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _volume_array_tsdf_ref, &channel_desc));
 
-    unsigned int active_brick_voxels = _active_bricks_count * BRICK_VOXELS;
-    size_t grid_size = (active_brick_voxels + ED_CELL_VOXELS - 1) / ED_CELL_VOXELS;
+    unsigned int active_ed_voxels = _active_ed_nodes_count * ED_CELL_VOXELS;
+    size_t grid_size = (active_ed_voxels + ED_CELL_VOXELS - 1) / ED_CELL_VOXELS;
 
     // printf("\ngrid_size: %lu, block_size: %u\n", grid_size, ED_CELL_VOXELS);
 
-    kernel_fuse_data<<<grid_size, ED_CELL_VOXELS>>>(_active_bricks_count, _bricks_inv_index, _bricks_dense_index, _ed_nodes_count, _ed_graph);
+    kernel_fuse_data<<<grid_size, ED_CELL_VOXELS>>>(_active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph);
 
     getLastCudaError("render kernel failed");
 

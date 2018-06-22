@@ -64,6 +64,7 @@ namespace kinect {
     int getTextureUnit(std::string const& name) const;
 
     const std::unique_ptr<TextureArray> &getDepthArrayRaw () const;
+    const double_buffer<globjects::ref_ptr<globjects::Texture>> &getDepth2() const;
 
    private:
     void bindToTextureUnits() const;

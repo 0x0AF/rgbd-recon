@@ -32,7 +32,7 @@ using namespace gl;
 #include <cuda_runtime.h>
 #include <vector_types.h>
 
-extern "C" void init_cuda(glm::uvec3 &volume_res, struct_native_handles &native_handles);
+extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
 extern "C" void pcg_solve();
 extern "C" void fuse_data();
 extern "C" void copy_reference();
@@ -154,7 +154,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
-    _buffer_reference_mesh_vertices->setData(32 * 262144, nullptr, GL_STREAM_COPY);
+    _buffer_reference_mesh_vertices->setData(32 * 524288, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 7);
 
     setVoxelSize(_voxel_size);
@@ -176,9 +176,13 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     for(uint8_t i = 0; i < m_num_kinects; i++)
     {
         _native_handles.volume_cv_xyz_inv[i] = cv->getVolumesXYZInv().at(i)->id();
+        _native_handles.volume_cv_xyz[i] = cv->getVolumesXYZ().at(i)->id();
+        _measures.depth_limits[i] = cv->getDepthLimits(i);
     }
 
-    init_cuda(_res_volume, _native_handles);
+    _measures.depth_resolution = nka.getDepthResolution();
+
+    init_cuda(_res_volume, _measures, _native_handles);
 
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
     TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
@@ -298,7 +302,7 @@ void ReconPerformanceCapture::draw()
 {
     integrate_data_frame();
 
-    if(_frame_number.load() % 1024 == 0)
+    if(_frame_number.load() % 256 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
@@ -313,9 +317,13 @@ void ReconPerformanceCapture::draw()
 
     TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    // pcg_solve();
+    pcg_solve();
 
     TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+
+    float2 negative{-_limit, 0.f};
+    glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
+    glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
 
     TimerDatabase::instance().begin(TIMER_FUSION);
 
@@ -416,7 +424,8 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     _program_pc_draw_data->setUniform("size_voxel", _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
 
     _program_pc_extract_reference->setUniform("res_tsdf", _res_volume);
-    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
+    _program_pc_extract_reference->setUniform("size_voxel",
+                                              _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
 
     _program_integration->setUniform("res_tsdf", _res_volume);
 

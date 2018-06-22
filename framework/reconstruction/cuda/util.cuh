@@ -1,7 +1,5 @@
 #include <reconstruction/cuda/resources.cuh>
 
-#define TSDF_LOOKUP
-
 __device__ __host__ glm::uvec3 index_3d(unsigned int brick_id)
 {
     glm::uvec3 brick = glm::uvec3(0u);
@@ -57,15 +55,18 @@ __device__ __host__ unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d)
     return ed_cell_voxel_3d.z * ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM + ed_cell_voxel_3d.y * ED_CELL_VOXEL_DIM + ed_cell_voxel_3d.x;
 }
 
-/*
- * Identify enclosing ED cell in volume voxel space
- * */
-__device__ __host__ unsigned int identify_ed_cell_pos(const glm::vec3 position, const unsigned int *bricks_inv_index)
+__device__ __host__ unsigned int identify_brick_id(const glm::vec3 position)
 {
     glm::uvec3 pos_voxel_space = glm::uvec3(position);
     glm::uvec3 brick_index3d = pos_voxel_space / BRICK_VOXEL_DIM;
 
-    unsigned int brick_id = brick_index3d.z * BRICK_RES_X * BRICK_RES_Y + brick_index3d.y * BRICK_RES_X + brick_index3d.x;
+    return brick_index3d.z * BRICK_RES_X * BRICK_RES_Y + brick_index3d.y * BRICK_RES_X + brick_index3d.x;
+}
+
+__device__ __host__ unsigned int identify_ed_cell_id(const glm::vec3 position, unsigned int brick_id)
+{
+    glm::uvec3 pos_voxel_space = glm::uvec3(position);
+    glm::uvec3 brick_index3d = pos_voxel_space / BRICK_VOXEL_DIM;
 
     // printf("\nbrick_id  %u\n", brick_id);
 
@@ -74,19 +75,7 @@ __device__ __host__ unsigned int identify_ed_cell_pos(const glm::vec3 position, 
 
     // printf("\nrelative_pos (%u,%u,%u)\n", relative_pos.x, relative_pos.y, relative_pos.z);
 
-    unsigned int ed_cell = ed_cell_index3d.z * ED_CELL_RES * ED_CELL_RES + ed_cell_index3d.y * ED_CELL_RES + ed_cell_index3d.x;
-
-    // printf("\ned_cell %u\n", ed_cell);
-
-    unsigned int brick_pos_inv_index = bricks_inv_index[brick_id];
-
-    // printf("\nbrick_id, brick_pos_inv_index [%u,%u]\n", brick_id, brick_pos_inv_index);
-
-    unsigned int ed_cell_pos = brick_pos_inv_index * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES + ed_cell;
-
-    // printf("\ned_cell_pos %u\n", ed_cell_pos);
-
-    return ed_cell_pos;
+    return ed_cell_id(ed_cell_index3d);
 }
 
 /*
@@ -105,40 +94,28 @@ __device__ __host__ glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_
     return skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal);
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node)
+__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures *measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
 
     glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight);
+    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight);
 
-    float residual = 0.f;
+    float residual = 0.000001f;
 
     glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
     // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
 
     if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
     {
-        // TODO: warped out of volume!
+        printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
         return 0.f;
     }
 
-#ifdef TSDF_LOOKUP
-    float2 data;
-    surf3Dread(&data, _volume_tsdf_data, wp_voxel_space.x * sizeof(float2), wp_voxel_space.y, wp_voxel_space.z);
-
-    if(data.x > 0. && data.x < 0.03f)
+    for(int i = 0; i < 1; i++)
     {
-        residual += data.x;
-    }
-#endif
-
-#ifdef CV_LOOKUP
-    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight);
-
-    for(int i = 0; i < 4; i++)
-    {
-        float4 data;
+        float4 data{0.f, 0.f, 0.f, 0.f};
 
         switch(i)
         {
@@ -156,44 +133,141 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
             break;
         }
 
+        // printf("\ncamera_positions[%u]: (%f,%f,%f)\n", i, camera_positions[i].x,camera_positions[i].y,camera_positions[i].z);
+
         // printf("\n (x,y): (%f,%f)\n", data.x, data.y);
 
-        if(data.y > 1.f || data.x > 1.f || data.y < 0.f || data.x < 0.f)
+        uint2 pixel{0u, 0u};
+        pixel.x = (unsigned int)(data.x * measures->depth_resolution.x);
+        pixel.y = (unsigned int)(data.y * measures->depth_resolution.y);
+
+        if(pixel.x >= measures->depth_resolution.x || pixel.y >= measures->depth_resolution.y)
         {
-            // TODO: projects out of depth map!
+            printf("\nprojected out of depth map: (%u,%u)\n", pixel.x, pixel.y);
             continue;
         }
 
-        // uint2 pixel;
-        // pixel.x = (unsigned int)(data.x * 512);
-        // pixel.y = (unsigned int)(data.y * 424);
+        float1 depth{0.f};
 
-        // TODO: lookup kinect depths
+        switch(i)
+        {
+        case 0:
+            surf2DLayeredread(&depth, _array2d_kinect_depths_0, pixel.x * sizeof(float1), pixel.y, i);
+            break;
+        case 1:
+            surf2DLayeredread(&depth, _array2d_kinect_depths_1, pixel.x * sizeof(float1), pixel.y, i);
+            break;
+        case 2:
+            surf2DLayeredread(&depth, _array2d_kinect_depths_2, pixel.x * sizeof(float1), pixel.y, i);
+            break;
+        case 3:
+            surf2DLayeredread(&depth, _array2d_kinect_depths_3, pixel.x * sizeof(float1), pixel.y, i);
+            break;
+        }
 
-        // float depth;
-        // surf2DLayeredread(&depth, _array2d_kinect_depths, pixel.x * sizeof(float), pixel.y, i);
+        // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, depth.x);
 
-        // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, /*depth*/data.z);
+        float normalized_depth = (depth.x - measures->depth_limits[i].x) / (measures->depth_limits[i].y - measures->depth_limits[i].x);
 
-        glm::vec3 extracted_position = glm::vec3(wp_voxel_space) + glm::vec3(1.f - data.z) * (float)VOLUME_VOXEL_DIM;
-        // extracted_position *= (1 + 0.1 * fracf(sinf(warped_position.x)));
+        // printf("\n normalized depth (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, normalized_depth);
 
-        residual += glm::abs(glm::dot(warped_normal, glm::vec3(wp_voxel_space) - extracted_position));
+        unsigned int depth_voxel_space = (unsigned int)(normalized_depth / 0.01f);
+
+        // printf("\n depth_voxel_space (x,y): (%u,%u) = %u\n", pixel.x, pixel.y, depth_voxel_space);
+
+        if(depth_voxel_space >= 128)
+        {
+            printf("\n depth_voxel_space out of bounds: %u\n", depth_voxel_space);
+            continue;
+        }
+
+        float3 projected{0.f, 0.f, 0.f};
+
+        switch(i)
+        {
+        case 0:
+            surf3Dread(&projected, _volume_cv_xyz_0, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            break;
+        case 1:
+            surf3Dread(&projected, _volume_cv_xyz_1, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            break;
+        case 2:
+            surf3Dread(&projected, _volume_cv_xyz_2, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            break;
+        case 3:
+            surf3Dread(&projected, _volume_cv_xyz_3, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            break;
+        }
+
+        //        if(depth_voxel_space == 45u)
+        //        {
+        //            printf("\nprojected (x,y, depth): (%u,%u,%u) = (%f,%f,%f)\n", pixel.x, pixel.y, depth_voxel_space, projected.x, projected.y, projected.z);
+        //        }
+
+        glm::vec3 extracted_position = glm::vec3(projected.x, projected.y, projected.z);
+
+        //        printf("\nextracted_position: (%f,%f,%f), wp_voxel_space: (%u,%u,%u)\n", extracted_position.x, extracted_position.y, extracted_position.z, wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+
+        glm::vec3 diff = glm::vec3(wp_voxel_space) - extracted_position;
+
+        if(glm::length(diff) > 3.f)
+        {
+            continue;
+        }
+
+        float residual_component = glm::abs(glm::dot(warped_normal, diff));
+
+        if(isnan(residual_component))
+        {
+            printf("\nresidual_component is NaN!\n");
+
+            residual_component = 0.f;
+        }
+
+        residual += residual_component;
     }
-#endif
 
     return residual;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual)
+__device__ __host__ float derivative_step(const int &partial_derivative_index)
 {
+    float step = 0.f;
+    switch(partial_derivative_index)
+    {
+    case 0:
+    case 1:
+    case 2:
+    case 7:
+    case 8:
+    case 9:
+        step = 1.0f; // one voxel step
+        break;
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+        step = 0.1f; // small quaternion twists
+        break;
+    default:
+        printf("\nfatal sampling error: wrong ed component id\n");
+        break;
+    }
+
+    return step;
+}
+
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures)
+{
+    float ds = derivative_step(partial_derivative_index);
+
     float *mapped_ed_node = (float *)&ed_node;
 
-    mapped_ed_node[partial_derivative_index] += 0.0001f;
+    mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_vx_residual(vertex, ed_node);
+    float residual_pos = evaluate_vx_residual(vertex, ed_node, measures);
 
-    mapped_ed_node[partial_derivative_index] -= 0.0001f;
+    mapped_ed_node[partial_derivative_index] -= ds;
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -204,7 +278,7 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node, c
         residual_pos = 0.f;
     }
 
-    float partial_derivative = residual_pos / 0.0002f - vx_residual / 0.0002f;
+    float partial_derivative = residual_pos / (2.0f * ds) - vx_residual / (2.0f * ds);
 
     // printf("\npartial_derivative: %f\n", partial_derivative);
 
@@ -246,6 +320,6 @@ extern "C" glm::uvec3 test_position_3d(unsigned int position_id) { return positi
 extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id) { return ed_cell_3d(ed_cell_id); }
 extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_id(ed_cell_3d); };
 extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d) { return ed_cell_voxel_id(ed_cell_voxel_3d); }
-extern "C" unsigned int test_identify_ed_cell_pos(const glm::vec3 position, const unsigned int *bricks_inv_index) { return identify_ed_cell_pos(position, bricks_inv_index); }
+// TODO
 extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight) { return warp_position(dist, ed_node, skinning_weight); }
 extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight) { return warp_normal(normal, ed_node, skinning_weight); }

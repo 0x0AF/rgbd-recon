@@ -23,7 +23,7 @@ __global__ void kernel_brick_indexing(unsigned int *active_bricks, unsigned int 
     bricks_inv_index[brick_id] = brick_position;
 }
 
-__global__ void kernel_copy_reference(unsigned int active_bricks_count, const unsigned int *bricks_inv_index, const unsigned int *bricks_dense_index)
+__global__ void kernel_copy_reference(unsigned int active_bricks_count, const unsigned int *bricks_dense_index)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -69,18 +69,11 @@ extern "C" void copy_reference()
     cudaMallocManaged(&active_bricks_count, sizeof(unsigned int));
     *active_bricks_count = 0u;
 
-    if(_bricks_inv_index != nullptr)
-    {
-        cudaFree(_bricks_inv_index);
-    }
+    free_brick_resources();
 
-    if(_bricks_dense_index != nullptr)
-    {
-        cudaFree(_bricks_dense_index);
-    }
+    cudaDeviceSynchronize();
 
-    cudaMalloc((void **)&_bricks_inv_index, BRICK_RES_X * BRICK_RES_Y * BRICK_RES_Z * sizeof(unsigned int));
-    cudaMalloc((void **)&_bricks_dense_index, BRICK_RES_X * BRICK_RES_Y * BRICK_RES_Z * sizeof(unsigned int));
+    allocate_brick_resources();
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_occupied, 0));
@@ -111,13 +104,7 @@ extern "C" void copy_reference()
 
     unsigned active_brick_voxels = _active_bricks_count * BRICK_VOXELS;
     grid_size = (active_brick_voxels + block_size - 1) / block_size;
-    kernel_copy_reference<<<grid_size, block_size>>>(_active_bricks_count, _bricks_inv_index, _bricks_dense_index);
-
-    _ed_nodes_count = _active_bricks_count * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES;
-    _ed_nodes_component_count = _ed_nodes_count * 10u;
-
-    printf("\ned_nodes_count: %u\n", _ed_nodes_count);
-    printf("\ned_nodes_component_count: %u\n", _ed_nodes_component_count);
+    kernel_copy_reference<<<grid_size, block_size>>>(_active_bricks_count, _bricks_dense_index);
 
     getLastCudaError("render kernel failed");
 
