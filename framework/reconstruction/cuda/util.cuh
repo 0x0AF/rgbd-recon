@@ -122,15 +122,16 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         case 0:
             surf3Dread(&data, _volume_cv_xyz_inv_0, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
             break;
-        case 1:
-            surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
-            break;
-        case 2:
-            surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
-            break;
-        case 3:
-            surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
-            break;
+            // TODO
+            /*case 1:
+                surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+                break;
+            case 2:
+                surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+                break;
+            case 3:
+                surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+                break;*/
         }
 
         // printf("\ncamera_positions[%u]: (%f,%f,%f)\n", i, camera_positions[i].x,camera_positions[i].y,camera_positions[i].z);
@@ -154,15 +155,16 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         case 0:
             surf2DLayeredread(&depth, _array2d_kinect_depths_0, pixel.x * sizeof(float1), pixel.y, i);
             break;
-        case 1:
-            surf2DLayeredread(&depth, _array2d_kinect_depths_1, pixel.x * sizeof(float1), pixel.y, i);
-            break;
-        case 2:
-            surf2DLayeredread(&depth, _array2d_kinect_depths_2, pixel.x * sizeof(float1), pixel.y, i);
-            break;
-        case 3:
-            surf2DLayeredread(&depth, _array2d_kinect_depths_3, pixel.x * sizeof(float1), pixel.y, i);
-            break;
+            // TODO
+            /*case 1:
+                surf2DLayeredread(&depth, _array2d_kinect_depths_1, pixel.x * sizeof(float1), pixel.y, i);
+                break;
+            case 2:
+                surf2DLayeredread(&depth, _array2d_kinect_depths_2, pixel.x * sizeof(float1), pixel.y, i);
+                break;
+            case 3:
+                surf2DLayeredread(&depth, _array2d_kinect_depths_3, pixel.x * sizeof(float1), pixel.y, i);
+                break;*/
         }
 
         // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, depth.x);
@@ -188,15 +190,16 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         case 0:
             surf3Dread(&projected, _volume_cv_xyz_0, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
             break;
-        case 1:
-            surf3Dread(&projected, _volume_cv_xyz_1, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
-            break;
-        case 2:
-            surf3Dread(&projected, _volume_cv_xyz_2, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
-            break;
-        case 3:
-            surf3Dread(&projected, _volume_cv_xyz_3, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
-            break;
+            // TODO
+            /*case 1:
+                surf3Dread(&projected, _volume_cv_xyz_1, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+                break;
+            case 2:
+                surf3Dread(&projected, _volume_cv_xyz_2, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+                break;
+            case 3:
+                surf3Dread(&projected, _volume_cv_xyz_3, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+                break;*/
         }
 
         //        if(depth_voxel_space == 45u)
@@ -206,11 +209,12 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         glm::vec3 extracted_position = glm::vec3(projected.x, projected.y, projected.z);
 
-        //        printf("\nextracted_position: (%f,%f,%f), wp_voxel_space: (%u,%u,%u)\n", extracted_position.x, extracted_position.y, extracted_position.z, wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+        //        printf("\nextracted_position: (%f,%f,%f), wp_voxel_space: (%u,%u,%u)\n", extracted_position.x, extracted_position.y, extracted_position.z, wp_voxel_space.x, wp_voxel_space.y,
+        //        wp_voxel_space.z);
 
         glm::vec3 diff = glm::vec3(wp_voxel_space) - extracted_position;
 
-        if(glm::length(diff) > 3.f)
+        if(glm::length(diff) > 3.f || glm::length(diff) == 0.f)
         {
             continue;
         }
@@ -292,11 +296,11 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node, c
     return partial_derivative;
 }
 
-__device__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
+__device__ __host__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
 {
     float residual = 0.f;
 
-    glm::mat3 mat_1 = (glm::transpose(glm::toMat3(ed_node.affine)) * glm::toMat3(ed_node.affine) - glm::mat3());
+    glm::mat3 mat_1 = glm::transpose(glm::toMat3(ed_node.affine)) * glm::toMat3(ed_node.affine) - glm::mat3(1.0f);
 
     for(int i = 0; i < 3; i++)
     {
@@ -312,7 +316,173 @@ __device__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
     // TODO: figure out smooth component
     // residuals[1] = 0.f;
 
+    if(isnan(residual))
+    {
+        printf("\nresidual is NaN!\n");
+
+        residual = 0.f;
+    }
+
     return residual;
+}
+
+__device__ __host__ float evaluate_ed_pd(struct_ed_node ed_node, const int &partial_derivative_index, const float &ed_residual)
+{
+    float ds = derivative_step(partial_derivative_index);
+
+    float *mapped_ed_node = (float *)&ed_node;
+
+    mapped_ed_node[partial_derivative_index] += ds;
+
+    float residual_pos = evaluate_ed_node_residual(ed_node);
+
+    mapped_ed_node[partial_derivative_index] -= ds;
+
+    // printf("\nresidual_pos: %f\n", residual_pos);
+
+    if(isnan(residual_pos))
+    {
+        printf("\nresidual_pos is NaN!\n");
+
+        residual_pos = 0.f;
+    }
+
+    float partial_derivative = residual_pos / (2.0f * ds) - ed_residual / (2.0f * ds);
+
+    // printf("\npartial_derivative: %f\n", partial_derivative);
+
+    if(isnan(partial_derivative))
+    {
+        printf("\npartial_derivative is NaN!\n");
+
+        partial_derivative = 0.f;
+    }
+
+    return partial_derivative;
+}
+
+__device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures *measures)
+{
+    glm::vec3 dist = vertex.position - ed_node.position;
+    const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
+
+    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight);
+
+    float residual = 0.000001f;
+
+    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
+    // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+
+    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
+    {
+        printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+        return 0.f;
+    }
+
+    for(int i = 0; i < 1; i++)
+    {
+        float4 data{0.f, 0.f, 0.f, 0.f};
+
+        switch(i)
+        {
+        case 0:
+            surf3Dread(&data, _volume_cv_xyz_inv_0, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            break;
+            // TODO
+            /*case 1:
+                surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+                break;
+            case 2:
+                surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+                break;
+            case 3:
+                surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+                break;*/
+        }
+
+        // printf("\ncamera_positions[%u]: (%f,%f,%f)\n", i, camera_positions[i].x,camera_positions[i].y,camera_positions[i].z);
+
+        // printf("\n (x,y): (%f,%f)\n", data.x, data.y);
+
+        uint2 pixel{0u, 0u};
+        pixel.x = (unsigned int)(data.x * measures->depth_resolution.x);
+        pixel.y = (unsigned int)(data.y * measures->depth_resolution.y);
+
+        if(pixel.x >= measures->depth_resolution.x || pixel.y >= measures->depth_resolution.y)
+        {
+            printf("\nprojected out of depth map: (%u,%u)\n", pixel.x, pixel.y);
+            continue;
+        }
+
+        float1 occupancy{0.f};
+
+        switch(i)
+        {
+        case 0:
+            surf2DLayeredread(&occupancy, _array2d_silhouettes_0, pixel.x * sizeof(float1), pixel.y, i);
+            break;
+            // TODO
+            /*case 1:
+                surf2DLayeredread(&occupancy, _array2d_kinect_depths_1, pixel.x * sizeof(float1), pixel.y, i);
+                break;
+            case 2:
+                surf2DLayeredread(&occupancy, _array2d_kinect_depths_2, pixel.x * sizeof(float1), pixel.y, i);
+                break;
+            case 3:
+                surf2DLayeredread(&occupancy, _array2d_kinect_depths_3, pixel.x * sizeof(float1), pixel.y, i);
+                break;*/
+        }
+
+        // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, occupancy.x);
+
+        float residual_component = 1.0f - occupancy.x;
+
+        if(isnan(residual_component))
+        {
+            printf("\nresidual_component is NaN!\n");
+
+            residual_component = 0.f;
+        }
+
+        residual += residual_component;
+    }
+
+    return residual;
+}
+
+__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures)
+{
+    float ds = derivative_step(partial_derivative_index);
+
+    float *mapped_ed_node = (float *)&ed_node;
+
+    mapped_ed_node[partial_derivative_index] += ds;
+
+    float residual_pos = evaluate_hull_residual(vertex, ed_node, measures);
+
+    mapped_ed_node[partial_derivative_index] -= ds;
+
+    // printf("\nresidual_pos: %f\n", residual_pos);
+
+    if(isnan(residual_pos))
+    {
+        printf("\nresidual_pos is NaN!\n");
+
+        residual_pos = 0.f;
+    }
+
+    float partial_derivative = residual_pos / (2.0f * ds) - vx_residual / (2.0f * ds);
+
+    // printf("\npartial_derivative: %f\n", partial_derivative);
+
+    if(isnan(partial_derivative))
+    {
+        printf("\npartial_derivative is NaN!\n");
+
+        partial_derivative = 0.f;
+    }
+
+    return partial_derivative;
 }
 
 extern "C" glm::uvec3 test_index_3d(unsigned int brick_id) { return index_3d(brick_id); }
@@ -320,6 +490,6 @@ extern "C" glm::uvec3 test_position_3d(unsigned int position_id) { return positi
 extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id) { return ed_cell_3d(ed_cell_id); }
 extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_id(ed_cell_3d); };
 extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d) { return ed_cell_voxel_id(ed_cell_voxel_3d); }
-// TODO
 extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight) { return warp_position(dist, ed_node, skinning_weight); }
 extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight) { return warp_normal(normal, ed_node, skinning_weight); }
+extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node) { return evaluate_ed_node_residual(ed_node); }

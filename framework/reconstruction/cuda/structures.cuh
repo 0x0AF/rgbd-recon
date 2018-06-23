@@ -11,12 +11,18 @@ const unsigned BRICK_VOXEL_DIM = 18u;
 const unsigned BRICK_VOXELS = 5832u;
 
 const unsigned BRICK_RES_X = 8u;
-const unsigned BRICK_RES_Y = 7u;
+const unsigned BRICK_RES_Y = 8u;
 const unsigned BRICK_RES_Z = 8u;
 
-const unsigned VOLUME_VOXEL_DIM_X = 141u;
-const unsigned VOLUME_VOXEL_DIM_Y = 111u;
-const unsigned VOLUME_VOXEL_DIM_Z = 130u;
+const unsigned VOLUME_VOXEL_DIM_X = 140u;
+const unsigned VOLUME_VOXEL_DIM_Y = 140u;
+const unsigned VOLUME_VOXEL_DIM_Z = 140u;
+
+#ifdef __CUDACC__
+#define CUDA_HOST_DEVICE __host__ __device__
+#else
+#define CUDA_HOST_DEVICE
+#endif
 
 struct struct_native_handles
 {
@@ -29,6 +35,7 @@ struct struct_native_handles
     unsigned int volume_tsdf_data;
 
     unsigned int array2d_kinect_depths;
+    unsigned int array2d_silhouettes;
 
     unsigned int volume_cv_xyz_inv[4];
     unsigned int volume_cv_xyz[4];

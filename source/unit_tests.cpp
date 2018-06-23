@@ -42,9 +42,9 @@ extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id);
 extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d);
 extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d);
 extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d);
-extern "C" unsigned int test_identify_ed_cell_pos(const glm::vec3 position, const unsigned int *bricks_inv_index);
 extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight);
 extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight);
+extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node);
 
 namespace
 {
@@ -52,7 +52,7 @@ const float ACCEPTED_FLOAT_TOLERANCE = 0.0000001f;
 
 TEST(UtilTest, Index3D)
 {
-    unsigned int brick_id = 224;
+    unsigned int brick_id = 256;
     glm::uvec3 brick_index_3d = test_index_3d(brick_id);
 
     EXPECT_EQ(brick_index_3d.x, 0);
@@ -70,30 +70,54 @@ TEST(UtilTest, Position3D)
 }
 TEST(UtilTest, EDCell3D)
 {
-    unsigned int ed_cell_id = 17;
+    unsigned int ed_cell_id = 486;
     glm::uvec3 ed_cell_3d = test_ed_cell_3d(ed_cell_id);
 
-    EXPECT_EQ(ed_cell_3d.x, 2);
-    EXPECT_EQ(ed_cell_3d.y, 2);
-    EXPECT_EQ(ed_cell_3d.z, 1);
+    EXPECT_EQ(ed_cell_3d.x, 0);
+    EXPECT_EQ(ed_cell_3d.y, 0);
+    EXPECT_EQ(ed_cell_3d.z, 6);
 }
 TEST(UtilTest, EDCellID)
 {
-    glm::uvec3 ed_cell_3d{2, 2, 1};
+    glm::uvec3 ed_cell_3d{0, 0, 6};
     unsigned int ed_cell_id = test_ed_cell_id(ed_cell_3d);
 
-    EXPECT_EQ(ed_cell_id, 17);
+    EXPECT_EQ(ed_cell_id, 486);
 }
 TEST(UtilTest, EDCellVoxelID)
 {
-    glm::uvec3 ed_cell_voxel_3d{3, 3, 3};
+    glm::uvec3 ed_cell_voxel_3d{1, 0, 1};
     unsigned int ed_cell_voxel_id = test_ed_cell_voxel_id(ed_cell_voxel_3d);
 
-    EXPECT_EQ(ed_cell_voxel_id, 129);
+    EXPECT_EQ(ed_cell_voxel_id, 5);
 }
-TEST(UtilTest, IdentifyEDCellPos)
+TEST(UtilTest, ResidualEDNodeRotation)
 {
-    // TODO
+    glm::mat4 rotation(1.f);
+    rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+    struct_ed_node ed_node;
+    ed_node.position = glm::vec3(0.0f);
+    ed_node.affine = glm::quat(rotation);
+    ed_node.translation = glm::vec3(0.0f);
+
+    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node);
+    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
+}
+TEST(UtilTest, ResidualEDNodeAffine)
+{
+    glm::mat4 affine(1.f);
+    affine = glm::rotate(affine, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    affine *= glm::translate(affine, glm::vec3(1.0f, -1.0f, 0.f));
+    affine *= glm::scale(affine, glm::vec3(3.0f));
+
+    struct_ed_node ed_node;
+    ed_node.position = glm::vec3(0.0f);
+    ed_node.affine = glm::quat_cast(affine);
+    ed_node.translation = glm::vec3(0.0f);
+
+    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node);
+    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
 }
 TEST(UtilTest, WarpPositionNoImpact)
 {
@@ -156,7 +180,7 @@ TEST(UtilTest, WarpNormalNoImpact)
     ed_node.affine = glm::quat(glm::mat3());
     ed_node.translation = glm::vec3(0.0f);
 
-    glm::vec3 normal = glm::vec3(-0.015034f,0.000000f,-0.015034f);
+    glm::vec3 normal = glm::vec3(-0.015034f, 0.000000f, -0.015034f);
     const float skinning_weight = 1.f;
 
     glm::vec3 warped_normal = test_warp_normal(normal, ed_node, skinning_weight);

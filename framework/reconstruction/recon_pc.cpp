@@ -172,6 +172,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
 
     _native_handles.array2d_kinect_depths = nka.getDepthArrayRaw()->getGLHandle();
+    _native_handles.array2d_silhouettes = nka.getSilhouette()->id();
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
     {
@@ -204,8 +205,8 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_solid = new Program();
     _program_bricks = new Program();
 
-    _res_volume = glm::uvec3(71, 56, 65);
-    _res_bricks = glm::uvec3(8, 7, 8);
+    _res_volume = glm::uvec3(140, 140, 140);
+    _res_bricks = glm::uvec3(8, 8, 8);
     _sampler = new VolumeSampler(_res_volume);
 
     glGenTextures(1, &_volume_tsdf_data);
@@ -421,11 +422,10 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     _sampler->resize(_res_volume);
 
     _program_pc_draw_data->setUniform("res_tsdf", _res_volume);
-    _program_pc_draw_data->setUniform("size_voxel", _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
+    _program_pc_draw_data->setUniform("size_voxel", _voxel_size * 0.75f);
 
     _program_pc_extract_reference->setUniform("res_tsdf", _res_volume);
-    _program_pc_extract_reference->setUniform("size_voxel",
-                                              _voxel_size * glm::min(_res_volume.x, glm::min(_res_volume.y, _res_volume.z)) / glm::max(_res_volume.x, glm::max(_res_volume.y, _res_volume.z)));
+    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size * 0.75f);
 
     _program_integration->setUniform("res_tsdf", _res_volume);
 

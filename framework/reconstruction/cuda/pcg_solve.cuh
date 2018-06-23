@@ -23,10 +23,16 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         return;
     }
 
-    struct_ed_node ed_node = ed_graph[ed_node_offset];
+    struct_ed_node *ed_node = (struct_ed_node *)malloc(sizeof(struct_ed_node));
+    memcpy(&ed_node[0], &ed_graph[ed_node_offset], sizeof(struct_ed_node));
+
     struct_ed_dense_index_entry ed_entry = ed_dense_index[ed_node_offset];
 
     unsigned int component = idx % ED_COMPONENT_COUNT;
+
+    // TODO: implement ARAP component for ED neighborhood
+    // float ed_residual = evaluate_ed_node_residual(ed_node);
+    // evaluate_ed_pd(ed_node, component, ed_residual)
 
     // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
@@ -36,7 +42,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = evaluate_vx_residual(vx, ed_node, measures);
+        float vx_residual = evaluate_vx_residual(vx, *ed_node, measures) + evaluate_hull_residual(vx, *ed_node, measures);
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -47,15 +53,15 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
             vx_residual = 0.f;
         }
 
-        __shared__ float vx_pds[ED_COMPONENT_COUNT];
+        __shared__ float pds[ED_COMPONENT_COUNT];
 
-        vx_pds[component] = evaluate_vx_pd(vx, ed_node, component, vx_residual, measures);
+        pds[component] = evaluate_vx_pd(vx, *ed_node, component, vx_residual, measures) + evaluate_hull_pd(vx, *ed_node, component, vx_residual, measures);
 
-        if(isnan(vx_pds[component]))
+        if(isnan(pds[component]))
         {
             printf("\nvx_pds[%u] is NaN!\n", component);
 
-            vx_pds[component] = 0.f;
+            pds[component] = 0.f;
         }
 
         __syncthreads();
@@ -68,7 +74,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         //            }
         //        }
 
-        float jtf_value = vx_pds[component] * vx_residual;
+        float jtf_value = pds[component] * vx_residual;
 
         if(isnan(jtf_value))
         {
@@ -83,7 +89,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         {
             unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
 
-            float jtj_value = vx_pds[component] * vx_pds[component_k];
+            float jtj_value = pds[component] * pds[component_k];
 
             if(isnan(jtj_value))
             {
@@ -99,6 +105,8 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
     }
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
+
+    free(ed_node);
 
     __syncthreads();
 
@@ -296,17 +304,10 @@ __host__ void solve_for_h()
 
     printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
 
-    //        if(sqrt(r1) < init_res)
-    //        {
-    // sort of dampening with mu
-    cublasSaxpy(cublas_handle, N, &alpha, _h, 1, (float *)_ed_graph, 1);
-    //            mu -= 0.06;
-    //        }
-    //        else
-    //        {
-    //            mu += 0.06;
-    //        }
-    //    }
+    if(sqrt(r1) < init_res)
+    {
+        cublasSaxpy(cublas_handle, N, &alpha, _h, 1, (float *)_ed_graph, 1);
+    }
 
     checkCudaErrors(cudaFree(csr_row_ptr_jtj));
     cusparseDestroyMatDescr(descr);
@@ -367,7 +368,9 @@ extern "C" void pcg_solve()
     }
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_kinect_depths, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_silhouettes, 0));
 
+    cudaArray *array_s[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *array_kd[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *volume_array_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *volume_array_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
@@ -377,25 +380,36 @@ extern "C" void pcg_solve()
         checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz_inv[i], _cgr.volume_cv_xyz_inv[i], 0, 0));
         checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz[i], _cgr.volume_cv_xyz[i], 0, 0));
         checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&array_kd[i], _cgr.array2d_kinect_depths, i, 0));
+        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&array_s[i], _cgr.array2d_silhouettes, i, 0));
     }
 
     cudaChannelFormatDesc channel_desc_cv_xyz_inv = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_0, volume_array_cv_xyz_inv[0], &channel_desc_cv_xyz_inv));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc_cv_xyz_inv));
+    // TODO
+    /*checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc_cv_xyz_inv));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_2, volume_array_cv_xyz_inv[2], &channel_desc_cv_xyz_inv));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv_xyz_inv));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv_xyz_inv));*/
 
     cudaChannelFormatDesc channel_desc_cv_xyz = cudaCreateChannelDesc(32, 32, 32, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_0, volume_array_cv_xyz[0], &channel_desc_cv_xyz));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc_cv_xyz));
+    // TODO
+    /*checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc_cv_xyz));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_2, volume_array_cv_xyz[2], &channel_desc_cv_xyz));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_3, volume_array_cv_xyz[3], &channel_desc_cv_xyz));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_3, volume_array_cv_xyz[3], &channel_desc_cv_xyz));*/
 
     cudaChannelFormatDesc channel_desc_kd = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_0, array_kd[0], &channel_desc_kd));
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
+    // TODO
+    /*checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
     checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_2, array_kd[2], &channel_desc_kd));
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));*/
+
+    cudaChannelFormatDesc channel_desc_s = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_silhouettes_0, array_s[0], &channel_desc_s));
+    // TODO
+    /*checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_2, array_kd[2], &channel_desc_kd));
+    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));*/
 
     size_t grid_size = (_active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
     kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph, _measures);
@@ -416,6 +430,7 @@ extern "C" void pcg_solve()
 
     cudaDeviceSynchronize();
 
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_silhouettes, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_kinect_depths, 0));
 
     for(unsigned int i = 0; i < 4; i++)

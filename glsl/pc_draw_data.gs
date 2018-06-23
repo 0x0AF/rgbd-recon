@@ -38,7 +38,7 @@ void sample_cube(const vec3 pos, inout float cube[8])
 {
     for(uint i = 0u; i < 8; i++)
     {
-        cube[i] = sample_volume(pos + vertex_offsets[i] * size_voxel / res_tsdf * max(res_tsdf.x, max(res_tsdf.y, res_tsdf.z)));
+        cube[i] = sample_volume(pos + vertex_offsets[i] * size_voxel);
     }
 }
 
@@ -87,7 +87,7 @@ void main()
     // MC START
 
     float cube[8] = float[8](0., 0., 0., 0., 0., 0., 0., 0.);
-    vec3 center = geo_Position[0] + size_voxel * vec3(-1., -1., -1.) / res_tsdf * max(res_tsdf.x, max(res_tsdf.y, res_tsdf.z));
+    vec3 center = geo_Position[0] + size_voxel * vec3(-1., -1., -1.);
 
     sample_cube(center, cube);
 
@@ -113,7 +113,7 @@ void main()
             {
                 float offset = get_offset(cube[edge_connections[i].x], cube[edge_connections[i].y]);
 
-                edge_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel / res_tsdf * max(res_tsdf.x, max(res_tsdf.y, res_tsdf.z));
+                edge_vertices[i] = center + (vertex_offsets[edge_connections[i].x] + offset * edge_directions[i]) * size_voxel;
             }
         }
 
