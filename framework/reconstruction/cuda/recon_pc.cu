@@ -82,12 +82,16 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     cusparseCreate(&cusparse_handle);
     getLastCudaError("cusparseCreate failure");
+
+    cusolverSpCreate(&cusolver_handle);
+    getLastCudaError("cusolverSpCreate failure");
 }
 
 extern "C" void deinit_cuda()
 {
     cusparseDestroy(cusparse_handle);
     cublasDestroy(cublas_handle);
+    cusolverSpDestroy(cusolver_handle);
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_vertex_counter));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_reference_mesh_vertices));

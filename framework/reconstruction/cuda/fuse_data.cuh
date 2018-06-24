@@ -64,8 +64,8 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
 
     if(warped_position.x >= VOLUME_VOXEL_DIM_X || warped_position.y >= VOLUME_VOXEL_DIM_Y || warped_position.z >= VOLUME_VOXEL_DIM_Z)
     {
-        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x, brick.y,
-               brick.z, position.x, position.y, position.z);
+//        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x, brick.y,
+//               brick.z, position.x, position.y, position.z);
         return;
     }
 

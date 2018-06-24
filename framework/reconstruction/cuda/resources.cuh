@@ -9,12 +9,15 @@
 #include <cublas_v2.h>
 #include <cuda_gl_interop.h>
 #include <cusparse_v2.h>
+#include <cusolver_common.h>
+#include <cusolverSp.h>
 #include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/structures.cuh>
 
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <helper_cuda.h>
+#include <helper_cusolver.h>
 
 struct struct_graphic_resources
 {
@@ -45,6 +48,7 @@ struct_measures *_measures = nullptr;
 
 cublasHandle_t cublas_handle = nullptr;
 cusparseHandle_t cusparse_handle = nullptr;
+cusolverSpHandle_t cusolver_handle = nullptr;
 
 unsigned int _active_bricks_count = 0u;
 unsigned int _active_ed_nodes_count = 0u;

@@ -313,14 +313,16 @@ void ReconPerformanceCapture::draw()
 
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
+    else
+    {
+        // TODO: estimate ICP rigid body fit
 
-    // TODO: estimate ICP rigid body fit
+        TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
+        pcg_solve();
 
-    pcg_solve();
-
-    TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+        TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+    }
 
     float2 negative{-_limit, 0.f};
     glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);

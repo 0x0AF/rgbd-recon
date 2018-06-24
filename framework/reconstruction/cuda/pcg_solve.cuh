@@ -1,6 +1,9 @@
 #include <reconstruction/cuda/resources.cuh>
 
 // #define DEBUG_JTJ
+#define SOLVER_DIRECT_CHOL
+// #define SOLVER_DIRECT_QR
+// #define SOLVER_PCG
 
 #ifdef DEBUG_JTJ
 
@@ -8,8 +11,51 @@
 
 #endif
 
+__global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_dense_index_entry *ed_dense_index, struct_ed_node *ed_graph,
+                              struct_measures *measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+        return;
+    }
+
+    struct_ed_node *ed_node = (struct_ed_node *)malloc(sizeof(struct_ed_node));
+    memcpy(&ed_node[0], &ed_graph[idx], sizeof(struct_ed_node));
+
+    struct_ed_dense_index_entry ed_entry = ed_dense_index[idx];
+
+    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        struct_vertex vx = sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+
+        // printf("\ned_node + vertex match\n");
+
+        float vx_residual = evaluate_vx_residual(vx, *ed_node, measures) + evaluate_hull_residual(vx, *ed_node, measures);
+
+        // printf("\nvx_residual: %f\n", vx_residual);
+
+        if(isnan(vx_residual))
+        {
+            printf("\nvx_residual is NaN!\n");
+
+            vx_residual = 0.f;
+        }
+
+        atomicAdd(energy, vx_residual);
+    }
+
+    // printf("\njtf[%u]\n", ed_node_offset * 10u);
+
+    free(ed_node);
+}
+
 __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int active_ed_vx_count, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count,
-                               struct_ed_dense_index_entry *ed_dense_index, struct_ed_node *ed_graph, struct_measures *measures)
+                               struct_ed_dense_index_entry *ed_dense_index, struct_ed_node *ed_graph, struct_measures *measures, const float mu)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -74,7 +120,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         //            }
         //        }
 
-        float jtf_value = pds[component] * vx_residual;
+        float jtf_value = -pds[component] * vx_residual;
 
         if(isnan(jtf_value))
         {
@@ -89,7 +135,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         {
             unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
 
-            float jtj_value = pds[component] * pds[component_k];
+            float jtj_value = (component == component_k) ? pds[component] * pds[component_k] + mu : pds[component] * pds[component_k];
 
             if(isnan(jtj_value))
             {
@@ -186,6 +232,124 @@ __global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
     memcpy(&jtj_cols[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_col_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
+#ifdef SOLVER_DIRECT_CHOL
+__host__ void solve_for_h()
+{
+    cusparseStatus_t status;
+
+    cusparseMatDescr_t descr = nullptr;
+    cusparseCreateMatDescr(&descr);
+    cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
+    cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO);
+
+    getLastCudaError("cusparseCreateMatDescr failure");
+    cudaDeviceSynchronize();
+
+    int *csr_row_ptr_jtj = nullptr;
+    int csr_nnz = _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
+
+    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+
+    // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
+
+    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
+
+    cudaDeviceSynchronize();
+    status = cusparseXcoo2csr(cusparse_handle, _jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
+    cudaDeviceSynchronize();
+
+    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+    {
+        printf("\ncusparseStatus_t: %u\n", status);
+    }
+
+    getLastCudaError("cusparseXcoo2csr failure");
+
+    float tol = 1.e-6f;
+    const int reorder = 0;
+    int singularity = 0;
+
+    cudaDeviceSynchronize();
+
+    cusolverStatus_t solver_status = cusolverSpScsrlsvchol(cusolver_handle, N, csr_nnz, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, _jtf, tol, reorder, _h, &singularity);
+
+    cudaDeviceSynchronize();
+
+    printf("\nsingularity: %i\n", singularity);
+
+    if(solver_status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS)
+    {
+        printf("\ncusolverStatus_t: %u\n", solver_status);
+    }
+
+    getLastCudaError("cusolverSpScsrlsvchol failure");
+
+    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
+    cusparseDestroyMatDescr(descr);
+}
+#endif
+
+#ifdef SOLVER_DIRECT_QR
+__host__ void solve_for_h()
+{
+    cusparseStatus_t status;
+
+    cusparseMatDescr_t descr = nullptr;
+    cusparseCreateMatDescr(&descr);
+    cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
+    cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO);
+
+    getLastCudaError("cusparseCreateMatDescr failure");
+    cudaDeviceSynchronize();
+
+    int *csr_row_ptr_jtj = nullptr;
+    int csr_nnz = _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
+
+    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+
+    // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
+
+    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
+
+    cudaDeviceSynchronize();
+    status = cusparseXcoo2csr(cusparse_handle, _jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
+    cudaDeviceSynchronize();
+
+    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
+    {
+        printf("\ncusparseStatus_t: %u\n", status);
+    }
+
+    getLastCudaError("cusparseXcoo2csr failure");
+
+    float tol = 1.e-6f;
+    const int reorder = 0;
+    int singularity = 0;
+
+    float *residual = NULL;
+    checkCudaErrors(cudaMalloc((void **)&residual, sizeof(float) * N));
+
+    cudaDeviceSynchronize();
+
+    cusolverStatus_t solver_status = cusolverSpScsrlsvqr(cusolver_handle, N, csr_nnz, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, _jtf, tol, reorder, _h, &singularity);
+
+    cudaDeviceSynchronize();
+
+    printf("\nsingularity: %i\n", singularity);
+
+    if(solver_status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS)
+    {
+        printf("\ncusolverStatus_t: %u\n", solver_status);
+    }
+
+    getLastCudaError("cusolverSpScsrlsvlu failure");
+
+    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
+    cusparseDestroyMatDescr(descr);
+}
+#endif
+
+#ifdef SOLVER_PCG
 __host__ void solve_for_h()
 {
     cusparseStatus_t status;
@@ -242,11 +406,6 @@ __host__ void solve_for_h()
 
     getLastCudaError("cusparseScsrmv failure");
 
-    // TODO: use for dampening
-    //    float mu = 1.0f;
-    //
-    //    for(unsigned int lm_step = 0; lm_step < 16; lm_step++)
-    //    {
     cublasSaxpy(cublas_handle, N, &alpham1, pcg_Ax, 1, _jtf, 1);
     cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
 
@@ -304,14 +463,10 @@ __host__ void solve_for_h()
 
     printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
 
-    if(sqrt(r1) < init_res)
-    {
-        cublasSaxpy(cublas_handle, N, &alpha, _h, 1, (float *)_ed_graph, 1);
-    }
-
     checkCudaErrors(cudaFree(csr_row_ptr_jtj));
     cusparseDestroyMatDescr(descr);
 }
+#endif
 
 #ifdef DEBUG_JTJ
 
@@ -359,7 +514,7 @@ __host__ void print_out_jtj()
 
 #endif
 
-extern "C" void pcg_solve()
+void map_GPU_resources()
 {
     for(unsigned int i = 0; i < 4; i++)
     {
@@ -410,9 +565,24 @@ extern "C" void pcg_solve()
     /*checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
     checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_2, array_kd[2], &channel_desc_kd));
     checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));*/
+}
 
+void unmap_GPU_resources()
+{
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_silhouettes, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_kinect_depths, 0));
+
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz[i], 0));
+        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
+    }
+}
+
+void evaluate_jtj_jtf(const float mu)
+{
     size_t grid_size = (_active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
-    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph, _measures);
+    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph, _measures, mu);
 
     getLastCudaError("render kernel failed");
 
@@ -429,19 +599,103 @@ extern "C" void pcg_solve()
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
+};
 
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_silhouettes, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_kinect_depths, 0));
+void evaluate_misalignment_energy(float &misalignment_energy)
+{
+    float *device_misalignment_energy = nullptr;
+    cudaMallocManaged(&device_misalignment_energy, sizeof(float));
+    *device_misalignment_energy = 0.f;
 
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz[i], 0));
-        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
-    }
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
+    size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph, _measures);
+
+    cudaMemcpy(&misalignment_energy, &device_misalignment_energy[0], sizeof(float), cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
+
+    cudaFree(device_misalignment_energy);
+}
+
+void evaluate_step_misalignment_energy(float &misalignment_energy)
+{
+    float *device_misalignment_energy = nullptr;
+    cudaMallocManaged(&device_misalignment_energy, sizeof(float));
+    *device_misalignment_energy = 0.f;
+
+    struct_ed_node *step_ed_graph = nullptr;
+    cudaMalloc(&step_ed_graph, _active_ed_nodes_count * sizeof(struct_ed_node));
+    cudaMemcpy(&step_ed_graph[0], &_ed_graph[0], _active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
 
     cudaDeviceSynchronize();
 
-    solve_for_h();
+    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+    const float one = 1.0f;
+    cublasSaxpy(cublas_handle, N, &one, _h, 1, (float *)&step_ed_graph[0], 1);
+
+    cudaDeviceSynchronize();
+
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
+    size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, _ed_nodes_dense_index, step_ed_graph, _measures);
+
+    cudaMemcpy(&misalignment_energy, &device_misalignment_energy[0], sizeof(float), cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
+
+    cudaFree(step_ed_graph);
+    cudaFree(device_misalignment_energy);
+}
+
+extern "C" void pcg_solve()
+{
+    map_GPU_resources();
+
+    const unsigned int max_iterations = 5u;
+    unsigned int iterations = 0u;
+    float mu = 1.0f;
+    float initial_misalignment_energy, solution_misalignment_energy;
+
+    evaluate_misalignment_energy(initial_misalignment_energy);
+
+    cudaDeviceSynchronize();
+
+    while(iterations < max_iterations)
+    {
+        evaluate_jtj_jtf(mu);
+
+        cudaDeviceSynchronize();
+
+        solve_for_h();
+        cudaDeviceSynchronize();
+
+        evaluate_step_misalignment_energy(solution_misalignment_energy);
+        cudaDeviceSynchronize();
+
+        printf("\ninitial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
+
+        if(solution_misalignment_energy < initial_misalignment_energy)
+        {
+            int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+            const float one = 1.0f;
+            cublasSaxpy(cublas_handle, N, &one, _h, 1, (float *)&_ed_graph[0], 1);
+            cudaDeviceSynchronize();
+
+            mu -= 0.05f;
+            initial_misalignment_energy = solution_misalignment_energy;
+            printf("\nmu lowered: %f\n", mu);
+        }
+        else
+        {
+            mu += 0.05f;
+            printf("\nmu raised: %f\n", mu);
+        }
+
+        iterations++;
+    }
 
 #ifdef DEBUG_JTJ
 
@@ -452,4 +706,6 @@ extern "C" void pcg_solve()
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
+
+    unmap_GPU_resources();
 }
