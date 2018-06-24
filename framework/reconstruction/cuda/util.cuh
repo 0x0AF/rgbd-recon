@@ -94,7 +94,7 @@ __device__ __host__ glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_
     return skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal);
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures *measures)
+__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, struct_measures *measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
@@ -104,7 +104,9 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
     float residual = 0.000001f;
 
-    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
+    glm::vec3 warped_position_new = warp_position(dist, ed_node_new, skinning_weight);
+
+    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position_new);
     // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
 
     if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
@@ -261,15 +263,15 @@ __device__ __host__ float derivative_step(const int &partial_derivative_index)
     return step;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures)
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_new, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures)
 {
     float ds = derivative_step(partial_derivative_index);
 
-    float *mapped_ed_node = (float *)&ed_node;
+    float *mapped_ed_node = (float *)&ed_node_new;
 
     mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_vx_residual(vertex, ed_node, measures);
+    float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, measures);
 
     mapped_ed_node[partial_derivative_index] -= ds;
 

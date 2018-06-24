@@ -35,7 +35,7 @@ __global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsig
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = evaluate_vx_residual(vx, *ed_node, measures) + evaluate_hull_residual(vx, *ed_node, measures);
+        float vx_residual = evaluate_vx_residual(vx, *ed_node, ed_graph[idx], measures) + evaluate_hull_residual(vx, *ed_node, measures);
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -88,7 +88,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = evaluate_vx_residual(vx, *ed_node, measures) + evaluate_hull_residual(vx, *ed_node, measures);
+        float vx_residual = evaluate_vx_residual(vx, *ed_node, ed_graph[idx], measures) + evaluate_hull_residual(vx, *ed_node, measures);
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -101,7 +101,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
 
         __shared__ float pds[ED_COMPONENT_COUNT];
 
-        pds[component] = evaluate_vx_pd(vx, *ed_node, component, vx_residual, measures) + evaluate_hull_pd(vx, *ed_node, component, vx_residual, measures);
+        pds[component] = evaluate_vx_pd(vx, *ed_node, ed_graph[idx], component, vx_residual, measures) + evaluate_hull_pd(vx, *ed_node, component, vx_residual, measures);
 
         if(isnan(pds[component]))
         {
