@@ -1,5 +1,35 @@
 #include <reconstruction/cuda/resources.cuh>
 
+#define safeCall(err)       __safeCall(err, __FILE__, __LINE__)
+#define safeThreadSync()    __safeThreadSync(__FILE__, __LINE__)
+#define checkMsg(msg)       __checkMsg(msg, __FILE__, __LINE__)
+
+inline void __safeCall(cudaError err, const char *file, const int line)
+{
+  if (cudaSuccess != err) {
+      fprintf(stderr, "safeCall() Runtime API error in file <%s>, line %i : %s.\n", file, line, cudaGetErrorString(err));
+      exit(-1);
+    }
+}
+
+inline void __safeThreadSync(const char *file, const int line)
+{
+  cudaError err = cudaThreadSynchronize();
+  if (cudaSuccess != err) {
+      fprintf(stderr, "threadSynchronize() Driver API error in file '%s' in line %i : %s.\n", file, line, cudaGetErrorString(err));
+      exit(-1);
+    }
+}
+
+inline void __checkMsg(const char *errorMessage, const char *file, const int line)
+{
+  cudaError_t err = cudaGetLastError();
+  if (cudaSuccess != err) {
+      fprintf(stderr, "checkMsg() CUDA error: %s in file <%s>, line %i : %s.\n", errorMessage, file, line, cudaGetErrorString(err));
+      exit(-1);
+    }
+}
+
 __device__ __host__ glm::uvec3 index_3d(unsigned int brick_id)
 {
     glm::uvec3 brick = glm::uvec3(0u);

@@ -19,8 +19,9 @@
 
 #include <reconstruction/cuda/copy_reference.cuh>
 #include <reconstruction/cuda/ed_sample.cuh>
-#include <reconstruction/cuda/fuse_data.cuh>
+#include <reconstruction/cuda/sift.cuh>
 #include <reconstruction/cuda/pcg_solve.cuh>
+#include <reconstruction/cuda/fuse_data.cuh>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles)
 {

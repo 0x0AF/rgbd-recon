@@ -33,10 +33,11 @@ using namespace gl;
 #include <vector_types.h>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
-extern "C" void pcg_solve();
-extern "C" void fuse_data();
 extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
+extern "C" void estimate_correspondence_field();
+extern "C" void pcg_solve();
+extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
@@ -135,6 +136,7 @@ int ReconPerformanceCapture::TRI_TABLE[] = {
 std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA_VOLUME_INTEGRATION";
 std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
 std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
+std::string ReconPerformanceCapture::TIMER_CORRESPONDENCE = "TIMER_CORRESPONDENCE";
 std::string ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT = "TIMER_NON_RIGID_ALIGNMENT";
 std::string ReconPerformanceCapture::TIMER_FUSION = "TIMER_FUSION";
 static int start_image_unit = 3;
@@ -188,6 +190,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
 
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
     TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
+    TimerDatabase::instance().addTimer(TIMER_CORRESPONDENCE);
     TimerDatabase::instance().addTimer(TIMER_NON_RIGID_ALIGNMENT);
     TimerDatabase::instance().addTimer(TIMER_FUSION);
     TimerDatabase::instance().addTimer(TIMER_DATA_MESH_DRAW);
@@ -314,6 +317,12 @@ void ReconPerformanceCapture::draw()
 
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
+
+    TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
+
+    estimate_correspondence_field();
+
+    TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
 
     // TODO: estimate ICP rigid body fit
 
