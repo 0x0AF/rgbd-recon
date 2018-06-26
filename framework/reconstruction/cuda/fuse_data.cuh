@@ -1,6 +1,6 @@
 #include <reconstruction/cuda/resources.cuh>
 
-__global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_dense_index_entry *ed_dense_index, struct_ed_node *ed_graph)
+__global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_meta_entry *ed_dense_index, struct_ed_node *ed_graph)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -12,11 +12,12 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
 
     unsigned int ed_node_offset = idx / ED_CELL_VOXELS;
 
-    unsigned int brick_id = ed_dense_index[ed_node_offset].brick_id;
-    unsigned int ed_cell_id = ed_dense_index[ed_node_offset].ed_cell_id;
-    unsigned int edc_voxel_id = idx % ED_CELL_VOXELS;
+    struct_ed_node ed_node = ed_graph[ed_node_offset];
+    struct_ed_meta_entry ed_entry = ed_dense_index[ed_node_offset];
 
-    struct_ed_node ed_node = ed_graph[idx / ED_CELL_VOXELS];
+    unsigned int brick_id = ed_entry.brick_id;
+    unsigned int ed_cell_id = ed_entry.ed_cell_id;
+    unsigned int edc_voxel_id = idx % ED_CELL_VOXELS;
 
     glm::uvec3 brick = index_3d(brick_id) * BRICK_VOXEL_DIM;
     glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id);
@@ -44,12 +45,6 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
     //        printf("\ned node %u, position: (%u,%u,%u)\n", idx / ED_CELL_VOXELS, world.x, world.y, world.z);
     //    }
 
-    __shared__ float2 ed_cell_voxels[ED_CELL_VOXELS]; // 1,728 Kb
-
-    surf3Dread(&ed_cell_voxels[edc_voxel_id], _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
-
-    __syncthreads();
-
     // warped position
 
     glm::vec3 dist = glm::vec3(world) - ed_node.position;
@@ -64,10 +59,26 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
 
     if(warped_position.x >= VOLUME_VOXEL_DIM_X || warped_position.y >= VOLUME_VOXEL_DIM_Y || warped_position.z >= VOLUME_VOXEL_DIM_Z)
     {
-//        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x, brick.y,
-//               brick.z, position.x, position.y, position.z);
+        //        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x,
+        //        brick.y,
+        //               brick.z, position.x, position.y, position.z);
         return;
     }
+
+    if(ed_entry.rejected)
+    {
+        float2 data;
+        surf3Dread(&data, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+        surf3Dwrite(data, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+        return;
+    }
+
+    __shared__ float2 ed_cell_voxels[ED_CELL_VOXELS];
+    __shared__ float2 edc_predictions[ED_CELL_VOXELS];
+
+    surf3Dread(&ed_cell_voxels[edc_voxel_id], _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+
+    __syncthreads();
 
     //    if(edc_voxel_id == 0)
     //    {
@@ -137,10 +148,28 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
 
     // reference frame SDF prediction
 
-    float2 prediction;
-
+    float2 prediction{0.f, 0.f};
     prediction.x = ed_cell_voxels[edc_voxel_id].x + glm::dot(warped_gradient, glm::vec3(warped_position) - glm::vec3(world));
-    prediction.y = 1.0f; // TODO: proper blending weight
+    prediction.y = 1.0f;
+
+    edc_predictions[edc_voxel_id] = prediction;
+
+    __syncthreads();
+
+    for(unsigned int i = 0; i < ED_CELL_VOXELS; i++)
+    {
+        if(i == edc_voxel_id)
+        {
+            continue;
+        }
+        glm::uvec3 edc_voxel_3d = ed_cell_voxel_3d(edc_voxel_id);
+        float dist = glm::length(glm::vec3(edc_voxel_3d));
+        float weight = expf(-dist * dist / 2.0f / (float)ED_CELL_VOXEL_DIM / (float)ED_CELL_VOXEL_DIM);
+        edc_predictions[i].x = edc_predictions[i].x * edc_predictions[i].y + prediction.x * weight / (edc_predictions[i].y + weight);
+        edc_predictions[i].y = edc_predictions[i].y + weight;
+    }
+
+    __syncthreads();
 
     //    if(position_id == 0)
     //    {
@@ -154,16 +183,16 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
 
     float2 fused;
 
-    fused.y = prediction.y + data.y;
+    fused.y = edc_predictions[edc_voxel_id].y + data.y;
 
     if(fused.y > 0.001f)
     {
-        fused.x = data.x * data.y / fused.y + prediction.x * prediction.y / fused.y;
+        fused.x = data.x * data.y / fused.y + edc_predictions[edc_voxel_id].x * edc_predictions[edc_voxel_id].y / fused.y;
     }
     else
     {
-        fused.x = data.y > prediction.y ? data.x : prediction.x;
-        fused.y = data.y > prediction.y ? data.y : prediction.y;
+        fused.x = data.y > edc_predictions[edc_voxel_id].y ? data.x : edc_predictions[edc_voxel_id].x;
+        fused.y = data.y > edc_predictions[edc_voxel_id].y ? data.y : edc_predictions[edc_voxel_id].y;
     }
 
     __syncthreads();
@@ -175,11 +204,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_d
 
     // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
     // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
-    surf3Dwrite(ed_cell_voxels[edc_voxel_id].x, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(ed_cell_voxels[edc_voxel_id].x, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
     // surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // TODO: turn on reference fusion once solver is producing valid warps
-    // surf3Dwrite(fused, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+    surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
 }
 
 extern "C" void fuse_data()
@@ -198,7 +225,7 @@ extern "C" void fuse_data()
 
     // printf("\ngrid_size: %lu, block_size: %u\n", grid_size, ED_CELL_VOXELS);
 
-    kernel_fuse_data<<<grid_size, ED_CELL_VOXELS>>>(_active_ed_nodes_count, _ed_nodes_dense_index, _ed_graph);
+    kernel_fuse_data<<<grid_size, ED_CELL_VOXELS>>>(_active_ed_nodes_count, _ed_graph_meta, _ed_graph);
 
     getLastCudaError("render kernel failed");
 

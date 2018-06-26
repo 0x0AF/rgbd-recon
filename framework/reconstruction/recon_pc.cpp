@@ -40,6 +40,7 @@ extern "C" void sample_ed_nodes();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
+#define WIPE_DATA
 
 namespace kinect
 {
@@ -219,13 +220,13 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
 
     _mat_vol_to_world = glm::fmat4(1.0f);
     _limit = limit;
-    _brick_size = 0.18f;
+    _brick_size = 0.09f;
     _voxel_size = size;
     _ed_cell_size = ed_cell_size;
     _use_bricks = true;
     _draw_bricks = false;
     _ratio_occupied = 0.0f;
-    _min_voxels_per_brick = 32;
+    _min_voxels_per_brick = 6;
 
     _frame_number.store(0);
 
@@ -313,20 +314,20 @@ void ReconPerformanceCapture::draw()
 
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
-    else
-    {
-        // TODO: estimate ICP rigid body fit
 
-        TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
+    // TODO: estimate ICP rigid body fit
 
-        pcg_solve();
+    TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-        TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
-    }
+    pcg_solve();
 
+    TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+
+#ifdef WIPE_DATA
     float2 negative{-_limit, 0.f};
     glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
     glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
+#endif
 
     TimerDatabase::instance().begin(TIMER_FUSION);
 

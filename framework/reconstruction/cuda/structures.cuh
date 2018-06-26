@@ -3,16 +3,16 @@
 
 const unsigned ED_COMPONENT_COUNT = 10u;
 
-const unsigned ED_CELL_RES = 9u;
-const unsigned ED_CELL_VOXEL_DIM = 2u;
-const unsigned ED_CELL_VOXELS = 8u;
+const unsigned ED_CELL_RES = 3u; // implied in 27-neighborhood!
+const unsigned ED_CELL_VOXEL_DIM = 3u;
+const unsigned ED_CELL_VOXELS = 9u;
 
-const unsigned BRICK_VOXEL_DIM = 18u;
-const unsigned BRICK_VOXELS = 5832u;
+const unsigned BRICK_VOXEL_DIM = 9u;
+const unsigned BRICK_VOXELS = 729u;
 
-const unsigned BRICK_RES_X = 8u;
-const unsigned BRICK_RES_Y = 8u;
-const unsigned BRICK_RES_Z = 8u;
+const unsigned BRICK_RES_X = 16u;
+const unsigned BRICK_RES_Y = 16u;
+const unsigned BRICK_RES_Z = 16u;
 
 const unsigned VOLUME_VOXEL_DIM_X = 140u;
 const unsigned VOLUME_VOXEL_DIM_Y = 140u;
@@ -23,6 +23,8 @@ const unsigned VOLUME_VOXEL_DIM_Z = 140u;
 #else
 #define CUDA_HOST_DEVICE
 #endif
+
+// #define DEBUG_NANS
 
 struct struct_native_handles
 {
@@ -62,12 +64,19 @@ struct struct_ed_node
     glm::vec3 translation{0.f};
 };
 
-struct struct_ed_dense_index_entry
+struct struct_vertex_weights
+{
+    float skinning_weights[27];
+};
+
+struct struct_ed_meta_entry
 {
     unsigned int brick_id;
     unsigned int ed_cell_id;
     unsigned long long int vx_offset;
     unsigned int vx_length;
+    bool rejected;
+    int neighbors[27];
 };
 
 #endif // RECON_PC_CUDA_STRUCTURES

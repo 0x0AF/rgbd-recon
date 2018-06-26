@@ -58,7 +58,7 @@ void mark_brick(in vec3 pos) {
 }
 
 bool brick_occupied(uint index) {
-  return bricks[index] > 10u;
+  return bricks[index] > 4u;
 }
 
 #endif

@@ -8,9 +8,9 @@
 
 #include <cublas_v2.h>
 #include <cuda_gl_interop.h>
-#include <cusparse_v2.h>
-#include <cusolver_common.h>
 #include <cusolverSp.h>
+#include <cusolver_common.h>
+#include <cusparse_v2.h>
 #include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/structures.cuh>
 
@@ -41,8 +41,9 @@ struct_native_handles _native_handles;
 unsigned int *_bricks_dense_index = nullptr;
 unsigned int *_bricks_inv_index = nullptr;
 struct_ed_node *_ed_graph = nullptr;
-struct_ed_dense_index_entry *_ed_nodes_dense_index = nullptr;
+struct_ed_meta_entry *_ed_graph_meta = nullptr;
 struct_vertex *_sorted_vx_ptr = nullptr;
+struct_vertex_weights *_sorted_vx_weights = nullptr;
 
 struct_measures *_measures = nullptr;
 
@@ -68,24 +69,24 @@ surface<void, cudaSurfaceType3D> _volume_tsdf_data;
 surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
 
 surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_0;
-//surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_1;
-//surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_2;
-//surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_3;
+// surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_1;
+// surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_2;
+// surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_3;
 
 surface<void, cudaTextureType2DLayered> _array2d_silhouettes_0;
-//surface<void, cudaTextureType2DLayered> _array2d_silhouettes_1;
-//surface<void, cudaTextureType2DLayered> _array2d_silhouettes_2;
-//surface<void, cudaTextureType2DLayered> _array2d_silhouettes_3;
+// surface<void, cudaTextureType2DLayered> _array2d_silhouettes_1;
+// surface<void, cudaTextureType2DLayered> _array2d_silhouettes_2;
+// surface<void, cudaTextureType2DLayered> _array2d_silhouettes_3;
 
 surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_0;
-//surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_1;
-//surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_2;
-//surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_3;
+// surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_1;
+// surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_2;
+// surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_3;
 
 surface<void, cudaSurfaceType3D> _volume_cv_xyz_0;
-//surface<void, cudaSurfaceType3D> _volume_cv_xyz_1;
-//surface<void, cudaSurfaceType3D> _volume_cv_xyz_2;
-//surface<void, cudaSurfaceType3D> _volume_cv_xyz_3;
+// surface<void, cudaSurfaceType3D> _volume_cv_xyz_1;
+// surface<void, cudaSurfaceType3D> _volume_cv_xyz_2;
+// surface<void, cudaSurfaceType3D> _volume_cv_xyz_3;
 
 __host__ void free_brick_resources()
 {
@@ -106,14 +107,19 @@ __host__ void free_ed_resources()
         checkCudaErrors(cudaFree(_sorted_vx_ptr));
     }
 
+    if(_sorted_vx_weights != nullptr)
+    {
+        checkCudaErrors(cudaFree(_sorted_vx_weights));
+    }
+
     if(_ed_graph != nullptr)
     {
         checkCudaErrors(cudaFree(_ed_graph));
     }
 
-    if(_ed_nodes_dense_index)
+    if(_ed_graph_meta)
     {
-        checkCudaErrors(cudaFree(_ed_nodes_dense_index));
+        checkCudaErrors(cudaFree(_ed_graph_meta));
     }
 
     if(_jtf != nullptr)
@@ -164,6 +170,7 @@ __host__ void allocate_brick_resources()
 __host__ void allocate_ed_resources()
 {
     checkCudaErrors(cudaMalloc(&_sorted_vx_ptr, _active_ed_vx_count * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMalloc(&_sorted_vx_weights, _active_ed_vx_count * sizeof(struct_vertex_weights)));
     checkCudaErrors(cudaMalloc(&_ed_graph, _active_ed_nodes_count * sizeof(struct_ed_node)));
 
     checkCudaErrors(cudaMalloc(&_jtj_vals, _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float)));

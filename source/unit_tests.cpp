@@ -44,12 +44,13 @@ extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d);
 extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d);
 extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight);
 extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight);
-extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node);
+//extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_ed_node *ed_neighborhood);
 
 namespace
 {
 const float ACCEPTED_FLOAT_TOLERANCE = 0.0000001f;
 
+TEST(UtilTest, StructEDSize) { EXPECT_EQ(sizeof(struct_ed_node), 40); }
 TEST(UtilTest, Index3D)
 {
     unsigned int brick_id = 256;
@@ -57,68 +58,97 @@ TEST(UtilTest, Index3D)
 
     EXPECT_EQ(brick_index_3d.x, 0);
     EXPECT_EQ(brick_index_3d.y, 0);
-    EXPECT_EQ(brick_index_3d.z, 4);
+    EXPECT_EQ(brick_index_3d.z, 1);
 }
 TEST(UtilTest, Position3D)
 {
-    unsigned int position_id = 4717;
+    unsigned int position_id = 256;
     glm::uvec3 position_3d = test_position_3d(position_id);
 
-    EXPECT_EQ(position_3d.x, 1);
-    EXPECT_EQ(position_3d.y, 10);
-    EXPECT_EQ(position_3d.z, 14);
+    EXPECT_EQ(position_3d.x, 4);
+    EXPECT_EQ(position_3d.y, 1);
+    EXPECT_EQ(position_3d.z, 3);
 }
 TEST(UtilTest, EDCell3D)
 {
-    unsigned int ed_cell_id = 486;
+    unsigned int ed_cell_id = 17;
     glm::uvec3 ed_cell_3d = test_ed_cell_3d(ed_cell_id);
 
-    EXPECT_EQ(ed_cell_3d.x, 0);
-    EXPECT_EQ(ed_cell_3d.y, 0);
-    EXPECT_EQ(ed_cell_3d.z, 6);
+    EXPECT_EQ(ed_cell_3d.x, 2);
+    EXPECT_EQ(ed_cell_3d.y, 2);
+    EXPECT_EQ(ed_cell_3d.z, 1);
 }
 TEST(UtilTest, EDCellID)
 {
-    glm::uvec3 ed_cell_3d{0, 0, 6};
+    glm::uvec3 ed_cell_3d{2, 2, 1};
     unsigned int ed_cell_id = test_ed_cell_id(ed_cell_3d);
 
-    EXPECT_EQ(ed_cell_id, 486);
+    EXPECT_EQ(ed_cell_id, 17);
 }
 TEST(UtilTest, EDCellVoxelID)
 {
     glm::uvec3 ed_cell_voxel_3d{1, 0, 1};
     unsigned int ed_cell_voxel_id = test_ed_cell_voxel_id(ed_cell_voxel_3d);
 
-    EXPECT_EQ(ed_cell_voxel_id, 5);
+    EXPECT_EQ(ed_cell_voxel_id, 10);
 }
-TEST(UtilTest, ResidualEDNodeRotation)
-{
-    glm::mat4 rotation(1.f);
-    rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat(rotation);
-    ed_node.translation = glm::vec3(0.0f);
-
-    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node);
-    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
-}
-TEST(UtilTest, ResidualEDNodeAffine)
-{
-    glm::mat4 affine(1.f);
-    affine = glm::rotate(affine, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-    affine *= glm::translate(affine, glm::vec3(1.0f, -1.0f, 0.f));
-    affine *= glm::scale(affine, glm::vec3(3.0f));
-
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat_cast(affine);
-    ed_node.translation = glm::vec3(0.0f);
-
-    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node);
-    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
-}
+//TEST(UtilTest, ResidualEDNodeAffineOutlier)
+//{
+//    glm::mat4 affine(1.f);
+//    affine = glm::rotate(affine, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+//    affine *= glm::translate(affine, glm::vec3(1.0f, -1.0f, 0.f));
+//    affine *= glm::scale(affine, glm::vec3(3.0f));
+//
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.28f, 0.f, 0.0f);
+//    ed_node.affine = glm::quat_cast(affine);
+//    ed_node.translation = glm::vec3(0.0f);
+//
+//    struct_ed_meta_entry ed_entry;
+//    ed_entry.ed_cell_id = 0;
+//
+//    struct_ed_node ed_neighborhood[27];
+//
+//    for(unsigned int i = 0; i < 27; i++)
+//    {
+//        ed_entry.neighbors[i] = i;
+//
+//        ed_neighborhood[i].position = glm::vec3(0.1f * (float)i, 0.f, 0.f);
+//        ed_neighborhood[i].affine = glm::quat();
+//        ed_neighborhood[i].translation = glm::vec3(0.0f);
+//    }
+//
+//    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node, ed_entry, ed_neighborhood);
+//    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
+//}
+//TEST(UtilTest, ResidualEDNodeAffineCoherent)
+//{
+//    glm::mat4 affine(1.f);
+//    affine = glm::rotate(affine, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+//    affine *= glm::translate(affine, glm::vec3(1.0f, -1.0f, 0.f));
+//    affine *= glm::scale(affine, glm::vec3(3.0f));
+//
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.28f, 0.f, 0.0f);
+//    ed_node.affine = glm::quat_cast(affine);
+//    ed_node.translation = glm::vec3(0.0f);
+//
+//    struct_ed_meta_entry ed_entry;
+//    ed_entry.ed_cell_id = 0;
+//
+//    struct_ed_node ed_neighborhood[27];
+//
+//    for(unsigned int i = 0; i < 27; i++)
+//    {
+//        ed_entry.neighbors[i] = i;
+//
+//        ed_neighborhood[i] = ed_node;
+//        ed_neighborhood[i].position = glm::vec3(0.1f * (float)i, 0.f, 0.f);
+//    }
+//
+//    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node, ed_entry, ed_neighborhood);
+//    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
+//}
 TEST(UtilTest, WarpPositionNoImpact)
 {
     struct_ed_node ed_node;

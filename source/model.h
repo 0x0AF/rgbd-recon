@@ -109,13 +109,13 @@ class model
         bool _watch_errors = true;
         int _num_kinect = 1;
         float _voxel_size = 0.01f;
-        float _ed_cell_size = 0.02f;
-        float _brick_size = 0.18f;
+        float _ed_cell_size = 0.03f;
+        float _brick_size = 0.09f;
         float _tsdf_limit = 0.03f;
         float _zoom = 1.25f;
         double _time_prev = 0.0f;
 
-        int _min_voxels = 32;
+        int _min_voxels = 6;
 
         bool _loaded_conf = false;
         unsigned _time_limit = 1;

@@ -94,6 +94,27 @@ __device__ __host__ glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_
     return skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal);
 }
 
+__device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures *measures)
+{
+    glm::vec3 dist = vertex.position - ed_node.position;
+    const float skinning_weight = 1.f;
+    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight);
+
+    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
+    // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+
+    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
+    {
+        // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+        return 0.f;
+    }
+
+    float2 data{0.f, 0.f};
+    surf3Dread(&data, _volume_tsdf_data, wp_voxel_space.x * sizeof(float2), wp_voxel_space.y, wp_voxel_space.z);
+
+    return glm::abs(data.x);
+}
+
 __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, struct_measures *measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
@@ -225,7 +246,9 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         if(isnan(residual_component))
         {
+#ifdef DEBUG_NANS
             printf("\nresidual_component is NaN!\n");
+#endif
 
             residual_component = 0.f;
         }
@@ -273,13 +296,13 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
 
     float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, measures);
 
-    mapped_ed_node[partial_derivative_index] -= ds;
-
     // printf("\nresidual_pos: %f\n", residual_pos);
 
     if(isnan(residual_pos))
     {
+#ifdef DEBUG_NANS
         printf("\nresidual_pos is NaN!\n");
+#endif
 
         residual_pos = 0.f;
     }
@@ -290,7 +313,9 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
 
     if(isnan(partial_derivative))
     {
+#ifdef DEBUG_NANS
         printf("\npartial_derivative is NaN!\n");
+#endif
 
         partial_derivative = 0.f;
     }
@@ -298,11 +323,19 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
     return partial_derivative;
 }
 
-__device__ __host__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
+__device__ __host__ float robustify(float value)
+{
+    // TODO
+    return value;
+}
+
+__device__ __host__ float evaluate_ed_node_residual(struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_metas)
 {
     float residual = 0.f;
 
-    glm::mat3 mat_1 = glm::transpose(glm::toMat3(ed_node.affine)) * glm::toMat3(ed_node.affine) - glm::mat3(1.0f);
+    // Quad-style encoding of an affine transformation prohibits non-rotational transformations by design, hence the expression below is always 0
+
+    /*glm::mat3 mat_1 = glm::transpose(glm::toMat3(ed_node.affine)) * glm::toMat3(ed_node.affine) - glm::mat3(1.0f);
 
     for(int i = 0; i < 3; i++)
     {
@@ -313,14 +346,101 @@ __device__ __host__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
     }
 
     residual = (float)sqrt(residual);
-    residual += glm::determinant(glm::toMat3(ed_node.affine)) - 1;
+    residual += glm::determinant(glm::toMat3(ed_node.affine)) - 1;*/
 
-    // TODO: figure out smooth component
-    // residuals[1] = 0.f;
+    unsigned int valid_neghbors = 0u;
+    float average_distance = -1.f;
+    float weights[27];
+    glm::vec3 comparative_vectors[27];
+
+    for(unsigned int i = 0; i < 27; i++)
+    {
+        if(ed_entry.ed_cell_id == i || ed_entry.neighbors[i] == -1)
+        {
+            continue;
+        }
+
+        struct_ed_node n_ed_node = ed_graph[ed_entry.neighbors[i]];
+
+        float dist = glm::length(n_ed_node.position - ed_node.position);
+
+        if(dist > 240.f)
+        {
+            // TODO: investigate distances further than volume extent
+            //            printf("\ndist: %f, ed_node.position: (%g,%g,%g), n_ed_node.position: (%g,%g,%g)\n",
+            //                   dist, ed_node.position.x, ed_node.position.y, ed_node.position.z, n_ed_node.position.x, n_ed_node.position.y, n_ed_node.position.z);
+
+            return residual;
+        }
+
+        valid_neghbors++;
+        weights[i] = -dist * dist;
+
+        if(average_distance < 0.f)
+        {
+            average_distance = dist;
+        }
+        else
+        {
+            average_distance = average_distance + (dist - average_distance) / (float)(valid_neghbors);
+        };
+
+        comparative_vectors[i] = glm::toMat3(n_ed_node.affine) * (n_ed_node.position - ed_node.position) + n_ed_node.position + n_ed_node.translation - ed_node.position - ed_node.translation;
+    }
+
+    if(valid_neghbors == 0u)
+    {
+        return residual;
+    }
+
+    for(unsigned int i = 0; i < 27; i++)
+    {
+        if(ed_entry.ed_cell_id == i || ed_entry.neighbors[i] == -1)
+        {
+            continue;
+        }
+
+        // printf ("\nw: %f\n",expf(weights[i] / (2.0f * average_distance * average_distance)));
+
+        float residual_component = expf(weights[i] / (2.0f * average_distance * average_distance)) * robustify(glm::length(comparative_vectors[i]));
+
+        // printf ("\nresidual_component[%u]: %f\n", i,residual_component);
+
+        if(isnan(residual_component))
+        {
+#ifdef DEBUG_NANS
+            printf("\nresidual_component[%u] is NaN! ad: %f, w: %f, lcv: %f\n", i, average_distance, weights[i], robustify(glm::length(comparative_vectors[i])));
+#endif
+
+            residual_component = 0.f;
+        }
+
+        if(isinf(residual_component))
+        {
+#ifdef DEBUG_NANS
+            printf("\nresidual_component[%u] is Inf! ad: %f, w: %f, lcv: %f\n", i, average_distance, weights[i], robustify(glm::length(comparative_vectors[i])));
+#endif
+
+            residual_component = 0.f;
+        }
+
+        residual += residual_component;
+    }
 
     if(isnan(residual))
     {
+#ifdef DEBUG_NANS
         printf("\nresidual is NaN!\n");
+#endif
+
+        residual = 0.f;
+    }
+
+    if(isinf(residual))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual is Inf!\n");
+#endif
 
         residual = 0.f;
     }
@@ -328,7 +448,8 @@ __device__ __host__ float evaluate_ed_node_residual(struct_ed_node &ed_node)
     return residual;
 }
 
-__device__ __host__ float evaluate_ed_pd(struct_ed_node ed_node, const int &partial_derivative_index, const float &ed_residual)
+__device__ __host__ float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_entry &ed_entry, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_graph_meta, const int &partial_derivative_index,
+                                         const float &ed_residual)
 {
     float ds = derivative_step(partial_derivative_index);
 
@@ -336,15 +457,15 @@ __device__ __host__ float evaluate_ed_pd(struct_ed_node ed_node, const int &part
 
     mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_ed_node_residual(ed_node);
-
-    mapped_ed_node[partial_derivative_index] -= ds;
+    float residual_pos = evaluate_ed_node_residual(ed_node, ed_entry, ed_graph, ed_graph_meta);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
     if(isnan(residual_pos))
     {
+#ifdef DEBUG_NANS
         printf("\nresidual_pos is NaN!\n");
+#endif
 
         residual_pos = 0.f;
     }
@@ -355,7 +476,9 @@ __device__ __host__ float evaluate_ed_pd(struct_ed_node ed_node, const int &part
 
     if(isnan(partial_derivative))
     {
+#ifdef DEBUG_NANS
         printf("\npartial_derivative is NaN!\n");
+#endif
 
         partial_derivative = 0.f;
     }
@@ -441,7 +564,7 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
 
         if(isnan(residual_component))
         {
-            printf("\nresidual_component is NaN!\n");
+            // printf("\nresidual_component is NaN!\n");
 
             residual_component = 0.f;
         }
@@ -462,13 +585,13 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
 
     float residual_pos = evaluate_hull_residual(vertex, ed_node, measures);
 
-    mapped_ed_node[partial_derivative_index] -= ds;
-
     // printf("\nresidual_pos: %f\n", residual_pos);
 
     if(isnan(residual_pos))
     {
+#ifdef DEBUG_NANS
         printf("\nresidual_pos is NaN!\n");
+#endif
 
         residual_pos = 0.f;
     }
@@ -479,7 +602,9 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
 
     if(isnan(partial_derivative))
     {
+#ifdef DEBUG_NANS
         printf("\npartial_derivative is NaN!\n");
+#endif
 
         partial_derivative = 0.f;
     }
@@ -494,4 +619,7 @@ extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_
 extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d) { return ed_cell_voxel_id(ed_cell_voxel_3d); }
 extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight) { return warp_position(dist, ed_node, skinning_weight); }
 extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight) { return warp_normal(normal, ed_node, skinning_weight); }
-extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node) { return evaluate_ed_node_residual(ed_node); }
+extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_ed_node *ed_neighborhood, struct_ed_meta_entry *ed_neighborhood_meta)
+{
+    return evaluate_ed_node_residual(ed_node, ed_entry, ed_neighborhood, ed_neighborhood_meta);
+}
