@@ -148,7 +148,7 @@ __device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node 
     return glm::abs(data.x);
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, struct_measures *measures, float *kinect_depths)
+__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, struct_measures *measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
@@ -202,12 +202,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         }
 
         float1 depth{0.f};
-
-        unsigned int kinect_depth_offset = pixel.x + pixel.y * measures->depth_resolution.x + i * measures->depth_resolution.x * measures->depth_resolution.y;
-        // printf("\nkinect_depth_offset: %u\n", kinect_depth_offset);
-
-        // TODO: breaks here
-        depth.x = kinect_depths[kinect_depth_offset];
+        surf3Dread(&data, _kinect_depths, pixel.x * sizeof(float1), pixel.y, i);
 
         // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, depth.x);
 
@@ -304,8 +299,7 @@ __device__ __host__ float derivative_step(const int &partial_derivative_index)
     return step;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_new, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures,
-                                float *kinect_depths)
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_new, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures)
 {
     float ds = derivative_step(partial_derivative_index);
 
@@ -313,7 +307,7 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
 
     mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, measures, kinect_depths);
+    float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -505,7 +499,7 @@ __device__ __host__ float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_
     return partial_derivative;
 }
 
-__device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures *measures, float *kinect_silhouettes)
+__device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures *measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
@@ -523,7 +517,7 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
         return 0.f;
     }
 
-    for(int i = 0; i < 1; i++)
+    for(int i = 0; i < 4; i++)
     {
         float4 data{0.f, 0.f, 0.f, 0.f};
 
@@ -532,15 +526,15 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
         case 0:
             surf3Dread(&data, _volume_cv_xyz_inv_0, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
             break;
-            case 1:
-                surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
-                break;
-            case 2:
-                surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
-                break;
-            case 3:
-                surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
-                break;
+        case 1:
+            surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            break;
+        case 2:
+            surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            break;
+        case 3:
+            surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            break;
         }
 
         // printf("\ncamera_positions[%u]: (%f,%f,%f)\n", i, camera_positions[i].x,camera_positions[i].y,camera_positions[i].z);
@@ -558,12 +552,7 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
         }
 
         float1 occupancy{0.f};
-
-        unsigned int kinect_depth_offset = pixel.x + pixel.y * measures->depth_resolution.x + i * measures->depth_resolution.x * measures->depth_resolution.y;
-        // printf("\nkinect_depth_offset: %u\n", kinect_depth_offset);
-
-        // TODO: breaks here
-        occupancy.x = kinect_silhouettes[kinect_depth_offset];
+        surf3Dread(&occupancy, _kinect_silhouettes, pixel.x * sizeof(float1), pixel.y, i);
 
         // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, occupancy.x);
 
@@ -582,7 +571,7 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
     return residual;
 }
 
-__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures, float *kinect_silhouettes)
+__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures *measures)
 {
     float ds = derivative_step(partial_derivative_index);
 
@@ -590,7 +579,7 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
 
     mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_hull_residual(vertex, ed_node, measures, kinect_silhouettes);
+    float residual_pos = evaluate_hull_residual(vertex, ed_node, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 

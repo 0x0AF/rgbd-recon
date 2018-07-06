@@ -64,9 +64,9 @@ class NetKinectArray
 
     int getTextureUnit(std::string const &name) const;
 
-    const unsigned int getPBOColorHandle();
-    const unsigned int getPBODepthHandle();
-    const unsigned int getPBOSilhouettes();
+    const unsigned int getColorHandle();
+    const unsigned int getDepthHandle();
+    const unsigned int getSilhouettes();
     std::mutex &getPBOMutex();
 
   private:
@@ -82,6 +82,11 @@ class NetKinectArray
     glm::uvec2 m_resolution_depth;
 
     unsigned m_numLayers;
+
+    globjects::ref_ptr<globjects::Texture> m_out_rgbs;
+    globjects::ref_ptr<globjects::Texture> m_out_depths;
+    globjects::ref_ptr<globjects::Texture> m_out_silhouettes;
+
     std::unique_ptr<TextureArray> m_colorArray;
     std::unique_ptr<TextureArray> m_depthArray_raw;
     globjects::ref_ptr<globjects::Texture> m_textures_depth;

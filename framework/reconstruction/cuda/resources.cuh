@@ -26,9 +26,9 @@ struct struct_graphic_resources
     cudaGraphicsResource *buffer_bricks{nullptr};
     cudaGraphicsResource *buffer_occupied{nullptr};
 
-    cudaGraphicsResource *pbo_kinect_rgbs{nullptr};
-    cudaGraphicsResource *pbo_kinect_depths{nullptr};
-    cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
+    cudaGraphicsResource *texture_kinect_rgbs{nullptr};
+    cudaGraphicsResource *texture_kinect_depths{nullptr};
+    cudaGraphicsResource *texture_kinect_silhouettes{nullptr};
 
     cudaGraphicsResource *volume_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *volume_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
@@ -68,6 +68,10 @@ float *pcg_Ax = nullptr;
 
 surface<void, cudaSurfaceType3D> _volume_tsdf_data;
 surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
+
+surface<void, cudaSurfaceType3D> _kinect_rgbs;
+surface<void, cudaSurfaceType3D> _kinect_depths;
+surface<void, cudaSurfaceType3D> _kinect_silhouettes;
 
 surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_0;
 surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_1;

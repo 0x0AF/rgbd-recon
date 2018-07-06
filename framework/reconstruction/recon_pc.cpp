@@ -36,7 +36,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" void estimate_correspondence_field();
-extern "C" void pcg_solve(struct_native_handles &native_handles);
+extern "C" void pcg_solve();
 extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
@@ -45,7 +45,7 @@ extern "C" void deinit_cuda();
 
 #define PIPELINE_SAMPLE
 #define PIPELINE_ALIGN
-// #define PIPELINE_FUSE
+#define PIPELINE_FUSE
 
 namespace kinect
 {
@@ -179,9 +179,10 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
 
-    _native_handles.pbo_kinect_rgbs = _nka->getPBOColorHandle();
-    _native_handles.pbo_kinect_depths = _nka->getPBODepthHandle();
-    _native_handles.pbo_kinect_silhouettes = _nka->getPBOSilhouettes();
+    // TODO: rgbs output
+    /*_native_handles.texture_kinect_rgbs = _nka->getColorHandle();*/
+    _native_handles.texture_kinect_depths = _nka->getDepthHandle();
+    _native_handles.texture_kinect_silhouettes = _nka->getSilhouettes();
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
     {
@@ -312,34 +313,6 @@ void ReconPerformanceCapture::drawF()
 
 void ReconPerformanceCapture::draw()
 {
-    if(_native_handles.pbo_kinect_rgbs != _nka->getPBOColorHandle() || _native_handles.pbo_kinect_depths != _nka->getPBODepthHandle())
-    {
-        _nka->getPBOMutex().lock();
-        integrate_data_frame();
-
-#ifdef WIPE_DATA
-
-        float2 negative{-_limit, 0.f};
-        glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
-        glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
-
-#endif
-
-#ifdef PIPELINE_FUSE
-
-        TimerDatabase::instance().begin(TIMER_FUSION);
-
-        fuse_data();
-
-        TimerDatabase::instance().end(TIMER_FUSION);
-
-#endif
-
-        draw_data();
-        _nka->getPBOMutex().unlock();
-        return;
-    }
-
     _nka->getPBOMutex().lock();
 
     integrate_data_frame();
@@ -371,7 +344,7 @@ void ReconPerformanceCapture::draw()
 
     TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    pcg_solve(_native_handles);
+    pcg_solve();
 
     TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
 

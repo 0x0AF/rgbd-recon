@@ -36,9 +36,9 @@ struct struct_native_handles
 
     unsigned int volume_tsdf_data;
 
-    unsigned int pbo_kinect_rgbs;
-    unsigned int pbo_kinect_depths;
-    unsigned int pbo_kinect_silhouettes;
+    unsigned int texture_kinect_rgbs;
+    unsigned int texture_kinect_depths;
+    unsigned int texture_kinect_silhouettes;
 
     unsigned int volume_cv_xyz_inv[4];
     unsigned int volume_cv_xyz[4];

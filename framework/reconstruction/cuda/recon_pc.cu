@@ -61,9 +61,10 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsReadOnly));
 
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_rgbs, native_handles.pbo_kinect_rgbs, cudaGraphicsRegisterFlagsReadOnly));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_depths, native_handles.pbo_kinect_depths, cudaGraphicsRegisterFlagsReadOnly));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes, native_handles.pbo_kinect_silhouettes, cudaGraphicsRegisterFlagsReadOnly));
+    // TODO: rgbs output
+    /*checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.texture_kinect_rgbs, native_handles.texture_kinect_rgbs,GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));*/
+    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.texture_kinect_depths, native_handles.texture_kinect_depths, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.texture_kinect_silhouettes, native_handles.texture_kinect_silhouettes, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
 
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
     for(unsigned int i = 0; i < 4; i++)
@@ -101,9 +102,10 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_occupied));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_data));
 
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_depths));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_rgbs));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_depths));
+    // TODO: rgbs output
+    /*checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_rgbs));*/
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_silhouettes));
 
     for(unsigned int i = 0; i < 4; i++)
     {
