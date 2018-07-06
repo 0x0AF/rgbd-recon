@@ -36,12 +36,16 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" void estimate_correspondence_field();
-extern "C" void pcg_solve();
+extern "C" void pcg_solve(struct_native_handles &native_handles);
 extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
-#define WIPE_DATA
+// #define WIPE_DATA
+
+#define PIPELINE_SAMPLE
+#define PIPELINE_ALIGN
+// #define PIPELINE_FUSE
 
 namespace kinect
 {
@@ -141,10 +145,11 @@ std::string ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT = "TIMER_NON_RIGI
 std::string ReconPerformanceCapture::TIMER_FUSION = "TIMER_FUSION";
 static int start_image_unit = 3;
 
-ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size,
-                                                 float ed_cell_size)
+ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size, float ed_cell_size)
     : Reconstruction(cfs, cv, bbox)
 {
+    _nka = &nka;
+
     init(limit, size, ed_cell_size);
 
     init_shaders();
@@ -174,8 +179,9 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
 
-    _native_handles.array2d_kinect_depths = nka.getDepthArrayRaw()->getGLHandle();
-    _native_handles.array2d_silhouettes = nka.getSilhouette()->id();
+    _native_handles.pbo_kinect_rgbs = _nka->getPBOColorHandle();
+    _native_handles.pbo_kinect_depths = _nka->getPBODepthHandle();
+    _native_handles.pbo_kinect_silhouettes = _nka->getPBOSilhouettes();
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
     {
@@ -184,6 +190,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray const &nka, Cali
         _measures.depth_limits[i] = cv->getDepthLimits(i);
     }
 
+    _measures.color_resolution = nka.getColorResolution();
     _measures.depth_resolution = nka.getDepthResolution();
 
     init_cuda(_res_volume, _measures, _native_handles);
@@ -209,8 +216,8 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_solid = new Program();
     _program_bricks = new Program();
 
-    _res_volume = glm::uvec3(140, 140, 140);
-    _res_bricks = glm::uvec3(8, 8, 8);
+    _res_volume = glm::uvec3(141, 140, 140);
+    _res_bricks = glm::uvec3(16, 16, 16);
     _sampler = new VolumeSampler(_res_volume);
 
     glGenTextures(1, &_volume_tsdf_data);
@@ -229,7 +236,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _use_bricks = true;
     _draw_bricks = false;
     _ratio_occupied = 0.0f;
-    _min_voxels_per_brick = 6;
+    _min_voxels_per_brick = 32;
 
     _frame_number.store(0);
 
@@ -305,7 +312,39 @@ void ReconPerformanceCapture::drawF()
 
 void ReconPerformanceCapture::draw()
 {
+    if(_native_handles.pbo_kinect_rgbs != _nka->getPBOColorHandle() || _native_handles.pbo_kinect_depths != _nka->getPBODepthHandle())
+    {
+        _nka->getPBOMutex().lock();
+        integrate_data_frame();
+
+#ifdef WIPE_DATA
+
+        float2 negative{-_limit, 0.f};
+        glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
+        glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
+
+#endif
+
+#ifdef PIPELINE_FUSE
+
+        TimerDatabase::instance().begin(TIMER_FUSION);
+
+        fuse_data();
+
+        TimerDatabase::instance().end(TIMER_FUSION);
+
+#endif
+
+        draw_data();
+        _nka->getPBOMutex().unlock();
+        return;
+    }
+
+    _nka->getPBOMutex().lock();
+
     integrate_data_frame();
+
+#ifdef PIPELINE_SAMPLE
 
     if(_frame_number.load() % 256 == 0)
     {
@@ -318,6 +357,10 @@ void ReconPerformanceCapture::draw()
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
 
+#endif
+
+#ifdef PIPELINE_ALIGN
+
     TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
 
     estimate_correspondence_field();
@@ -328,15 +371,21 @@ void ReconPerformanceCapture::draw()
 
     TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    pcg_solve();
+    pcg_solve(_native_handles);
 
     TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
 
+#endif
+
 #ifdef WIPE_DATA
+
     float2 negative{-_limit, 0.f};
     glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
     glBindImageTexture(start_image_unit, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
+
 #endif
+
+#ifdef PIPELINE_FUSE
 
     TimerDatabase::instance().begin(TIMER_FUSION);
 
@@ -344,9 +393,13 @@ void ReconPerformanceCapture::draw()
 
     TimerDatabase::instance().end(TIMER_FUSION);
 
+#endif
+
     draw_data();
 
     _frame_number.store(_frame_number.load() + 1);
+
+    _nka->getPBOMutex().unlock();
 }
 void ReconPerformanceCapture::extract_reference_mesh()
 {

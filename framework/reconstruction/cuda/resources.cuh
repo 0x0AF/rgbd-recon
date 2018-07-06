@@ -25,8 +25,10 @@ struct struct_graphic_resources
     cudaGraphicsResource *buffer_vertex_counter{nullptr};
     cudaGraphicsResource *buffer_bricks{nullptr};
     cudaGraphicsResource *buffer_occupied{nullptr};
-    cudaGraphicsResource *array2d_kinect_depths{nullptr};
-    cudaGraphicsResource *array2d_silhouettes{nullptr};
+
+    cudaGraphicsResource *pbo_kinect_rgbs{nullptr};
+    cudaGraphicsResource *pbo_kinect_depths{nullptr};
+    cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
 
     cudaGraphicsResource *volume_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *volume_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
@@ -36,7 +38,6 @@ struct struct_graphic_resources
 cudaArray *_volume_array_tsdf_ref = nullptr;
 
 struct_graphic_resources _cgr;
-struct_native_handles _native_handles;
 
 unsigned int *_bricks_dense_index = nullptr;
 unsigned int *_bricks_inv_index = nullptr;
@@ -68,25 +69,15 @@ float *pcg_Ax = nullptr;
 surface<void, cudaSurfaceType3D> _volume_tsdf_data;
 surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
 
-surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_0;
-// surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_1;
-// surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_2;
-// surface<void, cudaTextureType2DLayered> _array2d_kinect_depths_3;
-
-surface<void, cudaTextureType2DLayered> _array2d_silhouettes_0;
-// surface<void, cudaTextureType2DLayered> _array2d_silhouettes_1;
-// surface<void, cudaTextureType2DLayered> _array2d_silhouettes_2;
-// surface<void, cudaTextureType2DLayered> _array2d_silhouettes_3;
-
 surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_0;
-// surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_1;
-// surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_2;
-// surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_3;
+surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_1;
+surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_2;
+surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_3;
 
 surface<void, cudaSurfaceType3D> _volume_cv_xyz_0;
-// surface<void, cudaSurfaceType3D> _volume_cv_xyz_1;
-// surface<void, cudaSurfaceType3D> _volume_cv_xyz_2;
-// surface<void, cudaSurfaceType3D> _volume_cv_xyz_3;
+surface<void, cudaSurfaceType3D> _volume_cv_xyz_1;
+surface<void, cudaSurfaceType3D> _volume_cv_xyz_2;
+surface<void, cudaSurfaceType3D> _volume_cv_xyz_3;
 
 __host__ void free_brick_resources()
 {

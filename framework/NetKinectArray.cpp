@@ -3,21 +3,16 @@
 #include "CalibVolumes.hpp"
 #include "calibration_files.hpp"
 #include "screen_quad.hpp"
-#include "texture_blitter.hpp"
 #include "timer_database.hpp"
 #include <DXTCompressor.h>
 #include <FileBuffer.h>
 #include <KinectCalibrationFile.h>
 #include <TextureArray.h>
 
-#include <glbinding/gl/functions-patches.h>
 #include <glbinding/gl/gl.h>
 using namespace gl;
 
-#include <globjects/Buffer.h>
 #include <globjects/Framebuffer.h>
-#include <globjects/Program.h>
-#include <globjects/Texture.h>
 
 #include <globjects/NamedString.h>
 #include <globjects/Query.h>
@@ -25,18 +20,13 @@ using namespace gl;
 #include <globjects/base/File.h>
 #include <globjects/logging.h>
 
-#include <globjects/NamedString.h>
-#include <globjects/base/File.h>
-
 #include "squish.h"
 #include <zmq.h>
 #include <zmq.hpp>
 
-#include <fstream>
-#include <iostream>
-#include <string>
 #include <thread>
-#include <vector>
+
+#define UPDATE_PBO_SILHOUETTES
 
 namespace kinect
 {
@@ -49,7 +39,7 @@ NetKinectArray::NetKinectArray(std::string const &serverport, CalibrationFiles c
       m_textures_color{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, m_textures_bg{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY),
                                                                                               globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       m_textures_silhouette{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, m_fbo{new globjects::Framebuffer()}, m_colorArray_back(), m_colorsize(0), m_depthsize(0), m_pbo_colors(),
-      m_pbo_depths(), m_mutex_pbo(), m_readThread(), m_running(true), m_filter_textures(true), m_refine_bound(true),
+      m_pbo_depths(), m_pbo_silhouettes(new globjects::Buffer()), m_mutex_pbo(), m_readThread(), m_running(true), m_filter_textures(true), m_refine_bound(true),
       m_serverport(serverport), m_num_frame{0}, m_curr_frametime{0.0}, m_use_processed_depth{true}, m_start_texture_unit(0), m_calib_files{calibs}, m_calib_vols{vols}
 {
     m_programs.emplace("filter", new globjects::Program());
@@ -145,6 +135,10 @@ bool NetKinectArray::init()
     m_textures_bg.back->image3D(0, GL_RG32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RG, GL_FLOAT, empty_bg_tex.data());
     m_textures_silhouette->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
 
+    m_pbo_silhouettes->setData(m_depthsize * m_numLayers, nullptr, GL_DYNAMIC_DRAW);
+    m_pbo_silhouettes->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
     if(m_calib_files->isCompressedDepth())
     {
         m_depthArray_raw = std::unique_ptr<TextureArray>{new TextureArray(m_resolution_depth.x, m_resolution_depth.y, m_numLayers, GL_LUMINANCE, GL_RED, GL_UNSIGNED_BYTE)};
@@ -231,6 +225,16 @@ bool NetKinectArray::update()
 
     m_colorArray->fillLayersFromPBO(m_pbo_colors.get()->id());
     m_depthArray_raw->fillLayersFromPBO(m_pbo_depths.get()->id());
+
+#ifdef UPDATE_PBO_SILHOUETTES
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_silhouette->id());
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, m_pbo_silhouettes->id());
+
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, GL_RED, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+#endif
 
     // processTextures();
     return true;
@@ -776,7 +780,9 @@ void NetKinectArray::readFromFiles()
         m_pbo_depths.dirty = true;
     }
 }
-const std::unique_ptr<TextureArray> &NetKinectArray::getDepthArrayRaw() const { return m_depthArray_raw; }
-const globjects::ref_ptr<globjects::Texture> &NetKinectArray::getSilhouette() const { return m_textures_silhouette; }
 
+const unsigned int NetKinectArray::getPBOColorHandle() { return m_pbo_colors.front->id(); }
+const unsigned int NetKinectArray::getPBODepthHandle() { return m_pbo_depths.front->id(); }
+const unsigned int NetKinectArray::getPBOSilhouettes() { return m_pbo_silhouettes->id(); }
+std::mutex &NetKinectArray::getPBOMutex() { return m_mutex_pbo; }
 } // namespace kinect

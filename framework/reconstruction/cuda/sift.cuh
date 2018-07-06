@@ -1282,7 +1282,127 @@ void FindPointsMulti(CudaImage *sources, SiftData &siftData, float thresh, float
     checkMsg("FindPointsMulti() execution failed\n");
 }
 
+SiftData::SiftData(int num) : h_data(NULL), d_data(NULL) { InitSiftData(*this, num, true, true); }
+
+SiftData::SiftData(const SiftData &data) : h_data(NULL), d_data(NULL)
+{
+    InitSiftData(*this, data.maxPts, true, true);
+    numPts = data.numPts;
+    if(h_data != NULL && data.h_data != NULL)
+        std::memcpy(h_data, data.h_data, numPts * sizeof(SiftPoint));
+    if(d_data != NULL && data.d_data != NULL)
+        safeCall(cudaMemcpy(d_data, data.d_data, numPts * sizeof(SiftPoint), cudaMemcpyDeviceToDevice));
+}
+
+SiftData::~SiftData() { FreeSiftData(*this); }
+
+SiftData &SiftData::operator=(const SiftData &data)
+{
+    if(this != &data)
+    {
+        InitSiftData(*this, data.maxPts, true, true);
+        numPts = data.numPts;
+        if(h_data != NULL && data.h_data != NULL)
+            std::memcpy(h_data, data.h_data, numPts * sizeof(SiftPoint));
+        if(d_data != NULL && data.d_data != NULL)
+            safeCall(cudaMemcpy(d_data, data.d_data, numPts * sizeof(SiftPoint), cudaMemcpyDeviceToDevice));
+    }
+    return *this;
+}
+
+void SiftData::resize(size_t new_size)
+{
+    if(new_size <= (size_t)maxPts)
+    {
+        numPts = (int)new_size;
+        return;
+    }
+    reserve(new_size); // Conservative?
+    numPts = (int)new_size;
+}
+
+void SiftData::reserve(size_t new_capacity)
+{
+    if(new_capacity <= (size_t)maxPts)
+        return;
+
+    size_t mem_sz = new_capacity * sizeof(SiftPoint);
+
+    if(h_data != NULL)
+    {
+        SiftPoint *h_data_old = h_data;
+        h_data = (SiftPoint *)malloc(mem_sz);
+        std::memcpy(h_data, h_data_old, numPts * sizeof(SiftPoint));
+        free(h_data_old);
+    }
+    else
+    {
+        h_data = (SiftPoint *)malloc(mem_sz);
+    }
+
+    if(d_data != NULL)
+    {
+        SiftPoint *d_data_old = d_data;
+        safeCall(cudaMalloc((void **)&d_data, mem_sz));
+        safeCall(cudaMemcpy(d_data, d_data_old, numPts * sizeof(SiftPoint), cudaMemcpyDeviceToDevice));
+        safeCall(cudaFree(d_data_old));
+    }
+    else
+    {
+        safeCall(cudaMalloc((void **)&d_data, mem_sz));
+    }
+
+    maxPts = (int)new_capacity;
+}
+
+void SiftData::freeBuffers() { FreeSiftData(*this); }
+
+SiftData &SiftData::append(const SiftData &data)
+{
+    int new_sz = numPts + data.numPts;
+    reserve((size_t)(new_sz));
+    size_t cp_sz = data.numPts * sizeof(SiftPoint);
+    if(h_data != NULL && data.h_data != NULL)
+        std::memcpy(&h_data[numPts], data.h_data, cp_sz);
+    if(d_data != NULL && data.d_data != NULL)
+        safeCall(cudaMemcpy(&d_data[numPts], data.d_data, cp_sz, cudaMemcpyDeviceToDevice));
+    numPts = new_sz;
+    return *this;
+}
+
+void SiftData::syncHostToDevice()
+{
+    if(h_data != NULL && d_data != NULL)
+        safeCall(cudaMemcpy(d_data, h_data, numPts * sizeof(SiftPoint), cudaMemcpyHostToDevice));
+}
+
+void SiftData::syncDeviceToHost()
+{
+    if(h_data != NULL && d_data != NULL)
+        safeCall(cudaMemcpy(h_data, d_data, numPts * sizeof(SiftPoint), cudaMemcpyDeviceToHost));
+}
+
 extern "C" void estimate_correspondence_field()
 {
-    // TODO
+  /*checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_kinect_depths, 0));*/
+    SiftData siftData;
+    InitSiftData(siftData, 25000, true, true);
+
+    CudaImage img;
+    img.Allocate(1280, 1080, 1280, false, NULL, NULL);
+
+    int numOctaves = 5;    /* Number of octaves in Gaussian pyramid */
+    float initBlur = 1.0f; /* Amount of initial Gaussian blurring in standard deviations */
+    float thresh = 3.5f;   /* Threshold on difference of Gaussians for feature pruning */
+    float minScale = 0.0f; /* Minimum acceptable scale to remove fine-scale features */
+    bool upScale = false;  /* Whether to upscale image before extraction */
+                           /* Extract SIFT features */
+    ExtractSift(siftData, img, numOctaves, initBlur, thresh, minScale, upScale);
+
+    // TODO: alter CudaImage and related kernels to use bound surface to access texels
+
+    /* Free space allocated from SIFT features */
+    FreeSiftData(siftData);
+
+    /*checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_kinect_depths, 0));*/
 }

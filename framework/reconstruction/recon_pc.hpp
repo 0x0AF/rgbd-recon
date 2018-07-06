@@ -58,7 +58,7 @@ namespace kinect
 class ReconPerformanceCapture : public Reconstruction
 {
   public:
-    ReconPerformanceCapture(NetKinectArray const &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size, float ed_size);
+    ReconPerformanceCapture(NetKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size, float ed_size);
     ~ReconPerformanceCapture();
 
     void draw() override;
@@ -81,6 +81,8 @@ class ReconPerformanceCapture : public Reconstruction
     static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_CORRESPONDENCE, TIMER_NON_RIGID_ALIGNMENT, TIMER_FUSION;
 
   private:
+    NetKinectArray *_nka = nullptr;
+
     struct_native_handles _native_handles;
     struct_measures _measures;
 

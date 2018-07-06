@@ -14,7 +14,7 @@ const unsigned BRICK_RES_X = 16u;
 const unsigned BRICK_RES_Y = 16u;
 const unsigned BRICK_RES_Z = 16u;
 
-const unsigned VOLUME_VOXEL_DIM_X = 140u;
+const unsigned VOLUME_VOXEL_DIM_X = 141u;
 const unsigned VOLUME_VOXEL_DIM_Y = 140u;
 const unsigned VOLUME_VOXEL_DIM_Z = 140u;
 
@@ -36,8 +36,9 @@ struct struct_native_handles
 
     unsigned int volume_tsdf_data;
 
-    unsigned int array2d_kinect_depths;
-    unsigned int array2d_silhouettes;
+    unsigned int pbo_kinect_rgbs;
+    unsigned int pbo_kinect_depths;
+    unsigned int pbo_kinect_silhouettes;
 
     unsigned int volume_cv_xyz_inv[4];
     unsigned int volume_cv_xyz[4];
@@ -45,6 +46,7 @@ struct struct_native_handles
 
 struct struct_measures
 {
+    glm::uvec2 color_resolution{0u};
     glm::uvec2 depth_resolution{0u};
     glm::fvec2 depth_limits[4];
 };

@@ -8,36 +8,38 @@
 #include <glm/gtc/type_precision.hpp>
 
 #include <globjects/base/ref_ptr.h>
-namespace globjects {
-  class Buffer;
-  class Program;
-  class Framebuffer;
-  class Texture;
-  class Query;
-}
+namespace globjects
+{
+class Buffer;
+class Program;
+class Framebuffer;
+class Texture;
+class Query;
+} // namespace globjects
 
+#include <map>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
-#include <mutex>
-#include <memory>
-#include <map>
 
-namespace std{
-  class thread;
+namespace std
+{
+class thread;
 }
 
-namespace kinect {
+namespace kinect
+{
+class TextureArray;
+class KinectCalibrationFile;
+class CalibrationFiles;
+class CalibVolumes;
 
-  class TextureArray;
-  class KinectCalibrationFile;
-  class CalibrationFiles;
-  class CalibVolumes;
-
-  class NetKinectArray {
-
+class NetKinectArray
+{
   public:
-    NetKinectArray(std::string const& serverport, CalibrationFiles const* calibs, CalibVolumes const* vols, bool readfromfile = false);
-    NetKinectArray(std::vector<KinectCalibrationFile*>& calibs);
+    NetKinectArray(std::string const &serverport, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile = false);
+    NetKinectArray(std::vector<KinectCalibrationFile *> &calibs);
 
     ~NetKinectArray();
 
@@ -48,25 +50,26 @@ namespace kinect {
 
     unsigned getStartTextureUnit() const;
 
-    std::vector<KinectCalibrationFile*> const& getCalibs() const;
+    std::vector<KinectCalibrationFile *> const &getCalibs() const;
 
     void writeCurrentTexture(std::string prefix);
-    void writeBMP(std::string, std::vector<std::uint8_t> const&, unsigned int offset, unsigned int bytesPerPixel);
+    void writeBMP(std::string, std::vector<std::uint8_t> const &, unsigned int offset, unsigned int bytesPerPixel);
 
     void filterTextures(bool filter);
     void useProcessedDepths(bool filter);
     void refineBoundary(bool filter);
 
-
     glm::uvec2 getDepthResolution() const;
     glm::uvec2 getColorResolution() const;
 
-    int getTextureUnit(std::string const& name) const;
+    int getTextureUnit(std::string const &name) const;
 
-    const std::unique_ptr<TextureArray> &getDepthArrayRaw () const;
-    const globjects::ref_ptr<globjects::Texture> &getSilhouette() const;
+    const unsigned int getPBOColorHandle();
+    const unsigned int getPBODepthHandle();
+    const unsigned int getPBOSilhouettes();
+    std::mutex &getPBOMutex();
 
-   private:
+  private:
     void bindToTextureUnits() const;
     void processBackground();
     void processDepth();
@@ -90,7 +93,7 @@ namespace kinect {
     double_buffer<globjects::ref_ptr<globjects::Texture>> m_textures_bg;
     globjects::ref_ptr<globjects::Texture> m_textures_silhouette;
     globjects::ref_ptr<globjects::Framebuffer> m_fbo;
-    std::unique_ptr<TextureArray>  m_colorArray_back;
+    std::unique_ptr<TextureArray> m_colorArray_back;
 
     std::map<std::string, globjects::ref_ptr<globjects::Program>> m_programs;
     std::map<std::string, unsigned> m_texture_unit_offsets;
@@ -99,6 +102,8 @@ namespace kinect {
     unsigned m_depthsize; // per frame
     double_pbo m_pbo_colors;
     double_pbo m_pbo_depths;
+
+    globjects::ref_ptr<globjects::Buffer> m_pbo_silhouettes;
 
     std::mutex m_mutex_pbo;
     std::unique_ptr<std::thread> m_readThread;
@@ -110,10 +115,10 @@ namespace kinect {
     double m_curr_frametime;
     bool m_use_processed_depth;
     unsigned m_start_texture_unit;
-    CalibrationFiles const* m_calib_files;
-    CalibVolumes const* m_calib_vols;
-  };
+    CalibrationFiles const *m_calib_files;
+    CalibVolumes const *m_calib_vols;
+};
 
-}
+} // namespace kinect
 
 #endif // #ifndef KINECT_NETKINECTARRAY_H

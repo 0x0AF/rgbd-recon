@@ -1,8 +1,8 @@
 #include <reconstruction/cuda/resources.cuh>
 
 #define EVALUATE_DATA
-#define EVALUATE_VISUAL_HULL
-#define EVALUATE_ED_REGULARIZATION
+// #define EVALUATE_VISUAL_HULL
+// #define EVALUATE_ED_REGULARIZATION
 
 // #define DEBUG_JTJ
 // #define DEBUG_JTF
@@ -30,7 +30,7 @@
 #endif
 
 __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_graph_meta,
-                                                      struct_measures *measures)
+                                                      struct_measures *measures, float *kinect_depths, float *kinect_silhouettes)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -53,7 +53,7 @@ __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_p
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, measures), evaluate_hull_residual(vx, ed_node, measures));
+        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, measures), evaluate_hull_residual(vx, ed_node, measures, kinect_silhouettes));
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -74,7 +74,8 @@ __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_p
     // printf("\nenergy: %f\n", energy);
 }
 
-__global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_graph_meta, struct_measures *measures)
+__global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_graph_meta, struct_measures *measures,
+                              float *kinect_depths, float *kinect_silhouettes)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -110,11 +111,11 @@ __global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsig
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures, kinect_depths);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, measures, kinect_silhouettes);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -133,7 +134,7 @@ __global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsig
 }
 
 __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int active_ed_vx_count, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph,
-                               struct_ed_meta_entry *ed_graph_meta, struct_measures *measures, const float mu)
+                               struct_ed_meta_entry *ed_graph_meta, struct_measures *measures, const float mu, float *kinect_depths, float *kinect_silhouettes)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -224,11 +225,11 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures, kinect_depths);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, measures, kinect_silhouettes);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -247,11 +248,11 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         pds[component] = 0.f;
 
 #ifdef EVALUATE_DATA
-        pds[component] += evaluate_vx_pd(vx, ed_node, ed_graph[idx], component, vx_residual, measures);
+        pds[component] += evaluate_vx_pd(vx, ed_node, ed_graph[idx], component, vx_residual, measures, kinect_depths);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, measures);
+        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, measures, kinect_silhouettes);
 #endif
 
         if(isnan(pds[component]))
@@ -333,7 +334,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
     memcpy(&jtj[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[0], sizeof(float) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int active_ed_nodes_count)
+__global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int active_ed_nodes_count, float *kinect_depths, float *kinect_silhouettes)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -365,7 +366,7 @@ __global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int active_ed_nodes_
     memcpy(&jtj_rows[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_row_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
+__global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count, float *kinect_depths, float *kinect_silhouettes)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -731,7 +732,7 @@ __host__ void print_out_h()
 
 #endif
 
-void map_GPU_resources()
+void map_GPU_resources(const float *kinect_depths, const float *kinect_silhouettes)
 {
     for(unsigned int i = 0; i < 4; i++)
     {
@@ -739,12 +740,11 @@ void map_GPU_resources()
         checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_cv_xyz[i], 0));
     }
 
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_kinect_depths, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.array2d_silhouettes, 0));
+    /*checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_rgbs, 0));*/
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_depths, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
 
-    cudaArray *array_s[4] = {nullptr, nullptr, nullptr, nullptr};
-    cudaArray *array_kd[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *volume_array_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *volume_array_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -752,8 +752,6 @@ void map_GPU_resources()
     {
         checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz_inv[i], _cgr.volume_cv_xyz_inv[i], 0, 0));
         checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz[i], _cgr.volume_cv_xyz[i], 0, 0));
-        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&array_kd[i], _cgr.array2d_kinect_depths, i, 0));
-        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&array_s[i], _cgr.array2d_silhouettes, i, 0));
     }
 
     cudaArray *volume_array_tsdf_data = nullptr;
@@ -762,40 +760,33 @@ void map_GPU_resources()
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
 
+    size_t kd_bytes;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&kinect_depths, &kd_bytes, _cgr.pbo_kinect_depths));
+    // printf("\ndepth bytes: %lu\n", kd_bytes);
+
+    size_t ks_bytes;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&kinect_silhouettes, &ks_bytes, _cgr.pbo_kinect_depths));
+    // printf("\nsilhouettes bytes: %lu\n", ks_bytes);
+
     cudaChannelFormatDesc channel_desc_cv_xyz_inv = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_0, volume_array_cv_xyz_inv[0], &channel_desc_cv_xyz_inv));
-    // TODO
-    /*checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc_cv_xyz_inv));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc_cv_xyz_inv));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_2, volume_array_cv_xyz_inv[2], &channel_desc_cv_xyz_inv));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv_xyz_inv));*/
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv_xyz_inv));
 
     cudaChannelFormatDesc channel_desc_cv_xyz = cudaCreateChannelDesc(32, 32, 32, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_0, volume_array_cv_xyz[0], &channel_desc_cv_xyz));
-    // TODO
-    /*checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc_cv_xyz));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc_cv_xyz));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_2, volume_array_cv_xyz[2], &channel_desc_cv_xyz));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_3, volume_array_cv_xyz[3], &channel_desc_cv_xyz));*/
-
-    cudaChannelFormatDesc channel_desc_kd = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_0, array_kd[0], &channel_desc_kd));
-    // TODO
-    /*checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_2, array_kd[2], &channel_desc_kd));
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));*/
-
-    cudaChannelFormatDesc channel_desc_s = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_silhouettes_0, array_s[0], &channel_desc_s));
-    // TODO
-    /*checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_1, array_kd[1], &channel_desc_kd));
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_2, array_kd[2], &channel_desc_kd));
-    checkCudaErrors(cudaBindSurfaceToArray(&_array2d_kinect_depths_3, array_kd[3], &channel_desc_kd));*/
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_3, volume_array_cv_xyz[3], &channel_desc_cv_xyz));
 }
 
 void unmap_GPU_resources()
 {
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_silhouettes, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.array2d_kinect_depths, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes, 0));
+    /*checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_rgbs, 0));*/
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_depths, 0));
 
     for(unsigned int i = 0; i < 4; i++)
     {
@@ -804,29 +795,30 @@ void unmap_GPU_resources()
     }
 }
 
-void evaluate_jtj_jtf(const float mu)
+void evaluate_jtj_jtf(const float mu, float *kinect_depths, float *kinect_silhouettes)
 {
     size_t grid_size = (_active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
-    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures, mu);
+    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures, mu, kinect_depths,
+                                                      kinect_silhouettes);
 
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
 
-    kernel_jtj_coo_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_rows, _active_ed_nodes_count);
+    kernel_jtj_coo_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_rows, _active_ed_nodes_count, kinect_depths, kinect_silhouettes);
 
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
 
-    kernel_jtj_coo_cols<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_cols, _active_ed_nodes_count);
+    kernel_jtj_coo_cols<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_cols, _active_ed_nodes_count, kinect_depths, kinect_silhouettes);
 
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
 };
 
-void evaluate_misalignment_energy(float &misalignment_energy)
+void evaluate_misalignment_energy(float &misalignment_energy, float *kinect_depths, float *kinect_silhouettes)
 {
     float *device_misalignment_energy = nullptr;
     cudaMallocManaged(&device_misalignment_energy, sizeof(float));
@@ -836,7 +828,7 @@ void evaluate_misalignment_energy(float &misalignment_energy)
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
     size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures);
+    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures, kinect_depths, kinect_silhouettes);
 
     getLastCudaError("render kernel failed");
 
@@ -848,7 +840,7 @@ void evaluate_misalignment_energy(float &misalignment_energy)
     cudaFree(device_misalignment_energy);
 }
 
-void evaluate_step_misalignment_energy(float &misalignment_energy)
+void evaluate_step_misalignment_energy(float &misalignment_energy, float *kinect_depths, float *kinect_silhouettes)
 {
     float *device_misalignment_energy = nullptr;
     cudaMallocManaged(&device_misalignment_energy, sizeof(float));
@@ -870,7 +862,7 @@ void evaluate_step_misalignment_energy(float &misalignment_energy)
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
     size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, step_ed_graph, _ed_graph_meta, _measures);
+    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, step_ed_graph, _ed_graph_meta, _measures, kinect_depths, kinect_silhouettes);
 
     getLastCudaError("render kernel failed");
 
@@ -883,42 +875,43 @@ void evaluate_step_misalignment_energy(float &misalignment_energy)
     cudaFree(device_misalignment_energy);
 }
 
-void reject_misaligned_deformations()
+void reject_misaligned_deformations(float *kinect_depths, float *kinect_silhouettes)
 {
     int block_size;
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_reject_misaligned_deformations, 0, 0);
     size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_reject_misaligned_deformations<<<grid_size, block_size>>>(_sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures);
+    kernel_reject_misaligned_deformations<<<grid_size, block_size>>>(_sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures, kinect_depths, kinect_silhouettes);
 
     getLastCudaError("render kernel failed");
 
     cudaDeviceSynchronize();
 }
 
-extern "C" void pcg_solve()
+extern "C" void pcg_solve(struct_native_handles &native_handles)
 {
-    map_GPU_resources();
+    float *kinect_depths = nullptr;
+    float *kinect_silhouettes = nullptr;
+    map_GPU_resources(kinect_depths, kinect_silhouettes);
 
     const unsigned int max_iterations = 2u;
     unsigned int iterations = 0u;
     float mu = 1.0f;
     float initial_misalignment_energy, solution_misalignment_energy;
 
-    evaluate_misalignment_energy(initial_misalignment_energy);
-
+    evaluate_misalignment_energy(initial_misalignment_energy, kinect_depths, kinect_silhouettes);
     cudaDeviceSynchronize();
 
     while(iterations < max_iterations)
     {
-        evaluate_jtj_jtf(mu);
+        evaluate_jtj_jtf(mu, kinect_depths, kinect_silhouettes);
 
         cudaDeviceSynchronize();
 
         solve_for_h();
         cudaDeviceSynchronize();
 
-        evaluate_step_misalignment_energy(solution_misalignment_energy);
+        evaluate_step_misalignment_energy(solution_misalignment_energy, kinect_depths, kinect_silhouettes);
         cudaDeviceSynchronize();
 
         if(solution_misalignment_energy < initial_misalignment_energy)
@@ -945,7 +938,7 @@ extern "C" void pcg_solve()
         iterations++;
     }
 
-    reject_misaligned_deformations();
+    reject_misaligned_deformations(kinect_depths, kinect_silhouettes);
 
 #ifdef DEBUG_JTJ
 

@@ -19,9 +19,9 @@
 
 #include <reconstruction/cuda/copy_reference.cuh>
 #include <reconstruction/cuda/ed_sample.cuh>
-#include <reconstruction/cuda/sift.cuh>
-#include <reconstruction/cuda/pcg_solve.cuh>
 #include <reconstruction/cuda/fuse_data.cuh>
+#include <reconstruction/cuda/pcg_solve.cuh>
+#include <reconstruction/cuda/sift.cuh>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles)
 {
@@ -60,11 +60,12 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_reference_mesh_vertices, native_handles.buffer_reference_vertices, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsReadOnly));
+
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_rgbs, native_handles.pbo_kinect_rgbs, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_depths, native_handles.pbo_kinect_depths, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes, native_handles.pbo_kinect_silhouettes, cudaGraphicsRegisterFlagsReadOnly));
+
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-
-    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.array2d_kinect_depths, native_handles.array2d_kinect_depths, GL_TEXTURE_2D_ARRAY_EXT, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.array2d_silhouettes, native_handles.array2d_silhouettes, GL_TEXTURE_2D_ARRAY, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz_inv[i], native_handles.volume_cv_xyz_inv[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
@@ -99,8 +100,10 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_bricks));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_occupied));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_data));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.array2d_kinect_depths));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.array2d_silhouettes));
+
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_depths));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_rgbs));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes));
 
     for(unsigned int i = 0; i < 4; i++)
     {
