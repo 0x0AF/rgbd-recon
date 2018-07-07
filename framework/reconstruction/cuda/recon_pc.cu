@@ -66,12 +66,13 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.texture_kinect_depths, native_handles.texture_kinect_depths, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.texture_kinect_silhouettes, native_handles.texture_kinect_silhouettes, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
 
-    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz_inv[i], native_handles.volume_cv_xyz_inv[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
         checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz[i], native_handles.volume_cv_xyz[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
     }
+
+    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
 
     cudaExtent volume_extent = make_cudaExtent(volume_res.x, volume_res.y, volume_res.z);
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);

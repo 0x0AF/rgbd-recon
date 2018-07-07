@@ -177,6 +177,11 @@ bool NetKinectArray::init()
     m_out_depths->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
     m_out_silhouettes->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
 
+    m_out_depths->setParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    m_out_depths->setParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    m_out_silhouettes->setParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    m_out_silhouettes->setParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
     m_texture_unit_offsets.emplace("morph_input", 42);
     m_texture_unit_offsets.emplace("raw_depth", 40);
     // m_texture_unit_offsets.emplace("bg_depth", 41);
@@ -248,10 +253,10 @@ bool NetKinectArray::update()
     m_depthArray_raw->fillLayersFromPBO(m_pbo_depths.get()->id());
 
     glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_silhouette->id());
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, m_pbo_silhouettes->id());
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, GL_RED, GL_FLOAT, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, m_pbo_silhouettes->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
     // TODO: rgb outputs

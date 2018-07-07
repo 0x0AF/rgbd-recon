@@ -13,12 +13,14 @@ namespace kinect {
 template<typename T>
 class CalibrationVolume {
  public:
-  CalibrationVolume(std::string const& filename)
-   :m_resolution{0}
-   ,m_depth_limits{0}
-   ,m_volume{}
-  {
-    read(filename);
+   CalibrationVolume(std::string const &filename) : m_resolution{0}, m_depth_limits{0}, m_volume{} { read(filename); }
+
+   CalibrationVolume(std::string const &filename, bool override_read) : m_resolution{0}, m_depth_limits{0}, m_volume{}
+   {
+       if(!override_read)
+       {
+           read(filename);
+       }
   }
 
   CalibrationVolume(glm::uvec3 const& res, glm::fvec2 const& depth, std::vector<T> const& vol)
@@ -58,8 +60,8 @@ class CalibrationVolume {
     return m_volume[z * m_resolution.x * m_resolution.y + y * m_resolution.x + x];
   }
 
- private:
-  void read(std::string const& filename) {
+ protected:
+  virtual void read(std::string const& filename) {
     FILE* file_input = fopen(filename.c_str(), "rb");
     std::size_t res = 0;
     res = fread(&m_resolution.x, sizeof(unsigned), 1, file_input);

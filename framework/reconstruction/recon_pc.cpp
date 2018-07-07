@@ -44,6 +44,7 @@ extern "C" void deinit_cuda();
 // #define WIPE_DATA
 
 #define PIPELINE_SAMPLE
+// #define PIPELINE_CORRESPONDENCE
 #define PIPELINE_ALIGN
 #define PIPELINE_FUSE
 
@@ -244,6 +245,9 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     glm::fvec3 bbox_dimensions = glm::fvec3{m_bbox.getPMax()[0] - m_bbox.getPMin()[0], m_bbox.getPMax()[1] - m_bbox.getPMin()[1], m_bbox.getPMax()[2] - m_bbox.getPMin()[2]};
     glm::fvec3 bbox_translation = glm::fvec3{m_bbox.getPMin()[0], m_bbox.getPMin()[1], m_bbox.getPMin()[2]};
 
+    _measures.bbox_translation = bbox_translation;
+    _measures.bbox_dimensions = bbox_dimensions;
+
     _mat_vol_to_world = glm::scale(glm::fmat4{1.0f}, bbox_dimensions);
     _mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * _mat_vol_to_world;
 }
@@ -319,7 +323,7 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_SAMPLE
 
-    if(_frame_number.load() % 256 == 0)
+    if(_frame_number.load() % 16 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
@@ -334,11 +338,15 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_ALIGN
 
+#ifdef PIPELINE_CORRESPONDENCE
+
     TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
 
     estimate_correspondence_field();
 
     TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
+
+#endif
 
     // TODO: estimate ICP rigid body fit
 

@@ -2,6 +2,7 @@
 #define KINECT_CalibVolumes_H
 
 #include "calibration_volume.hpp"
+#include "padded_calibration_volume.hpp"
 #include "frustum.hpp"
 #include <DataTypes.h>
 #include "volume_sampler.hpp"
@@ -66,7 +67,7 @@ public:
 
   std::vector<globjects::Texture*> m_volumes_xyz_inv;
 
-  std::vector<CalibrationVolume<xyz>>    m_data_volumes_xyz;
+  std::vector<PaddedCalibrationVolume>    m_data_volumes_xyz;
   std::vector<CalibrationVolume<uv>>    m_data_volumes_uv;
   std::vector<CalibrationVolume<glm::fvec4>>    m_data_volumes_xyz_inv;
 

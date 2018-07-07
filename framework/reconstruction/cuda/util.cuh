@@ -153,17 +153,19 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
     glm::vec3 dist = vertex.position - ed_node.position;
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
 
-    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight);
+    glm::vec3 warped_position = warp_position(dist, ed_node_new, skinning_weight);
     glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight);
 
     float residual = 0.000001f;
 
-    glm::vec3 warped_position_new = warp_position(dist, ed_node_new, skinning_weight);
+    glm::uvec3 wp_cv_inv_space = glm::uvec3(warped_position * 200.f / 140.f);
 
-    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position_new);
-    // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+    if(wp_cv_inv_space.x + wp_cv_inv_space.y + wp_cv_inv_space.z == 0)
+    {
+        return 0.f;
+    }
 
-    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
+    if(wp_cv_inv_space.x >= 200.f || wp_cv_inv_space.y >= 200.f || wp_cv_inv_space.z >= 200.f)
     {
         // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
         return 0.f;
@@ -176,16 +178,16 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         switch(i)
         {
         case 0:
-            surf3Dread(&data, _volume_cv_xyz_inv_0, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_0, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         case 1:
-            surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_1, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         case 2:
-            surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_2, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         case 3:
-            surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_3, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         }
 
@@ -202,7 +204,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         }
 
         float1 depth{0.f};
-        surf3Dread(&data, _kinect_depths, pixel.x * sizeof(float1), pixel.y, i);
+        surf3Dread(&depth, _kinect_depths, pixel.x * sizeof(float1), pixel.y, i);
 
         // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, depth.x);
 
@@ -210,9 +212,9 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         // printf("\n normalized depth (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, normalized_depth);
 
-        unsigned int depth_voxel_space = (unsigned int)(normalized_depth / 0.01f);
+        unsigned int depth_voxel_space = (unsigned int)(normalized_depth * 128);
 
-        // printf("\n depth_voxel_space (x,y): (%u,%u) = %u\n", pixel.x, pixel.y, depth_voxel_space);
+        // printf("\n depth_voxel_space (x,y) [i]: (%u,%u) [%u] = %u\n", pixel.x, pixel.y, i, depth_voxel_space);
 
         if(depth_voxel_space >= 128)
         {
@@ -220,23 +222,34 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
             continue;
         }
 
-        float3 projected{0.f, 0.f, 0.f};
+        uint2 scaled_pixel{0u, 0u};
+        scaled_pixel.x = (unsigned int)(data.x * 128);
+        scaled_pixel.y = (unsigned int)(data.y * 128);
+
+        if(scaled_pixel.x >= 128 || scaled_pixel.y >= 128)
+        {
+            continue;
+        }
+
+        float4 projected{0.f, 0.f, 0.f, 0.f};
 
         switch(i)
         {
         case 0:
-            surf3Dread(&projected, _volume_cv_xyz_0, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_0, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
             break;
         case 1:
-            surf3Dread(&projected, _volume_cv_xyz_1, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_1, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
             break;
         case 2:
-            surf3Dread(&projected, _volume_cv_xyz_2, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_2, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
             break;
         case 3:
-            surf3Dread(&projected, _volume_cv_xyz_3, pixel.x * sizeof(float3), pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_3, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
             break;
         }
+
+        // printf("\nprojected (%f,%f,%f, %f)\n", projected.x, projected.y, projected.z, projected.w);
 
         //        if(depth_voxel_space == 45u)
         //        {
@@ -245,10 +258,23 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         glm::vec3 extracted_position = glm::vec3(projected.x, projected.y, projected.z);
 
-        //        printf("\nextracted_position: (%f,%f,%f), wp_voxel_space: (%u,%u,%u)\n", extracted_position.x, extracted_position.y, extracted_position.z, wp_voxel_space.x, wp_voxel_space.y,
-        //        wp_voxel_space.z);
+        extracted_position = extracted_position - measures->bbox_translation;
+        extracted_position = extracted_position / measures->bbox_dimensions;
 
-        glm::vec3 diff = glm::vec3(wp_voxel_space) - extracted_position;
+        if(extracted_position.x < 0.f || extracted_position.y < 0.f || extracted_position.z < 0.f || extracted_position.x > 1.0 || extracted_position.y > 1.0 || extracted_position.z > 1.0)
+        {
+            // printf("\n out of bounding box\n");
+            continue;
+        }
+
+        extracted_position = extracted_position * 140.f;
+
+        //        printf("\nextracted_position (%u, %u, %u): (%u,%u,%u) = (%f,%f,%f)\n", pixel.x, pixel.y, depth_voxel_space, wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z,
+        //        extracted_position.x, extracted_position.y, extracted_position.z);
+
+        glm::vec3 diff = warped_position - extracted_position;
+
+        // printf("\ndiff: %f\n", glm::length(diff));
 
         if(glm::length(diff) > 3.f || glm::length(diff) == 0.f)
         {
@@ -508,10 +534,14 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
 
     float residual = 0.000001f;
 
-    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
-    // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+    glm::uvec3 wp_cv_inv_space = glm::uvec3(warped_position * 200.f / 140.f);
 
-    if(wp_voxel_space.x >= VOLUME_VOXEL_DIM_X || wp_voxel_space.y >= VOLUME_VOXEL_DIM_Y || wp_voxel_space.z >= VOLUME_VOXEL_DIM_Z)
+    if(wp_cv_inv_space.x + wp_cv_inv_space.y + wp_cv_inv_space.z == 0)
+    {
+        return 0.f;
+    }
+
+    if(wp_cv_inv_space.x >= 200.f || wp_cv_inv_space.y >= 200.f || wp_cv_inv_space.z >= 200.f)
     {
         // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
         return 0.f;
@@ -524,20 +554,18 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
         switch(i)
         {
         case 0:
-            surf3Dread(&data, _volume_cv_xyz_inv_0, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_0, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         case 1:
-            surf3Dread(&data, _volume_cv_xyz_inv_1, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_1, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         case 2:
-            surf3Dread(&data, _volume_cv_xyz_inv_2, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_2, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         case 3:
-            surf3Dread(&data, _volume_cv_xyz_inv_3, wp_voxel_space.x * sizeof(float4), wp_voxel_space.y, wp_voxel_space.z);
+            surf3Dread(&data, _volume_cv_xyz_inv_3, wp_cv_inv_space.x * sizeof(float4), wp_cv_inv_space.y, wp_cv_inv_space.z);
             break;
         }
-
-        // printf("\ncamera_positions[%u]: (%f,%f,%f)\n", i, camera_positions[i].x,camera_positions[i].y,camera_positions[i].z);
 
         // printf("\n (x,y): (%f,%f)\n", data.x, data.y);
 

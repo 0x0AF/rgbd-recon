@@ -96,7 +96,7 @@ glm::uvec3 CalibVolumes::getVolumeRes() const { return m_data_volumes_xyz_inv[0]
 
 glm::fvec2 CalibVolumes::getDepthLimits(unsigned i) const { return m_data_volumes_xyz[i].depthLimits(); }
 
-static std::array<glm::fvec3, 8> getCornerPoints(CalibrationVolume<xyz> const &curr_volume)
+static std::array<glm::fvec3, 8> getCornerPoints(PaddedCalibrationVolume const &curr_volume)
 {
     glm::uvec3 end_points{curr_volume.res() - glm::uvec3{1}};
     std::array<glm::fvec3, 8> points_corner{};
@@ -137,7 +137,7 @@ void CalibVolumes::createVolumeTextures()
     {
         auto const &calib_xyz = m_data_volumes_xyz[i];
         auto volume_xyz = globjects::Texture::createDefault(GL_TEXTURE_3D);
-        volume_xyz->image3D(0, GL_RGB32F, glm::ivec3{calib_xyz.res()}, 0, GL_RGB, GL_FLOAT, calib_xyz.volume().data());
+        volume_xyz->image3D(0, GL_RGBA32F, glm::ivec3{calib_xyz.res()}, 0, GL_RGBA, GL_FLOAT, calib_xyz.volume().data());
         m_volumes_xyz.push_back(volume_xyz);
 
         auto const &calib_uv = m_data_volumes_uv[i];

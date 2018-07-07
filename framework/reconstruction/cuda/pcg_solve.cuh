@@ -59,7 +59,9 @@ __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_p
 
         if(isnan(vx_misalignment))
         {
+#ifdef DEBUG_NANS
             printf("\nvx_residual is NaN!\n");
+#endif
 
             vx_misalignment = 0.f;
         }
@@ -733,11 +735,8 @@ __host__ void print_out_h()
 
 void map_GPU_resources()
 {
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
-        checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_cv_xyz[i], 0));
-    }
+    checkCudaErrors(cudaGraphicsMapResources(4, _cgr.volume_cv_xyz_inv, 0));
+    checkCudaErrors(cudaGraphicsMapResources(4, _cgr.volume_cv_xyz, 0));
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.texture_kinect_depths, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.texture_kinect_silhouettes, 0));
@@ -776,7 +775,7 @@ void map_GPU_resources()
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_2, volume_array_cv_xyz_inv[2], &channel_desc_cv_xyz_inv));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc_cv_xyz_inv));
 
-    cudaChannelFormatDesc channel_desc_cv_xyz = cudaCreateChannelDesc(32, 32, 32, 0, cudaChannelFormatKindFloat);
+    cudaChannelFormatDesc channel_desc_cv_xyz = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_0, volume_array_cv_xyz[0], &channel_desc_cv_xyz));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc_cv_xyz));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_2, volume_array_cv_xyz[2], &channel_desc_cv_xyz));
@@ -789,11 +788,8 @@ void unmap_GPU_resources()
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.texture_kinect_silhouettes, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.texture_kinect_depths, 0));
 
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz[i], 0));
-        checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_cv_xyz_inv[i], 0));
-    }
+    checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.volume_cv_xyz, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.volume_cv_xyz_inv, 0));
 }
 
 void evaluate_jtj_jtf(const float mu)
@@ -892,7 +888,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
 {
     map_GPU_resources();
 
-    const unsigned int max_iterations = 2u;
+    const unsigned int max_iterations = 1u;
     unsigned int iterations = 0u;
     float mu = 1.0f;
     float initial_misalignment_energy, solution_misalignment_energy;
@@ -921,7 +917,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
             cublasSaxpy(cublas_handle, N, &one, _h, 1, (float *)&_ed_graph[0], 1);
             cudaDeviceSynchronize();
 
-            mu -= 0.05f;
+            mu -= 0.01f;
             initial_misalignment_energy = solution_misalignment_energy;
             printf("\nmu lowered: %f\n", mu);
         }
@@ -929,7 +925,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
         {
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
-            mu += 0.05f;
+            mu += 0.01f;
             printf("\nmu raised: %f\n", mu);
         }
 

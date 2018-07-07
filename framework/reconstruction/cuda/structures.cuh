@@ -49,6 +49,8 @@ struct struct_measures
     glm::uvec2 color_resolution{0u};
     glm::uvec2 depth_resolution{0u};
     glm::fvec2 depth_limits[4];
+    glm::fvec3 bbox_translation{0.f, 0.f, 0.f};
+    glm::fvec3 bbox_dimensions{0.f, 0.f, 0.f};
 };
 
 struct struct_vertex
