@@ -36,7 +36,7 @@ using namespace gl;
 #include <glm/gtx/string_cast.hpp>
 #include <vector_types.h>
 
-extern "C" glm::uvec3 test_index_3d(unsigned int brick_id);
+/*extern "C" glm::uvec3 test_index_3d(unsigned int brick_id);
 extern "C" glm::uvec3 test_position_3d(unsigned int position_id);
 extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id);
 extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d);
@@ -238,7 +238,7 @@ TEST(UtilTest, WarpNormalRotation)
     EXPECT_NEAR(warped_normal.y, normal.z, ACCEPTED_FLOAT_TOLERANCE);
     EXPECT_NEAR(warped_normal.z, normal.y, ACCEPTED_FLOAT_TOLERANCE);
 }
-} // namespace
+} // namespace*/
 
 GTEST_API_ int main(int argc, char **argv)
 {

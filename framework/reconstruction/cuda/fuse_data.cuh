@@ -1,27 +1,27 @@
 #include <reconstruction/cuda/resources.cuh>
 
-__global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_meta_entry *ed_dense_index, struct_ed_node *ed_graph)
+__global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx >= active_ed_nodes_count * ED_CELL_VOXELS)
+    if(idx >= active_ed_nodes_count * measures.ed_cell_num_voxels)
     {
         // printf("\nactive voxel count overshot: %u, active_bricks_count * BRICK_VOXELS: %lu\n", idx, active_bricks_count * BRICK_VOXELS);
         return;
     }
 
-    unsigned int ed_node_offset = idx / ED_CELL_VOXELS;
+    unsigned int ed_node_offset = idx / measures.ed_cell_num_voxels;
 
-    struct_ed_node ed_node = ed_graph[ed_node_offset];
-    struct_ed_meta_entry ed_entry = ed_dense_index[ed_node_offset];
+    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
 
     unsigned int brick_id = ed_entry.brick_id;
     unsigned int ed_cell_id = ed_entry.ed_cell_id;
-    unsigned int edc_voxel_id = idx % ED_CELL_VOXELS;
+    unsigned int edc_voxel_id = idx % measures.ed_cell_num_voxels;
 
-    glm::uvec3 brick = index_3d(brick_id) * BRICK_VOXEL_DIM;
-    glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id);
-    glm::uvec3 position = ed_cell_3d(ed_cell_id) + ed_cell_index3d;
+    glm::uvec3 brick = index_3d(brick_id, dev_res, measures) * measures.brick_dim_voxels;
+    glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id, dev_res, measures);
+    glm::uvec3 position = ed_cell_3d(ed_cell_id, dev_res, measures) + ed_cell_index3d;
     glm::uvec3 world = brick + position;
 
     //    if(position_id == 0)
@@ -29,7 +29,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
     //        printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
     //    }
 
-    if(world.x >= VOLUME_VOXEL_DIM_X || world.y >= VOLUME_VOXEL_DIM_Y || world.z >= VOLUME_VOXEL_DIM_Z)
+    if(!in_data_volume(world, dev_res, measures))
     {
         printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
         return;
@@ -55,9 +55,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
     //    }
 
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
-    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, skinning_weight));
+    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, skinning_weight, dev_res, measures));
 
-    if(warped_position.x >= VOLUME_VOXEL_DIM_X || warped_position.y >= VOLUME_VOXEL_DIM_Y || warped_position.z >= VOLUME_VOXEL_DIM_Z)
+    if(!in_data_volume(warped_position, dev_res, measures))
     {
         //        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x,
         //        brick.y,
@@ -73,8 +73,8 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
         return;
     }
 
-    __shared__ float2 ed_cell_voxels[ED_CELL_VOXELS];
-    __shared__ float2 edc_predictions[ED_CELL_VOXELS];
+    __shared__ float2 ed_cell_voxels[27];  // point of error
+    __shared__ float2 edc_predictions[27]; // point of error
 
     surf3Dread(&ed_cell_voxels[edc_voxel_id], _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
 
@@ -90,9 +90,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
 
     glm::vec3 gradient;
 
-    if(ed_cell_index3d.x != ED_CELL_VOXEL_DIM)
+    if(ed_cell_index3d.x != measures.ed_cell_dim_voxels)
     {
-        unsigned int ed_cell_voxel_id_x = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(1, 0, 0));
+        unsigned int ed_cell_voxel_id_x = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(1, 0, 0), dev_res, measures);
         gradient.x = ed_cell_voxels[ed_cell_voxel_id_x].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
     else
@@ -103,9 +103,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
         gradient.x = voxel_x.x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
 
-    if(ed_cell_index3d.y != ED_CELL_VOXEL_DIM)
+    if(ed_cell_index3d.y != measures.ed_cell_dim_voxels)
     {
-        unsigned int ed_cell_voxel_id_y = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 1, 0));
+        unsigned int ed_cell_voxel_id_y = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 1, 0), dev_res, measures);
         gradient.x = ed_cell_voxels[ed_cell_voxel_id_y].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
     else
@@ -116,9 +116,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
         gradient.y = voxel_y.x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
 
-    if(ed_cell_index3d.z != ED_CELL_VOXEL_DIM)
+    if(ed_cell_index3d.z != measures.ed_cell_dim_voxels)
     {
-        unsigned int ed_cell_voxel_id_z = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 0, 1));
+        unsigned int ed_cell_voxel_id_z = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 0, 1), dev_res, measures);
         gradient.z = ed_cell_voxels[ed_cell_voxel_id_z].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
     else
@@ -130,7 +130,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
     }
 
     glm::vec3 gradient_vector = glm::normalize(gradient);
-    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, skinning_weight);
+    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, skinning_weight, dev_res, measures);
     glm::vec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
 
     glm::bvec3 is_nan = glm::isnan(warped_gradient);
@@ -156,15 +156,15 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_ed_m
 
     __syncthreads();
 
-    for(unsigned int i = 0; i < ED_CELL_VOXELS; i++)
+    for(unsigned int i = 0; i < measures.ed_cell_num_voxels; i++)
     {
         if(i == edc_voxel_id)
         {
             continue;
         }
-        glm::uvec3 edc_voxel_3d = ed_cell_voxel_3d(edc_voxel_id);
+        glm::uvec3 edc_voxel_3d = ed_cell_voxel_3d(edc_voxel_id, dev_res, measures);
         float dist = glm::length(glm::vec3(edc_voxel_3d));
-        float weight = expf(-dist * dist / 2.0f / (float)ED_CELL_VOXEL_DIM / (float)ED_CELL_VOXEL_DIM);
+        float weight = expf(-dist * dist / 2.0f / (float)measures.ed_cell_dim_voxels / (float)measures.ed_cell_dim_voxels);
         edc_predictions[i].x = edc_predictions[i].x * edc_predictions[i].y + prediction.x * weight / (edc_predictions[i].y + weight);
         edc_predictions[i].y = edc_predictions[i].y + weight;
     }
@@ -218,17 +218,15 @@ extern "C" void fuse_data()
 
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _volume_array_tsdf_ref, &channel_desc));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _dev_res.volume_array_tsdf_ref, &channel_desc));
 
-    unsigned int active_ed_voxels = _active_ed_nodes_count * ED_CELL_VOXELS;
-    size_t grid_size = (active_ed_voxels + ED_CELL_VOXELS - 1) / ED_CELL_VOXELS;
+    unsigned int active_ed_voxels = _host_res.active_ed_nodes_count * _host_res.measures.ed_cell_num_voxels;
+    size_t grid_size = (active_ed_voxels + _host_res.measures.ed_cell_num_voxels - 1) / _host_res.measures.ed_cell_num_voxels;
 
     // printf("\ngrid_size: %lu, block_size: %u\n", grid_size, ED_CELL_VOXELS);
 
-    kernel_fuse_data<<<grid_size, ED_CELL_VOXELS>>>(_active_ed_nodes_count, _ed_graph_meta, _ed_graph);
-
+    kernel_fuse_data<<<grid_size, _host_res.measures.ed_cell_num_voxels>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));

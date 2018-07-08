@@ -1,6 +1,6 @@
 #include <reconstruction/cuda/resources.cuh>
 
-__global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int ed_nodes_count, unsigned int *bricks_inv_index, int *ed_reference_counter)
+__global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int ed_nodes_count, int *ed_reference_counter, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned long long int idx = threadIdx.x + blockIdx.x * blockDim.x;
     unsigned int vx_per_thread = (unsigned int)max(1u, vx_counter[0] / (blockDim.x * gridDim.x));
@@ -14,11 +14,11 @@ __global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, 
             return;
         }
 
-        glm::vec3 position_voxel_space = vx_ptr[vertex_position].position * glm::vec3(VOLUME_VOXEL_DIM_X, VOLUME_VOXEL_DIM_Y, VOLUME_VOXEL_DIM_Z);
+        glm::vec3 position_voxel_space = vx_ptr[vertex_position].position * glm::vec3(measures.data_volume_res);
 
-        const unsigned int brick_id = identify_brick_id(position_voxel_space);
-        const unsigned int ed_cell_id = identify_ed_cell_id(position_voxel_space, brick_id);
-        const unsigned int ed_node_offset = bricks_inv_index[brick_id] * (ED_CELL_RES * ED_CELL_RES * ED_CELL_RES) + ed_cell_id;
+        const unsigned int brick_id = identify_brick_id(position_voxel_space, dev_res, measures);
+        const unsigned int ed_cell_id = identify_ed_cell_id(position_voxel_space, brick_id, dev_res, measures);
+        const unsigned int ed_node_offset = dev_res.bricks_inv_index[brick_id] * measures.brick_num_ed_cells + ed_cell_id;
 
         if(ed_node_offset >= ed_nodes_count)
         {
@@ -34,7 +34,7 @@ __global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, 
 }
 
 __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, unsigned long long int *active_ed_vx, GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int ed_nodes_count,
-                                                unsigned int *bricks_dense_index, int *ed_reference_counter, struct_ed_meta_entry *ed_dense_index)
+                                                int *ed_reference_counter, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -44,13 +44,13 @@ __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, u
         return;
     }
 
-    __shared__ int brick_ed_cell_positions[ED_CELL_RES * ED_CELL_RES * ED_CELL_RES];
+    __shared__ int brick_ed_cell_positions[27]; // point of error
 
     unsigned long long int ed_vx_counter = ed_reference_counter[idx];
 
-    unsigned int ed_cell_id = idx % (ED_CELL_RES * ED_CELL_RES * ED_CELL_RES);
-    unsigned int brick_pos = idx / (ED_CELL_RES * ED_CELL_RES * ED_CELL_RES);
-    unsigned int brick_id = bricks_dense_index[brick_pos];
+    unsigned int ed_cell_id = idx % measures.brick_num_ed_cells;
+    unsigned int brick_pos = idx / measures.brick_num_ed_cells;
+    unsigned int brick_id = dev_res.bricks_dense_index[brick_pos];
 
     if(ed_vx_counter == 0)
     {
@@ -65,20 +65,20 @@ __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, u
 
     __syncthreads();
 
-    ed_dense_index[ed_position].brick_id = brick_id;
-    ed_dense_index[ed_position].ed_cell_id = ed_cell_id;
-    ed_dense_index[ed_position].vx_offset = ed_vx_position;
-    ed_dense_index[ed_position].vx_length = ed_vx_counter;
-    ed_dense_index[ed_position].rejected = false;
+    dev_res.ed_graph_meta[ed_position].brick_id = brick_id;
+    dev_res.ed_graph_meta[ed_position].ed_cell_id = ed_cell_id;
+    dev_res.ed_graph_meta[ed_position].vx_offset = ed_vx_position;
+    dev_res.ed_graph_meta[ed_position].vx_length = ed_vx_counter;
+    dev_res.ed_graph_meta[ed_position].rejected = false;
 
     for(unsigned int i = 0; i < 27; i++)
     {
-        ed_dense_index[ed_position].neighbors[i] = brick_ed_cell_positions[i];
+        dev_res.ed_graph_meta[ed_position].neighbors[i] = brick_ed_cell_positions[i];
     }
 }
 
-__global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned long long int active_ed_vx, GLuint *vx_counter, struct_vertex *vx_ptr, unsigned int *bricks_inv_index,
-                                         int *ed_reference_counter, struct_ed_meta_entry *ed_dense_index, struct_vertex *sorted_vx_ptr)
+__global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned long long int active_ed_vx, GLuint *vx_counter, struct_vertex *vx_ptr, int *ed_reference_counter,
+                                         struct_device_resources dev_res, struct_measures measures)
 {
     unsigned long long int idx = threadIdx.x + blockIdx.x * blockDim.x;
     unsigned int vx_per_thread = (unsigned int)max(1u, (unsigned int)(active_ed_vx / (blockDim.x * gridDim.x)));
@@ -93,7 +93,7 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
         }
 
         struct_vertex vx = vx_ptr[vertex_position];
-        vx.position = vx.position * glm::vec3(VOLUME_VOXEL_DIM_X, VOLUME_VOXEL_DIM_Y, VOLUME_VOXEL_DIM_Z);
+        vx.position = vx.position * glm::vec3(measures.data_volume_res);
 
         unsigned long long int sorted_vx_ptr_offset = 0u;
         bool found_ed = false;
@@ -105,7 +105,7 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
 
         for(unsigned int ed_position = 0; ed_position < active_ed_nodes; ed_position++)
         {
-            struct_ed_meta_entry ed_entry = ed_dense_index[ed_position];
+            struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_position];
 
             // if(idx == 100)
             // {
@@ -132,7 +132,7 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
 
             // printf("\ned_position: %u, ed_cell_id: %u, ed_brick_id: %u\n", ed_position, vx.ed_cell_id, vx.brick_id);
 
-            const unsigned int ed_node_offset = bricks_inv_index[ed_entry.brick_id] * (ED_CELL_RES * ED_CELL_RES * ED_CELL_RES) + ed_entry.ed_cell_id;
+            const unsigned int ed_node_offset = dev_res.bricks_inv_index[ed_entry.brick_id] * measures.brick_num_ed_cells + ed_entry.ed_cell_id;
             const int vx_sub_offset = atomicSub(&ed_reference_counter[ed_node_offset], 1);
             const int vx_sub_position = ed_entry.vx_length - vx_sub_offset;
 
@@ -151,7 +151,7 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
 
         if(found_ed)
         {
-            memcpy(&sorted_vx_ptr[sorted_vx_ptr_offset], &vx, sizeof(struct_vertex));
+            memcpy(&dev_res.sorted_vx_ptr[sorted_vx_ptr_offset], &vx, sizeof(struct_vertex));
         }
 
         //        if((int)vx.position.x == 0 || (int)sorted_vx_ptr[sorted_vx_ptr_offset].position.x == 0)
@@ -161,8 +161,7 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
     }
 }
 
-__global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned long long int active_ed_vx, struct_vertex *sorted_vx_ptr, struct_ed_meta_entry *ed_dense_index,
-                                       struct_ed_node *ed_graph)
+__global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned long long int active_ed_vx, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -173,7 +172,7 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
     }
 
     glm::vec3 position{0.f};
-    struct_ed_meta_entry ed_entry = ed_dense_index[idx];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
     // printf("\ned_entry.vx_offset %lu, ed_entry.vx_length %u\n", ed_entry.vx_offset, ed_entry.vx_length);
 
@@ -192,7 +191,7 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
         //            printf("\nsorted_vx.x == 0, node_idx: %u\n", idx);
         //        }
 
-        position = position + sorted_vx_ptr[sorted_vx_ptr_offset].position / (float)(ed_entry.vx_length);
+        position = position + dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].position / (float)(ed_entry.vx_length);
 
         //        if(idx == 100)
         //        {
@@ -203,12 +202,12 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
 
     __syncthreads();
 
-    memcpy(&ed_graph[idx], &position, sizeof(glm::vec3));
+    memcpy(&dev_res.ed_graph[idx], &position, sizeof(glm::vec3));
 }
 
 extern "C" void sample_ed_nodes()
 {
-    unsigned int ed_nodes_count = _active_bricks_count * ED_CELL_RES * ED_CELL_RES * ED_CELL_RES;
+    unsigned int ed_nodes_count = _host_res.active_bricks_count * _host_res.measures.brick_num_ed_cells;
 
     unsigned int *active_ed_nodes_count;
     cudaMallocManaged(&active_ed_nodes_count, sizeof(unsigned int));
@@ -224,8 +223,8 @@ extern "C" void sample_ed_nodes()
 
     free_ed_resources();
 
-    checkCudaErrors(cudaMalloc(&_ed_graph_meta, ed_nodes_count * sizeof(struct_ed_meta_entry)));
-    checkCudaErrors(cudaMemset(_ed_graph_meta, 0, ed_nodes_count * sizeof(struct_ed_meta_entry)));
+    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_meta, ed_nodes_count * sizeof(struct_ed_meta_entry)));
+    checkCudaErrors(cudaMemset(_dev_res.ed_graph_meta, 0, ed_nodes_count * sizeof(struct_ed_meta_entry)));
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
@@ -245,44 +244,34 @@ extern "C" void sample_ed_nodes()
 
     unsigned max_vertices = ((unsigned)vx_bytes) / sizeof(struct_vertex);
     size_t grid_size = (max_vertices + block_size - 1) / block_size;
-    kernel_mark_ed_nodes<<<grid_size, block_size>>>(vx_counter, vx_ptr, ed_nodes_count, _bricks_inv_index, ed_reference_counter);
-
+    kernel_mark_ed_nodes<<<grid_size, block_size>>>(vx_counter, vx_ptr, ed_nodes_count, ed_reference_counter, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
-    block_size = ED_CELL_RES * ED_CELL_RES * ED_CELL_RES;
+    block_size = _host_res.measures.brick_num_ed_cells;
     grid_size = (ed_nodes_count + block_size - 1) / block_size;
-    kernel_retrieve_active_ed_nodes<<<grid_size, block_size>>>(active_ed_nodes_count, active_ed_vx_count, vx_counter, vx_ptr, ed_nodes_count, _bricks_dense_index, ed_reference_counter,
-                                                               _ed_graph_meta);
-
+    kernel_retrieve_active_ed_nodes<<<grid_size, block_size>>>(active_ed_nodes_count, active_ed_vx_count, vx_counter, vx_ptr, ed_nodes_count, ed_reference_counter, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
-    checkCudaErrors(cudaMemcpy(&_active_ed_nodes_count, active_ed_nodes_count, sizeof(unsigned int), cudaMemcpyDeviceToHost));
-    printf("\nactive_ed_nodes_count: %u\n", _active_ed_nodes_count);
+    checkCudaErrors(cudaMemcpy(&_host_res.active_ed_nodes_count, active_ed_nodes_count, sizeof(unsigned int), cudaMemcpyDeviceToHost));
+    printf("\nactive_ed_nodes_count: %u\n", _host_res.active_ed_nodes_count);
 
-    checkCudaErrors(cudaMemcpy(&_active_ed_vx_count, active_ed_vx_count, sizeof(unsigned long long int), cudaMemcpyDeviceToHost));
-    printf("\nactive_ed_vx_count: %lu\n", _active_ed_vx_count);
+    checkCudaErrors(cudaMemcpy(&_host_res.active_ed_vx_count, active_ed_vx_count, sizeof(unsigned long long int), cudaMemcpyDeviceToHost));
+    printf("\nactive_ed_vx_count: %lu\n", _host_res.active_ed_vx_count);
 
     allocate_ed_resources();
 
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_sort_active_ed_vx, 0, 0);
-    grid_size = (_active_ed_vx_count + block_size - 1) / block_size;
-    kernel_sort_active_ed_vx<<<grid_size, block_size>>>(_active_ed_nodes_count, _active_ed_vx_count, vx_counter, vx_ptr, _bricks_inv_index, ed_reference_counter, _ed_graph_meta,
-                                                        _sorted_vx_ptr);
-
+    grid_size = (_host_res.active_ed_vx_count + block_size - 1) / block_size;
+    kernel_sort_active_ed_vx<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _host_res.active_ed_vx_count, vx_counter, vx_ptr, ed_reference_counter, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_sample_ed_nodes, 0, 0);
-    grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_sample_ed_nodes<<<grid_size, block_size>>>(_active_ed_nodes_count, _active_ed_vx_count, _sorted_vx_ptr, _ed_graph_meta, _ed_graph);
-
+    grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_sample_ed_nodes<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _host_res.active_ed_vx_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
     if(ed_reference_counter != nullptr)

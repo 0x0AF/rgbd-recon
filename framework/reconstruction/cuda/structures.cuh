@@ -3,23 +3,8 @@
 
 const unsigned ED_COMPONENT_COUNT = 10u;
 
-const unsigned ED_CELL_RES = 3u; // implied in 27-neighborhood!
-const unsigned ED_CELL_VOXEL_DIM = 3u;
-const unsigned ED_CELL_VOXELS = 9u;
-
-const unsigned BRICK_VOXEL_DIM = 9u;
-const unsigned BRICK_VOXELS = 729u;
-
-const unsigned BRICK_RES_X = 16u;
-const unsigned BRICK_RES_Y = 16u;
-const unsigned BRICK_RES_Z = 16u;
-
-const unsigned VOLUME_VOXEL_DIM_X = 141u;
-const unsigned VOLUME_VOXEL_DIM_Y = 140u;
-const unsigned VOLUME_VOXEL_DIM_Z = 140u;
-
 #ifdef __CUDACC__
-#define CUDA_HOST_DEVICE __host__ __device__
+#define CUDA_HOST_DEVICE __device__
 #else
 #define CUDA_HOST_DEVICE
 #endif
@@ -46,8 +31,29 @@ struct struct_native_handles
 
 struct struct_measures
 {
-    glm::uvec2 color_resolution{0u};
-    glm::uvec2 depth_resolution{0u};
+    float size_voxel{0.f};
+    float size_ed_cell{0.f};
+    float size_brick{0.f};
+
+    /** Constant values strictly define the available relationships between resolutions, dimensions and sizes **/
+
+    const unsigned int ed_cell_dim_voxels = 3u;
+    const unsigned int brick_dim_ed_cells = 3u;
+    const unsigned int brick_dim_voxels = 9u;
+
+    const unsigned int ed_cell_num_voxels = 9u;
+    const unsigned int brick_num_ed_cells = 27u; // implied in 27-neighborhood!
+    const unsigned int brick_num_voxels = 729u;
+
+    glm::uvec2 color_res{0u};
+    glm::uvec2 depth_res{0u};
+
+    glm::uvec3 data_volume_res{0u, 0u, 0u};
+    glm::uvec3 data_volume_bricked_res{0u, 0u, 0u};
+    unsigned int data_volume_num_bricks{0u};
+    glm::uvec3 cv_xyz_res{0u, 0u, 0u};
+    glm::uvec3 cv_xyz_inv_res{0u, 0u, 0u};
+
     glm::fvec2 depth_limits[4];
     glm::fvec3 bbox_translation{0.f, 0.f, 0.f};
     glm::fvec3 bbox_dimensions{0.f, 0.f, 0.f};

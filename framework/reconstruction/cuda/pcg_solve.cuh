@@ -1,7 +1,7 @@
 #include <reconstruction/cuda/resources.cuh>
 
 #define EVALUATE_DATA
-#define EVALUATE_VISUAL_HULL
+// #define EVALUATE_VISUAL_HULL
 #define EVALUATE_ED_REGULARIZATION
 
 // #define DEBUG_JTJ
@@ -29,8 +29,7 @@
 
 #endif
 
-__global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_graph_meta,
-                                                      struct_measures *measures)
+__global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -40,8 +39,8 @@ __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_p
         return;
     }
 
-    struct_ed_node ed_node = ed_graph[idx];
-    struct_ed_meta_entry ed_entry = ed_graph_meta[idx];
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
     // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
@@ -49,11 +48,11 @@ __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_p
 
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, measures), evaluate_hull_residual(vx, ed_node, measures));
+        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, dev_res, measures), evaluate_hull_residual(vx, ed_node, dev_res, measures));
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -76,7 +75,7 @@ __global__ void kernel_reject_misaligned_deformations(struct_vertex *sorted_vx_p
     // printf("\nenergy: %f\n", energy);
 }
 
-__global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph, struct_ed_meta_entry *ed_graph_meta, struct_measures *measures)
+__global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_count, struct_ed_node *step_ed_graph, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -86,11 +85,11 @@ __global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsig
         return;
     }
 
-    struct_ed_meta_entry ed_entry = ed_graph_meta[idx];
-    struct_ed_node ed_node = ed_graph[idx];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+    struct_ed_node ed_node = step_ed_graph[idx];
 
 #ifdef EVALUATE_ED_REGULARIZATION
-    float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, ed_graph, ed_graph_meta);
+    float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
     {
@@ -106,17 +105,17 @@ __global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsig
 
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -134,8 +133,65 @@ __global__ void kernel_energy(float *energy, struct_vertex *sorted_vx_ptr, unsig
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 }
 
-__global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int active_ed_vx_count, struct_vertex *sorted_vx_ptr, unsigned int active_ed_nodes_count, struct_ed_node *ed_graph,
-                               struct_ed_meta_entry *ed_graph_meta, struct_measures *measures, const float mu)
+__global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+        return;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+
+#ifdef EVALUATE_ED_REGULARIZATION
+    float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+
+    if(isnan(ed_residual))
+    {
+        printf("\ned_residual is NaN!\n");
+
+        ed_residual = 0.f;
+    }
+
+    atomicAdd(energy, ed_residual);
+#endif
+
+    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+
+        // printf("\ned_node + vertex match\n");
+
+        float vx_residual = 0.f;
+#ifdef EVALUATE_DATA
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res, measures);
+#endif
+
+#ifdef EVALUATE_VISUAL_HULL
+        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res, measures);
+#endif
+
+        // printf("\nvx_residual: %f\n", vx_residual);
+
+        if(isnan(vx_residual))
+        {
+            printf("\nvx_residual is NaN!\n");
+
+            vx_residual = 0.f;
+        }
+
+        atomicAdd(energy, vx_residual);
+    }
+
+    // printf("\njtf[%u]\n", ed_node_offset * 10u);
+}
+
+__global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsigned int active_ed_nodes_count, const float mu, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -149,15 +205,15 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         return;
     }
 
-    struct_ed_meta_entry ed_entry = ed_graph_meta[ed_node_offset];
-    struct_ed_node ed_node = ed_graph[ed_node_offset];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
+    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
 
     unsigned int component = idx % ED_COMPONENT_COUNT;
 
 #ifdef EVALUATE_ED_REGULARIZATION
     __shared__ float ed_pds[ED_COMPONENT_COUNT];
 
-    float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, ed_graph, ed_graph_meta);
+    float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
     {
@@ -168,7 +224,7 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         ed_residual = 0.f;
     }
 
-    ed_pds[component] = evaluate_ed_pd(ed_node, ed_entry, ed_graph, ed_graph_meta, component, ed_residual);
+    ed_pds[component] = evaluate_ed_pd(ed_node, ed_entry, component, ed_residual, dev_res, measures);
 
     if(isnan(ed_pds[component]))
     {
@@ -220,17 +276,17 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
 
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -249,11 +305,11 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
         pds[component] = 0.f;
 
 #ifdef EVALUATE_DATA
-        pds[component] += evaluate_vx_pd(vx, ed_node, ed_graph[idx], component, vx_residual, measures);
+        pds[component] += evaluate_vx_pd(vx, ed_node, dev_res.ed_graph[idx], component, vx_residual, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, measures);
+        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, dev_res, measures);
 #endif
 
         if(isnan(pds[component]))
@@ -331,11 +387,11 @@ __global__ void kernel_jtj_jtf(float *jtj, float *jtf, unsigned long long int ac
     //        }
     //    }
 
-    memcpy(&jtf[ed_node_offset * ED_COMPONENT_COUNT], &shared_jtf_block[0], sizeof(float) * ED_COMPONENT_COUNT);
-    memcpy(&jtj[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[0], sizeof(float) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
+    memcpy(&dev_res.jtf[ed_node_offset * ED_COMPONENT_COUNT], &shared_jtf_block[0], sizeof(float) * ED_COMPONENT_COUNT);
+    memcpy(&dev_res.jtj_vals[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[0], sizeof(float) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int active_ed_nodes_count)
+__global__ void kernel_jtj_coo_rows(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -364,10 +420,10 @@ __global__ void kernel_jtj_coo_rows(int *jtj_rows, unsigned int active_ed_nodes_
 
     __syncthreads();
 
-    memcpy(&jtj_rows[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_row_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
+    memcpy(&dev_res.jtj_rows[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_row_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
+__global__ void kernel_jtj_coo_cols(unsigned int ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -396,7 +452,7 @@ __global__ void kernel_jtj_coo_cols(int *jtj_cols, unsigned int ed_nodes_count)
 
     __syncthreads();
 
-    memcpy(&jtj_cols[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_col_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
+    memcpy(&dev_res.jtj_cols[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_col_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
 }
 
 #ifdef SOLVER_DIRECT_CHOL
@@ -413,16 +469,16 @@ __host__ void solve_for_h()
     cudaDeviceSynchronize();
 
     int *csr_row_ptr_jtj = nullptr;
-    int csr_nnz = _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
+    int csr_nnz = _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
 
-    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
 
     // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
 
     checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
 
     cudaDeviceSynchronize();
-    status = cusparseXcoo2csr(cusparse_handle, _jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
+    status = cusparseXcoo2csr(cusparse_handle, _dev_res.jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
     cudaDeviceSynchronize();
 
     if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
@@ -438,7 +494,8 @@ __host__ void solve_for_h()
 
     cudaDeviceSynchronize();
 
-    cusolverStatus_t solver_status = cusolverSpScsrlsvchol(cusolver_handle, N, csr_nnz, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, _jtf, tol, reorder, _h, &singularity);
+    cusolverStatus_t solver_status =
+        cusolverSpScsrlsvchol(cusolver_handle, N, csr_nnz, descr, _dev_res.jtj_vals, csr_row_ptr_jtj, _dev_res.jtj_cols, _dev_res.jtf, tol, reorder, _dev_res.h, &singularity);
 
     cudaDeviceSynchronize();
 
@@ -794,23 +851,17 @@ void unmap_GPU_resources()
 
 void evaluate_jtj_jtf(const float mu)
 {
-    size_t grid_size = (_active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
-    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_vals, _jtf, _active_ed_vx_count, _sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures, mu);
-
+    size_t grid_size = (_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
+    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_vx_count, _host_res.active_ed_nodes_count, mu, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
-    kernel_jtj_coo_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_rows, _active_ed_nodes_count);
-
+    kernel_jtj_coo_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
-    kernel_jtj_coo_cols<<<grid_size, ED_COMPONENT_COUNT>>>(_jtj_cols, _active_ed_nodes_count);
-
+    kernel_jtj_coo_cols<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 };
 
@@ -823,11 +874,9 @@ void evaluate_misalignment_energy(float &misalignment_energy)
     int block_size;
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
-    size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures);
-
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
     cudaMemcpy(&misalignment_energy, &device_misalignment_energy[0], sizeof(float), cudaMemcpyDeviceToHost);
@@ -843,25 +892,23 @@ void evaluate_step_misalignment_energy(float &misalignment_energy)
     *device_misalignment_energy = 0.f;
 
     struct_ed_node *step_ed_graph = nullptr;
-    cudaMalloc(&step_ed_graph, _active_ed_nodes_count * sizeof(struct_ed_node));
-    cudaMemcpy(&step_ed_graph[0], &_ed_graph[0], _active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
+    cudaMalloc(&step_ed_graph, _host_res.active_ed_nodes_count * sizeof(struct_ed_node));
+    cudaMemcpy(step_ed_graph, _dev_res.ed_graph, _host_res.active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
 
     cudaDeviceSynchronize();
 
-    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
     const float one = 1.0f;
-    cublasSaxpy(cublas_handle, N, &one, _h, 1, (float *)&step_ed_graph[0], 1);
+    cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&step_ed_graph[0], 1);
 
     cudaDeviceSynchronize();
 
     int block_size;
     int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
-    size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _sorted_vx_ptr, _active_ed_nodes_count, step_ed_graph, _ed_graph_meta, _measures);
-
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_step_energy, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_step_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, step_ed_graph, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 
     cudaMemcpy(&misalignment_energy, &device_misalignment_energy[0], sizeof(float), cudaMemcpyDeviceToHost);
@@ -876,11 +923,9 @@ void reject_misaligned_deformations()
     int block_size;
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_reject_misaligned_deformations, 0, 0);
-    size_t grid_size = (_active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_reject_misaligned_deformations<<<grid_size, block_size>>>(_sorted_vx_ptr, _active_ed_nodes_count, _ed_graph, _ed_graph_meta, _measures);
-
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_reject_misaligned_deformations<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-
     cudaDeviceSynchronize();
 }
 
@@ -912,9 +957,9 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
         {
             printf("\naccepted step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
-            int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+            int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
             const float one = 1.0f;
-            cublasSaxpy(cublas_handle, N, &one, _h, 1, (float *)&_ed_graph[0], 1);
+            cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
             cudaDeviceSynchronize();
 
             mu -= 0.01f;

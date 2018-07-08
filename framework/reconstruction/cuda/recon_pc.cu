@@ -74,12 +74,11 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
 
+    memcpy(&_host_res.measures, &measures, sizeof(struct_measures));
+
     cudaExtent volume_extent = make_cudaExtent(volume_res.x, volume_res.y, volume_res.z);
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaMalloc3DArray(&_volume_array_tsdf_ref, &channel_desc, volume_extent, cudaArraySurfaceLoadStore));
-
-    checkCudaErrors(cudaMalloc(&_measures, sizeof(struct_measures)));
-    checkCudaErrors(cudaMemcpy(_measures, &measures, sizeof(struct_measures), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMalloc3DArray(&_dev_res.volume_array_tsdf_ref, &channel_desc, volume_extent, cudaArraySurfaceLoadStore));
 
     cublasCreate(&cublas_handle);
     getLastCudaError("cublasCreate failure");
@@ -114,54 +113,54 @@ extern "C" void deinit_cuda()
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz[i]));
     }
 
-    if(_volume_array_tsdf_ref != nullptr)
+    if(_dev_res.volume_array_tsdf_ref != nullptr)
     {
-        checkCudaErrors(cudaFree(_volume_array_tsdf_ref));
+        checkCudaErrors(cudaFreeArray(_dev_res.volume_array_tsdf_ref));
     }
 
-    if(_ed_graph != nullptr)
+    if(_dev_res.ed_graph != nullptr)
     {
-        checkCudaErrors(cudaFree(_ed_graph));
+        checkCudaErrors(cudaFree(_dev_res.ed_graph));
     }
 
-    if(_jtf != nullptr)
+    if(_dev_res.jtf != nullptr)
     {
-        checkCudaErrors(cudaFree(_jtf));
+        checkCudaErrors(cudaFree(_dev_res.jtf));
     }
 
-    if(_jtj_vals != nullptr)
+    if(_dev_res.jtj_vals != nullptr)
     {
-        checkCudaErrors(cudaFree(_jtj_vals));
+        checkCudaErrors(cudaFree(_dev_res.jtj_vals));
     }
 
-    if(_jtj_rows != nullptr)
+    if(_dev_res.jtj_rows != nullptr)
     {
-        checkCudaErrors(cudaFree(_jtj_rows));
+        checkCudaErrors(cudaFree(_dev_res.jtj_rows));
     }
 
-    if(_jtj_cols != nullptr)
+    if(_dev_res.jtj_cols != nullptr)
     {
-        checkCudaErrors(cudaFree(_jtj_cols));
+        checkCudaErrors(cudaFree(_dev_res.jtj_cols));
     }
 
-    if(_h != nullptr)
+    if(_dev_res.h != nullptr)
     {
-        checkCudaErrors(cudaFree(_h));
+        checkCudaErrors(cudaFree(_dev_res.h));
     }
 
-    if(pcg_Ax != nullptr)
+    if(_dev_res.pcg_Ax != nullptr)
     {
-        checkCudaErrors(cudaFree(pcg_Ax));
+        checkCudaErrors(cudaFree(_dev_res.pcg_Ax));
     }
 
-    if(pcg_omega != nullptr)
+    if(_dev_res.pcg_omega != nullptr)
     {
-        checkCudaErrors(cudaFree(pcg_omega));
+        checkCudaErrors(cudaFree(_dev_res.pcg_omega));
     }
 
-    if(pcg_p != nullptr)
+    if(_dev_res.pcg_p != nullptr)
     {
-        checkCudaErrors(cudaFree(pcg_p));
+        checkCudaErrors(cudaFree(_dev_res.pcg_p));
     }
 
     cudaDeviceReset();

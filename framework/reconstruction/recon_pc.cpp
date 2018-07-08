@@ -192,8 +192,21 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
         _measures.depth_limits[i] = cv->getDepthLimits(i);
     }
 
-    _measures.color_resolution = nka.getColorResolution();
-    _measures.depth_resolution = nka.getDepthResolution();
+    _measures.size_voxel = _voxel_size;
+    _measures.size_ed_cell = _ed_cell_size;
+    _measures.size_brick = _brick_size;
+
+    _measures.color_res = nka.getColorResolution();
+    _measures.depth_res = nka.getDepthResolution();
+
+    _measures.data_volume_res = _res_volume;
+    _measures.data_volume_bricked_res = _res_bricks;
+
+    _measures.data_volume_num_bricks = _res_bricks.x * _res_bricks.y * _res_bricks.z;
+
+    // TODO: generalize
+    _measures.cv_xyz_res = glm::uvec3(128u, 128u, 128u);
+    _measures.cv_xyz_inv_res = glm::uvec3(200u, 200u, 200u);
 
     init_cuda(_res_volume, _measures, _native_handles);
 
@@ -323,7 +336,7 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_SAMPLE
 
-    if(_frame_number.load() % 16 == 0)
+    if(_frame_number.load() % 256 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
