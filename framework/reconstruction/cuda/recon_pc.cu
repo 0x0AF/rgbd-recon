@@ -61,6 +61,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsNone));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsNone));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_ed_nodes_debug, native_handles.buffer_ed_nodes_debug, cudaGraphicsRegisterFlagsNone));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_sorted_vertices_debug, native_handles.buffer_sorted_vertices_debug, cudaGraphicsRegisterFlagsNone));
 
     // TODO: rgbs output
     /*checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.texture_kinect_rgbs, native_handles.texture_kinect_rgbs,GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));*/
@@ -102,6 +103,8 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_bricks));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_occupied));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_ed_nodes_debug));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_sorted_vertices_debug));
+
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_data));
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_depths));

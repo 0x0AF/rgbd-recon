@@ -19,6 +19,7 @@ struct struct_native_handles
     unsigned int buffer_vertex_counter;
     unsigned int buffer_reference_vertices;
     unsigned int buffer_ed_nodes_debug;
+    unsigned int buffer_sorted_vertices_debug;
 
     unsigned int volume_tsdf_data;
 

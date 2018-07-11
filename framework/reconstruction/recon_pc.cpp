@@ -36,6 +36,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" unsigned int push_debug_ed_nodes();
+extern "C" unsigned long push_debug_sorted_vertices();
 extern "C" void estimate_correspondence_field();
 extern "C" void pcg_solve();
 extern "C" void fuse_data();
@@ -46,11 +47,12 @@ extern "C" void deinit_cuda();
 
 // #define PIPELINE_DEBUG_REFERENCE_MESH
 #define PIPELINE_DEBUG_ED_SAMPLING
+#define PIPELINE_DEBUG_SORTED_VERTICES
 
 #define PIPELINE_SAMPLE
 // #define PIPELINE_CORRESPONDENCE
 // #define PIPELINE_ALIGN
-#define PIPELINE_FUSE
+// #define PIPELINE_FUSE
 
 namespace kinect
 {
@@ -173,6 +175,9 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _buffer_ed_nodes_debug->setData(sizeof(struct_ed_node_debug) * 16384, nullptr, GL_STREAM_COPY);
     _buffer_ed_nodes_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
 
+    _buffer_sorted_vertices_debug->setData(sizeof(struct_vertex) * 524288, nullptr, GL_STREAM_COPY);
+    _buffer_sorted_vertices_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
+
     for(size_t i = 0; i < 524288; i++)
     {
         auto vec = glm::vec3(1, 1, 1) * ((float)i) * 0.00001f;
@@ -200,6 +205,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _native_handles.buffer_vertex_counter = _buffer_vertex_counter->id();
     _native_handles.buffer_reference_vertices = _buffer_reference_mesh_vertices->id();
     _native_handles.buffer_ed_nodes_debug = _buffer_ed_nodes_debug->id();
+    _native_handles.buffer_sorted_vertices_debug = _buffer_sorted_vertices_debug->id();
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
 
@@ -250,11 +256,13 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_debug = new Buffer();
     _vao_debug = new VertexArray();
     _buffer_ed_nodes_debug = new Buffer();
+    _buffer_sorted_vertices_debug = new Buffer();
 
     _vec_debug = std::vector<glm::vec3>(524288);
 
     _program_pc_debug_reference = new Program();
     _program_pc_debug_ed_sampling = new Program();
+    _program_pc_debug_sorted_vertices = new Program();
     _program_pc_draw_data = new Program();
     _program_pc_extract_reference = new Program();
     _program_integration = new Program();
@@ -330,6 +338,10 @@ void ReconPerformanceCapture::init_shaders()
                                           Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_ed_sampling.fs"));
     _program_pc_debug_ed_sampling->setUniform("vol_to_world", _mat_vol_to_world);
 
+    _program_pc_debug_sorted_vertices->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_reference.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_sorted_vertices.gs"),
+                                          Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_sorted_vertices.fs"));
+    _program_pc_debug_sorted_vertices->setUniform("vol_to_world", _mat_vol_to_world);
+
     _program_integration->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
     _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
     _program_integration->setUniform("volume_tsdf", start_image_unit);
@@ -358,6 +370,8 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
 
     _vao_debug->destroy();
     _buffer_debug->destroy();
+    _buffer_ed_nodes_debug->destroy ();
+    _buffer_sorted_vertices_debug->destroy();
 }
 
 void ReconPerformanceCapture::drawF()
@@ -436,6 +450,10 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_DEBUG_ED_SAMPLING
     draw_debug_ed_sampling();
+#endif
+
+#ifdef PIPELINE_DEBUG_SORTED_VERTICES
+    draw_debug_sorted_vertices();
 #endif
 
     draw_data();
@@ -566,6 +584,30 @@ void ReconPerformanceCapture::draw_debug_ed_sampling()
 
     _vao_debug->bind();
     _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
+    globjects::VertexArray::unbind();
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_sorted_vertices()
+{
+    _program_pc_debug_sorted_vertices->use();
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    float zero = 0.f;
+    _buffer_sorted_vertices_debug->clearData(GL_R8, GL_RED, GL_FLOAT, &zero);
+    auto vx_count = push_debug_sorted_vertices();
+
+    // std::cout << vx_count << std::endl;
+
+    _vao_debug->bind();
+    _vao_debug->drawArrays(GL_POINTS, 0, vx_count);
     globjects::VertexArray::unbind();
 
     Program::release();

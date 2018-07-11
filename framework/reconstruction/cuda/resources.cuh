@@ -26,6 +26,7 @@ struct struct_graphic_resources
     cudaGraphicsResource *buffer_bricks{nullptr};
     cudaGraphicsResource *buffer_occupied{nullptr};
     cudaGraphicsResource *buffer_ed_nodes_debug{nullptr};
+    cudaGraphicsResource *buffer_sorted_vertices_debug{nullptr};
 
     cudaGraphicsResource *texture_kinect_rgbs{nullptr};
     cudaGraphicsResource *texture_kinect_depths{nullptr};

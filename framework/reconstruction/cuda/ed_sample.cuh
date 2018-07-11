@@ -310,6 +310,11 @@ __global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigne
     {
         unsigned int ed_position = idx * ed_per_thread + i;
 
+        if(ed_position >= ed_node_count)
+        {
+            return;
+        }
+
         struct_ed_node_debug node = ed_ptr[ed_position];
 
         node.position = dev_res.ed_graph[ed_position].position;
@@ -341,4 +346,46 @@ extern "C" unsigned int push_debug_ed_nodes()
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_ed_nodes_debug, 0));
 
     return _host_res.active_ed_nodes_count;
+}
+
+__global__ void kernel_push_debug_sorted_vertices(struct_vertex *vx_ptr, unsigned int vx_count, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int vx_per_thread = (unsigned int)max(1u, vx_count / (blockDim.x * gridDim.x));
+
+    for(unsigned int i = 0; i < vx_per_thread; i++)
+    {
+        unsigned int vx_position = idx * vx_per_thread + i;
+
+        if(vx_position >= vx_count)
+        {
+            return;
+        }
+
+        struct_vertex vx = dev_res.sorted_vx_ptr[vx_position];
+
+        memcpy(&vx_ptr[vx_position], &vx, sizeof(struct_ed_node_debug));
+    }
+}
+
+extern "C" unsigned long push_debug_sorted_vertices()
+{
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_sorted_vertices_debug, 0));
+
+    struct_vertex *vx_ptr;
+    size_t vx_bytes;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_sorted_vertices_debug));
+
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_push_debug_sorted_vertices, 0, 0);
+
+    size_t grid_size = (_host_res.active_ed_vx_count + block_size - 1) / block_size;
+    kernel_push_debug_sorted_vertices<<<grid_size, block_size>>>(vx_ptr, _host_res.active_ed_vx_count, _dev_res, _host_res.measures);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_sorted_vertices_debug, 0));
+
+    return _host_res.active_ed_vx_count;
 }
