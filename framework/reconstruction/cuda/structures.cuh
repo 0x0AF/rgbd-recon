@@ -18,6 +18,7 @@ struct struct_native_handles
 
     unsigned int buffer_vertex_counter;
     unsigned int buffer_reference_vertices;
+    unsigned int buffer_ed_nodes_debug;
 
     unsigned int volume_tsdf_data;
 
@@ -64,6 +65,14 @@ struct struct_vertex
     glm::vec3 position;
     unsigned int brick_id; // TODO: fill at extraction time
     glm::vec3 normal;
+    unsigned int ed_cell_id;
+};
+
+struct struct_ed_node_debug
+{
+    glm::vec3 position;
+    unsigned int brick_id;
+    glm::vec3 translation;
     unsigned int ed_cell_id;
 };
 

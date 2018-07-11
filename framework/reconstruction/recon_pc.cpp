@@ -35,6 +35,7 @@ using namespace gl;
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
 extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
+extern "C" unsigned int push_debug_ed_nodes();
 extern "C" void estimate_correspondence_field();
 extern "C" void pcg_solve();
 extern "C" void fuse_data();
@@ -43,12 +44,13 @@ extern "C" void deinit_cuda();
 #define PASS_NORMALS
 #define WIPE_DATA
 
-#define PIPELINE_DEBUG_REFERENCE_MESH
+// #define PIPELINE_DEBUG_REFERENCE_MESH
+#define PIPELINE_DEBUG_ED_SAMPLING
 
 #define PIPELINE_SAMPLE
 // #define PIPELINE_CORRESPONDENCE
 // #define PIPELINE_ALIGN
-// #define PIPELINE_FUSE
+#define PIPELINE_FUSE
 
 namespace kinect
 {
@@ -168,20 +170,23 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _buffer_reference_mesh_vertices->setData(sizeof(struct_vertex) * 524288, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 7);
 
+    _buffer_ed_nodes_debug->setData(sizeof(struct_ed_node_debug) * 16384, nullptr, GL_STREAM_COPY);
+    _buffer_ed_nodes_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
+
     for(size_t i = 0; i < 524288; i++)
     {
         auto vec = glm::vec3(1, 1, 1) * ((float)i) * 0.00001f;
-        memcpy(&_vec_debug_reference[i], &vec, sizeof(float) * 3);
+        memcpy(&_vec_debug[i], &vec, sizeof(float) * 3);
     }
 
-    _buffer_debug_reference->bind(GL_ARRAY_BUFFER);
-    _buffer_debug_reference->setData(_vec_debug_reference, GL_STATIC_DRAW);
+    _buffer_debug->bind(GL_ARRAY_BUFFER);
+    _buffer_debug->setData(_vec_debug, GL_STATIC_DRAW);
     Buffer::unbind(GL_ARRAY_BUFFER);
 
-    _vao_debug_reference->enable(0);
-    _vao_debug_reference->binding(0)->setAttribute(0);
-    _vao_debug_reference->binding(0)->setBuffer(_buffer_debug_reference, 0, sizeof(float) * 3);
-    _vao_debug_reference->binding(0)->setFormat(3, GL_FLOAT);
+    _vao_debug->enable(0);
+    _vao_debug->binding(0)->setAttribute(0);
+    _vao_debug->binding(0)->setBuffer(_buffer_debug, 0, sizeof(float) * 3);
+    _vao_debug->binding(0)->setFormat(3, GL_FLOAT);
 
     setVoxelSize(_voxel_size);
     setBrickSize(_brick_size);
@@ -194,6 +199,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
 
     _native_handles.buffer_vertex_counter = _buffer_vertex_counter->id();
     _native_handles.buffer_reference_vertices = _buffer_reference_mesh_vertices->id();
+    _native_handles.buffer_ed_nodes_debug = _buffer_ed_nodes_debug->id();
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
 
@@ -241,12 +247,14 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _tri_table_buffer = new Buffer();
     _buffer_vertex_counter = new Buffer();
     _buffer_reference_mesh_vertices = new Buffer();
-    _buffer_debug_reference = new Buffer();
-    _vao_debug_reference = new VertexArray();
+    _buffer_debug = new Buffer();
+    _vao_debug = new VertexArray();
+    _buffer_ed_nodes_debug = new Buffer();
 
-    _vec_debug_reference = std::vector<glm::vec3>(524288);
+    _vec_debug = std::vector<glm::vec3>(524288);
 
     _program_pc_debug_reference = new Program();
+    _program_pc_debug_ed_sampling = new Program();
     _program_pc_draw_data = new Program();
     _program_pc_extract_reference = new Program();
     _program_integration = new Program();
@@ -318,6 +326,10 @@ void ReconPerformanceCapture::init_shaders()
                                         Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference.fs"));
     _program_pc_debug_reference->setUniform("vol_to_world", _mat_vol_to_world);
 
+    _program_pc_debug_ed_sampling->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_ed_sampling.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_ed_sampling.gs"),
+                                          Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_ed_sampling.fs"));
+    _program_pc_debug_ed_sampling->setUniform("vol_to_world", _mat_vol_to_world);
+
     _program_integration->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
     _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
     _program_integration->setUniform("volume_tsdf", start_image_unit);
@@ -344,8 +356,8 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_bricks->destroy();
     _buffer_occupied->destroy();
 
-    _vao_debug_reference->destroy();
-    _buffer_debug_reference->destroy();
+    _vao_debug->destroy();
+    _buffer_debug->destroy();
 }
 
 void ReconPerformanceCapture::drawF()
@@ -420,9 +432,13 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_DEBUG_REFERENCE_MESH
     draw_debug_reference_mesh();
-#else
-    draw_data();
 #endif
+
+#ifdef PIPELINE_DEBUG_ED_SAMPLING
+    draw_debug_ed_sampling();
+#endif
+
+    draw_data();
 
     _frame_number.store(_frame_number.load() + 1);
 
@@ -524,8 +540,32 @@ void ReconPerformanceCapture::draw_debug_reference_mesh()
     gloost::Matrix viewport_scale;
     viewport_scale.setIdentity();
 
-    _vao_debug_reference->bind();
-    _vao_debug_reference->drawArrays(GL_POINTS, 0, vx_count);
+    _vao_debug->bind();
+    _vao_debug->drawArrays(GL_POINTS, 0, vx_count);
+    globjects::VertexArray::unbind();
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_ed_sampling()
+{
+    _program_pc_debug_ed_sampling->use();
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    float zero = 0.f;
+    _buffer_ed_nodes_debug->clearData(GL_R8, GL_RED, GL_FLOAT, &zero);
+    auto ed_count = push_debug_ed_nodes();
+
+    // std::cout << ed_count << std::endl;
+
+    _vao_debug->bind();
+    _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
     globjects::VertexArray::unbind();
 
     Program::release();

@@ -159,8 +159,8 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
         }
         else
         {
-          // TODO
-            //printf("\ncorresponding ed node not found, idx: %u, vx.brick_id: %u, vx.ed_cell_id: %u, vx.position: (%f,%f,%f)\n", idx, vx.brick_id, vx.ed_cell_id, vx.position.x, vx.position.y,
+            // TODO
+            // printf("\ncorresponding ed node not found, idx: %u, vx.brick_id: %u, vx.ed_cell_id: %u, vx.position: (%f,%f,%f)\n", idx, vx.brick_id, vx.ed_cell_id, vx.position.x, vx.position.y,
             //       vx.position.z);
         }
     }
@@ -299,4 +299,46 @@ extern "C" void sample_ed_nodes()
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_vertex_counter, 0));
+}
+
+__global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigned int ed_node_count, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int ed_per_thread = (unsigned int)max(1u, ed_node_count / (blockDim.x * gridDim.x));
+
+    for(unsigned int i = 0; i < ed_per_thread; i++)
+    {
+        unsigned int ed_position = idx * ed_per_thread + i;
+
+        struct_ed_node_debug node = ed_ptr[ed_position];
+
+        node.position = dev_res.ed_graph[ed_position].position;
+        node.brick_id = dev_res.ed_graph_meta[ed_position].brick_id;
+        node.translation = dev_res.ed_graph[ed_position].translation;
+        node.ed_cell_id = dev_res.ed_graph_meta[ed_position].ed_cell_id;
+
+        memcpy(&ed_ptr[ed_position], &node, sizeof(struct_ed_node_debug));
+    }
+}
+
+extern "C" unsigned int push_debug_ed_nodes()
+{
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_ed_nodes_debug, 0));
+
+    struct_ed_node_debug *ed_ptr;
+    size_t ed_bytes;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&ed_ptr, &ed_bytes, _cgr.buffer_ed_nodes_debug));
+
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_push_debug_ed_nodes, 0, 0);
+
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_push_debug_ed_nodes<<<grid_size, block_size>>>(ed_ptr, _host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_ed_nodes_debug, 0));
+
+    return _host_res.active_ed_nodes_count;
 }
