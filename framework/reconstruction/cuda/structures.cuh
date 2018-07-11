@@ -4,7 +4,7 @@
 const unsigned ED_COMPONENT_COUNT = 10u;
 
 #ifdef __CUDACC__
-#define CUDA_HOST_DEVICE __device__
+#define CUDA_HOST_DEVICE __device__ __host__
 #else
 #define CUDA_HOST_DEVICE
 #endif

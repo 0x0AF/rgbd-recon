@@ -19,9 +19,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     unsigned int ed_cell_id = ed_entry.ed_cell_id;
     unsigned int edc_voxel_id = idx % measures.ed_cell_num_voxels;
 
-    glm::uvec3 brick = index_3d(brick_id, dev_res, measures) * measures.brick_dim_voxels;
-    glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id, dev_res, measures);
-    glm::uvec3 position = ed_cell_3d(ed_cell_id, dev_res, measures) + ed_cell_index3d;
+    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id, measures);
+    glm::uvec3 position = ed_cell_3d(ed_cell_id, measures) + ed_cell_index3d;
     glm::uvec3 world = brick + position;
 
     //    if(position_id == 0)
@@ -29,7 +29,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     //        printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
     //    }
 
-    if(!in_data_volume(world, dev_res, measures))
+    if(!in_data_volume(world, measures))
     {
         printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
         return;
@@ -47,21 +47,20 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     // warped position
 
-    glm::vec3 dist = glm::vec3(world) - ed_node.position;
+    glm::vec3 dist = glm::vec3(world) * measures.size_voxel - ed_node.position;
 
     //    if(edc_voxel_id == 0)
     //    {
     //        printf("\n|dist|: %f\n", glm::length(dist));
     //    }
 
-    const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
-    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, skinning_weight, dev_res, measures));
+    const float skinning_weight = 1.f; // TODO expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
+    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, skinning_weight, measures) / measures.size_voxel);
 
-    if(!in_data_volume(warped_position, dev_res, measures))
+    if(!in_data_volume(warped_position, measures))
     {
-        //        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x,
-        //        brick.y,
-        //               brick.z, position.x, position.y, position.z);
+        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x, brick.y,
+               brick.z, position.x, position.y, position.z);
         return;
     }
 
@@ -92,7 +91,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     if(ed_cell_index3d.x != measures.ed_cell_dim_voxels)
     {
-        unsigned int ed_cell_voxel_id_x = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(1, 0, 0), dev_res, measures);
+        unsigned int ed_cell_voxel_id_x = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(1, 0, 0), measures);
         gradient.x = ed_cell_voxels[ed_cell_voxel_id_x].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
     else
@@ -105,7 +104,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     if(ed_cell_index3d.y != measures.ed_cell_dim_voxels)
     {
-        unsigned int ed_cell_voxel_id_y = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 1, 0), dev_res, measures);
+        unsigned int ed_cell_voxel_id_y = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 1, 0), measures);
         gradient.x = ed_cell_voxels[ed_cell_voxel_id_y].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
     else
@@ -118,7 +117,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     if(ed_cell_index3d.z != measures.ed_cell_dim_voxels)
     {
-        unsigned int ed_cell_voxel_id_z = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 0, 1), dev_res, measures);
+        unsigned int ed_cell_voxel_id_z = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 0, 1), measures);
         gradient.z = ed_cell_voxels[ed_cell_voxel_id_z].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
     }
     else
@@ -130,15 +129,17 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     }
 
     glm::vec3 gradient_vector = glm::normalize(gradient);
-    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, skinning_weight, dev_res, measures);
+    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, skinning_weight, measures);
     glm::vec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
 
     glm::bvec3 is_nan = glm::isnan(warped_gradient);
 
     if(is_nan.x || is_nan.y || is_nan.z)
     {
-        // printf("\nNaN in gradient warp evaluation\n");
+#ifdef DEBUG_NANS
+        printf("\nNaN in gradient warp evaluation\n");
         warped_gradient = glm::vec3(0.f);
+#endif
     }
 
     //    if(position_id == 0)
@@ -162,7 +163,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
         {
             continue;
         }
-        glm::uvec3 edc_voxel_3d = ed_cell_voxel_3d(edc_voxel_id, dev_res, measures);
+        glm::uvec3 edc_voxel_3d = ed_cell_voxel_3d(edc_voxel_id, measures);
         float dist = glm::length(glm::vec3(edc_voxel_3d));
         float weight = expf(-dist * dist / 2.0f / (float)measures.ed_cell_dim_voxels / (float)measures.ed_cell_dim_voxels);
         edc_predictions[i].x = edc_predictions[i].x * edc_predictions[i].y + prediction.x * weight / (edc_predictions[i].y + weight);
@@ -204,9 +205,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
     // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
-    // surf3Dwrite(ed_cell_voxels[edc_voxel_id].x, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    surf3Dwrite(ed_cell_voxels[edc_voxel_id], _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
     // surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // TODO surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
 }
 
 extern "C" void fuse_data()

@@ -41,12 +41,14 @@ extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
-// #define WIPE_DATA
+#define WIPE_DATA
+
+#define PIPELINE_DEBUG_REFERENCE_MESH
 
 #define PIPELINE_SAMPLE
 // #define PIPELINE_CORRESPONDENCE
-#define PIPELINE_ALIGN
-#define PIPELINE_FUSE
+// #define PIPELINE_ALIGN
+// #define PIPELINE_FUSE
 
 namespace kinect
 {
@@ -163,8 +165,23 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
-    _buffer_reference_mesh_vertices->setData(32 * 524288, nullptr, GL_STREAM_COPY);
+    _buffer_reference_mesh_vertices->setData(sizeof(struct_vertex) * 524288, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 7);
+
+    for(size_t i = 0; i < 524288; i++)
+    {
+        auto vec = glm::vec3(1, 1, 1) * ((float)i) * 0.00001f;
+        memcpy(&_vec_debug_reference[i], &vec, sizeof(float) * 3);
+    }
+
+    _buffer_debug_reference->bind(GL_ARRAY_BUFFER);
+    _buffer_debug_reference->setData(_vec_debug_reference, GL_STATIC_DRAW);
+    Buffer::unbind(GL_ARRAY_BUFFER);
+
+    _vao_debug_reference->enable(0);
+    _vao_debug_reference->binding(0)->setAttribute(0);
+    _vao_debug_reference->binding(0)->setBuffer(_buffer_debug_reference, 0, sizeof(float) * 3);
+    _vao_debug_reference->binding(0)->setFormat(3, GL_FLOAT);
 
     setVoxelSize(_voxel_size);
     setBrickSize(_brick_size);
@@ -224,7 +241,12 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _tri_table_buffer = new Buffer();
     _buffer_vertex_counter = new Buffer();
     _buffer_reference_mesh_vertices = new Buffer();
+    _buffer_debug_reference = new Buffer();
+    _vao_debug_reference = new VertexArray();
 
+    _vec_debug_reference = std::vector<glm::vec3>(524288);
+
+    _program_pc_debug_reference = new Program();
     _program_pc_draw_data = new Program();
     _program_pc_extract_reference = new Program();
     _program_integration = new Program();
@@ -292,6 +314,10 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_extract_reference->setUniform("size_voxel", _voxel_size);
     _program_pc_extract_reference->setUniform("volume_tsdf", 29);
 
+    _program_pc_debug_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_reference.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_reference.gs"),
+                                        Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference.fs"));
+    _program_pc_debug_reference->setUniform("vol_to_world", _mat_vol_to_world);
+
     _program_integration->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
     _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
     _program_integration->setUniform("volume_tsdf", start_image_unit);
@@ -317,6 +343,9 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_vertex_counter->destroy();
     _buffer_bricks->destroy();
     _buffer_occupied->destroy();
+
+    _vao_debug_reference->destroy();
+    _buffer_debug_reference->destroy();
 }
 
 void ReconPerformanceCapture::drawF()
@@ -389,7 +418,11 @@ void ReconPerformanceCapture::draw()
 
 #endif
 
+#ifdef PIPELINE_DEBUG_REFERENCE_MESH
+    draw_debug_reference_mesh();
+#else
     draw_data();
+#endif
 
     _frame_number.store(_frame_number.load() + 1);
 
@@ -426,8 +459,6 @@ void ReconPerformanceCapture::extract_reference_mesh()
     Program::release();
 
     glDisable(GL_RASTERIZER_DISCARD);
-
-    TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
 }
 void ReconPerformanceCapture::draw_data()
 {
@@ -472,6 +503,32 @@ void ReconPerformanceCapture::draw_data()
     Program::release();
 
     TimerDatabase::instance().end(TIMER_DATA_MESH_DRAW);
+}
+void ReconPerformanceCapture::draw_debug_reference_mesh()
+{
+    _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
+    GLuint *vx_ptr = (GLuint *)_buffer_vertex_counter->mapRange(0, sizeof(GLuint), GL_MAP_READ_BIT);
+    GLsizei vx_count = vx_ptr[0];
+    _buffer_vertex_counter->unmap();
+    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
+
+    // std::cout << vx_count << std::endl;
+
+    _program_pc_debug_reference->use();
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    _vao_debug_reference->bind();
+    _vao_debug_reference->drawArrays(GL_POINTS, 0, vx_count);
+    globjects::VertexArray::unbind();
+
+    Program::release();
 }
 void ReconPerformanceCapture::setVoxelSize(float size)
 {

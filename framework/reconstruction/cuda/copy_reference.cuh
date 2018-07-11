@@ -38,8 +38,8 @@ __global__ void kernel_copy_reference(unsigned int active_bricks_count, struct_d
 
     // printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
 
-    glm::uvec3 brick = index_3d(brick_id, dev_res, measures) * measures.brick_dim_voxels;
-    glm::uvec3 position = position_3d(position_id, dev_res, measures);
+    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 position = position_3d(position_id, measures);
     glm::uvec3 world = brick + position;
 
     //    if(position_id == 0)
@@ -47,7 +47,7 @@ __global__ void kernel_copy_reference(unsigned int active_bricks_count, struct_d
     //        printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
     //    }
 
-    if(!in_data_volume(world, dev_res, measures))
+    if(!in_data_volume(world, measures))
     {
         // printf("\nworld position out of volume: (%u,%u,%u)\n", world.x, world.y, world.z);
         return;

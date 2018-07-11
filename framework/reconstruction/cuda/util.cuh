@@ -33,26 +33,20 @@ inline void __checkMsg(const char *errorMessage, const char *file, const int lin
     }
 }
 
-CUDA_HOST_DEVICE bool in_data_volume(glm::uvec3 pos, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE bool in_data_volume(glm::uvec3 pos, struct_measures &measures)
 {
     return pos.x < measures.data_volume_res.x && pos.y < measures.data_volume_res.y && pos.z < measures.data_volume_res.z;
 }
 
-CUDA_HOST_DEVICE bool in_cv_xyz(glm::uvec3 pos, struct_device_resources &dev_res, struct_measures &measures)
-{
-    return pos.x < measures.cv_xyz_res.x && pos.y < measures.cv_xyz_res.y && pos.z < measures.cv_xyz_res.z;
-}
+CUDA_HOST_DEVICE bool in_cv_xyz(glm::uvec3 pos, struct_measures &measures) { return pos.x < measures.cv_xyz_res.x && pos.y < measures.cv_xyz_res.y && pos.z < measures.cv_xyz_res.z; }
 
-CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 pos, struct_device_resources &dev_res, struct_measures &measures)
-{
-    return pos.x < measures.cv_xyz_inv_res.x && pos.y < measures.cv_xyz_inv_res.y && pos.z < measures.cv_xyz_inv_res.z;
-}
+CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 pos, struct_measures &measures) { return pos.x < measures.cv_xyz_inv_res.x && pos.y < measures.cv_xyz_inv_res.y && pos.z < measures.cv_xyz_inv_res.z; }
 
-CUDA_HOST_DEVICE glm::uvec3 index_3d(unsigned int brick_id, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE glm::uvec3 index_3d(unsigned int brick_id, struct_measures &measures)
 {
     glm::uvec3 brick = glm::uvec3(0u);
-    brick.z = brick_id / (measures.data_volume_bricked_res.x * measures.data_volume_bricked_res.x);
-    brick_id %= (measures.data_volume_bricked_res.x * measures.data_volume_bricked_res.x);
+    brick.z = brick_id / (measures.data_volume_bricked_res.x * measures.data_volume_bricked_res.y);
+    brick_id %= (measures.data_volume_bricked_res.x * measures.data_volume_bricked_res.y);
     brick.y = brick_id / measures.data_volume_bricked_res.x;
     brick_id %= measures.data_volume_bricked_res.x;
     brick.x = brick_id;
@@ -60,7 +54,7 @@ CUDA_HOST_DEVICE glm::uvec3 index_3d(unsigned int brick_id, struct_device_resour
     return brick;
 }
 
-CUDA_HOST_DEVICE glm::uvec3 position_3d(unsigned int position_id, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE glm::uvec3 position_3d(unsigned int position_id, struct_measures &measures)
 {
     glm::uvec3 position = glm::uvec3(0u);
     position.z = position_id / (measures.brick_dim_voxels * measures.brick_dim_voxels);
@@ -72,7 +66,7 @@ CUDA_HOST_DEVICE glm::uvec3 position_3d(unsigned int position_id, struct_device_
     return position;
 }
 
-CUDA_HOST_DEVICE glm::uvec3 ed_cell_3d(unsigned int ed_cell_id, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE glm::uvec3 ed_cell_3d(unsigned int ed_cell_id, struct_measures &measures)
 {
     glm::uvec3 ed_cell_position = glm::uvec3(0u);
     ed_cell_position.z = ed_cell_id / (measures.brick_dim_ed_cells * measures.brick_dim_ed_cells);
@@ -84,12 +78,12 @@ CUDA_HOST_DEVICE glm::uvec3 ed_cell_3d(unsigned int ed_cell_id, struct_device_re
     return ed_cell_position;
 }
 
-CUDA_HOST_DEVICE unsigned int ed_cell_id(glm::uvec3 ed_cell_3d, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE unsigned int ed_cell_id(glm::uvec3 ed_cell_3d, struct_measures &measures)
 {
     return ed_cell_3d.z * measures.brick_dim_ed_cells * measures.brick_dim_ed_cells + ed_cell_3d.y * measures.brick_dim_ed_cells + ed_cell_3d.x;
 }
 
-CUDA_HOST_DEVICE glm::uvec3 ed_cell_voxel_3d(unsigned int ed_cell_voxel_id, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE glm::uvec3 ed_cell_voxel_3d(unsigned int ed_cell_voxel_id, struct_measures &measures)
 {
     glm::uvec3 ed_cell_voxel_3d = glm::uvec3(0u);
     ed_cell_voxel_3d.z = ed_cell_voxel_id / (measures.ed_cell_dim_voxels * measures.ed_cell_dim_voxels);
@@ -101,63 +95,63 @@ CUDA_HOST_DEVICE glm::uvec3 ed_cell_voxel_3d(unsigned int ed_cell_voxel_id, stru
     return ed_cell_voxel_3d;
 }
 
-CUDA_HOST_DEVICE unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d, struct_measures &measures)
 {
     return ed_cell_voxel_3d.z * measures.ed_cell_dim_voxels * measures.ed_cell_dim_voxels + ed_cell_voxel_3d.y * measures.ed_cell_dim_voxels + ed_cell_voxel_3d.x;
 }
 
-CUDA_HOST_DEVICE unsigned int identify_brick_id(const glm::vec3 position, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE unsigned int identify_brick_id(const glm::vec3 position, struct_measures &measures)
 {
-    glm::uvec3 pos_voxel_space = glm::uvec3(position);
+    glm::uvec3 pos_voxel_space = glm::uvec3(position / measures.size_voxel);
+
+    if(!in_data_volume(pos_voxel_space, measures))
+    {
+        printf("\nsampled position out of volume: (%u,%u,%u)\n", pos_voxel_space.x, pos_voxel_space.y, pos_voxel_space.z);
+    }
+
     glm::uvec3 brick_index3d = pos_voxel_space / measures.brick_dim_voxels;
 
     return brick_index3d.z * measures.data_volume_bricked_res.x * measures.data_volume_bricked_res.y + brick_index3d.y * measures.data_volume_bricked_res.x + brick_index3d.x;
 }
 
-CUDA_HOST_DEVICE unsigned int identify_ed_cell_id(const glm::vec3 position, unsigned int brick_id, struct_device_resources &dev_res, struct_measures &measures)
+CUDA_HOST_DEVICE unsigned int identify_ed_cell_id(const glm::vec3 position, struct_measures &measures)
 {
-    glm::uvec3 pos_voxel_space = glm::uvec3(position);
-    glm::uvec3 brick_index3d = pos_voxel_space / measures.brick_dim_voxels;
+    glm::uvec3 pos_voxel_space = glm::uvec3(position / measures.size_voxel);
 
-    // printf("\nbrick_id  %u\n", brick_id);
+    if(!in_data_volume(pos_voxel_space, measures))
+    {
+        printf("\nsampled position out of volume: (%u,%u,%u)\n", pos_voxel_space.x, pos_voxel_space.y, pos_voxel_space.z);
+    }
 
-    glm::uvec3 relative_pos = pos_voxel_space - brick_index3d * measures.brick_dim_voxels;
-    glm::uvec3 ed_cell_index3d = relative_pos / measures.ed_cell_dim_voxels;
-
-    // printf("\nrelative_pos (%u,%u,%u)\n", relative_pos.x, relative_pos.y, relative_pos.z);
-
-    return ed_cell_id(ed_cell_index3d, dev_res, measures);
+    glm::uvec3 ed_cell_index3d = (pos_voxel_space % measures.brick_dim_voxels) / measures.ed_cell_dim_voxels;
+    return ed_cell_id(ed_cell_index3d, measures);
 }
 
-/*
- * Warp a position in volume voxel space with a single ED node
- * */
-CUDA_HOST_DEVICE glm::vec3 warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight, struct_device_resources &dev_res, struct_measures &measures)
+/** Warp a position with a single ED node **/
+CUDA_HOST_DEVICE glm::vec3 warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight, struct_measures &measures)
 {
     return skinning_weight * (glm::mat3(ed_node.affine) * dist + ed_node.position + ed_node.translation);
 }
 
-/*
- * Warp a normal in volume voxel space with a single ED node
- * */
-CUDA_HOST_DEVICE glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight, struct_device_resources &dev_res, struct_measures &measures)
+/** Warp a normal with a single ED node **/
+CUDA_HOST_DEVICE glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight, struct_measures &measures)
 {
     return skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal);
 }
 
-__device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node &ed_node, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures &measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
-    const float skinning_weight = 1.f;
-    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight, dev_res, measures);
+    const float skinning_weight = 1.f; // TODO
+    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight, measures);
 
-    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position);
+    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position / measures.size_voxel);
     // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
 
-    if(!in_data_volume(wp_voxel_space, dev_res, measures))
+    if(!in_data_volume(wp_voxel_space, measures))
     {
         // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
-        return 0.f;
+        return 1.f;
     }
 
     float2 data{0.f, 0.f};
@@ -166,19 +160,19 @@ __device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node 
     return glm::abs(data.x);
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, struct_measures &measures)
 {
-    glm::vec3 dist = vertex.position - ed_node.position;
-    const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
+    glm::vec3 dist = vertex.position - ed_node_new.position;
+    const float skinning_weight = 1.f; // TODO expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
 
-    glm::vec3 warped_position = warp_position(dist, ed_node_new, skinning_weight, dev_res, measures);
-    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight, dev_res, measures);
+    glm::vec3 warped_position = warp_position(dist, ed_node_new, skinning_weight, measures);
+    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight, measures);
 
-    float residual = 0.000001f;
+    float residual = 0.f;
 
-    glm::uvec3 wp_cv_inv_space = glm::uvec3(warped_position * 200.f / 140.f);
+    glm::uvec3 wp_cv_inv_space = glm::uvec3(warped_position * (float)measures.cv_xyz_inv_res.x);
 
-    if(!in_cv_xyz_inv(wp_cv_inv_space, dev_res, measures))
+    if(!in_cv_xyz_inv(wp_cv_inv_space, measures))
     {
         // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
         return 0.f;
@@ -225,21 +219,15 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         // printf("\n normalized depth (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, normalized_depth);
 
-        unsigned int depth_voxel_space = (unsigned int)(normalized_depth * 128);
+        unsigned int depth_voxel_space = (unsigned int)(normalized_depth * measures.cv_xyz_res.z);
 
         // printf("\n depth_voxel_space (x,y) [i]: (%u,%u) [%u] = %u\n", pixel.x, pixel.y, i, depth_voxel_space);
 
-        if(depth_voxel_space >= 128)
-        {
-            // printf("\n depth_voxel_space out of bounds: %u\n", depth_voxel_space);
-            continue;
-        }
-
         uint2 scaled_pixel{0u, 0u};
-        scaled_pixel.x = (unsigned int)(data.x * 128);
-        scaled_pixel.y = (unsigned int)(data.y * 128);
+        scaled_pixel.x = (unsigned int)(data.x * measures.cv_xyz_res.x);
+        scaled_pixel.y = (unsigned int)(data.y * measures.cv_xyz_res.y);
 
-        if(scaled_pixel.x >= 128 || scaled_pixel.y >= 128)
+        if(!in_cv_xyz(glm::vec3(scaled_pixel.x, scaled_pixel.y, depth_voxel_space), measures))
         {
             continue;
         }
@@ -274,13 +262,10 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         extracted_position = extracted_position - measures.bbox_translation;
         extracted_position = extracted_position / measures.bbox_dimensions;
 
-        if(extracted_position.x < 0.f || extracted_position.y < 0.f || extracted_position.z < 0.f || extracted_position.x > 1.0 || extracted_position.y > 1.0 || extracted_position.z > 1.0)
+        if(!in_data_volume(extracted_position / measures.size_voxel, measures))
         {
-            // printf("\n out of bounding box\n");
             continue;
         }
-
-        extracted_position = extracted_position * 140.f;
 
         //        printf("\nextracted_position (%u, %u, %u): (%u,%u,%u) = (%f,%f,%f)\n", pixel.x, pixel.y, depth_voxel_space, wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z,
         //        extracted_position.x, extracted_position.y, extracted_position.z);
@@ -289,12 +274,14 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         // printf("\ndiff: %f\n", glm::length(diff));
 
-        if(glm::length(diff) > 3.f || glm::length(diff) == 0.f)
+        if(glm::length(diff) > 0.1f || glm::length(diff) == 0.f)
         {
             continue;
         }
 
         float residual_component = glm::abs(glm::dot(warped_normal, diff));
+
+        // printf("\nresidual_component: %f, warped_normal: (%f,%f,%f), diff: (%f,%f,%f)\n", residual_component, warped_normal.x, warped_normal.y, warped_normal.z, diff.x, diff.y, diff.z);
 
         if(isnan(residual_component))
         {
@@ -311,7 +298,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
     return residual;
 }
 
-CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index)
+CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index, struct_measures &measures)
 {
     float step = 0.f;
     switch(partial_derivative_index)
@@ -322,13 +309,13 @@ CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index)
     case 7:
     case 8:
     case 9:
-        step = 1.0f; // one voxel step
+        step = measures.size_voxel; // one voxel step
         break;
     case 3:
     case 4:
     case 5:
     case 6:
-        step = 0.1f; // small quaternion twists
+        step = 0.01f; // small quaternion twists
         break;
     default:
         printf("\nfatal sampling error: wrong ed component id\n");
@@ -338,16 +325,15 @@ CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index)
     return step;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_new, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual,
-                                struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_new, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures &measures)
 {
-    float ds = derivative_step(partial_derivative_index);
+    float ds = derivative_step(partial_derivative_index, measures);
 
     float *mapped_ed_node = (float *)&ed_node_new;
 
     mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, dev_res, measures);
+    float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -386,7 +372,7 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
 {
     float residual = 0.f;
 
-    // Quad-style encoding of an affine transformation prohibits non-rotational transformations by design, hence the expression below is always 0
+    /** Quad-style encoding of an affine transformation prohibits non-rotational transformations by design, hence the expression below is always 0 **/
 
     /*glm::mat3 mat_1 = glm::transpose(glm::toMat3(ed_node.affine)) * glm::toMat3(ed_node.affine) - glm::mat3(1.0f);
 
@@ -417,13 +403,13 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
 
         float dist = glm::length(n_ed_node.position - ed_node.position);
 
-        if(dist > 240.f)
+        if(dist > measures.size_voxel * measures.data_volume_res.x)
         {
             // TODO: investigate distances further than volume extent
             //            printf("\ndist: %f, ed_node.position: (%g,%g,%g), n_ed_node.position: (%g,%g,%g)\n",
             //                   dist, ed_node.position.x, ed_node.position.y, ed_node.position.z, n_ed_node.position.x, n_ed_node.position.y, n_ed_node.position.z);
 
-            return residual;
+            return 1.f;
         }
 
         valid_neghbors++;
@@ -443,7 +429,7 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
 
     if(valid_neghbors == 0u)
     {
-        return residual;
+        return 0.f;
     }
 
     for(unsigned int i = 0; i < 27; i++)
@@ -457,7 +443,7 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
 
         float residual_component = expf(weights[i] / (2.0f * average_distance * average_distance)) * robustify(glm::length(comparative_vectors[i]));
 
-        // printf ("\nresidual_component[%u]: %f\n", i,residual_component);
+        // printf ("\nresidual_component[%u]: %f\n", i, residual_component);
 
         if(isnan(residual_component))
         {
@@ -474,7 +460,7 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
             printf("\nresidual_component[%u] is Inf! ad: %f, w: %f, lcv: %f\n", i, average_distance, weights[i], robustify(glm::length(comparative_vectors[i])));
 #endif
 
-            residual_component = 0.f;
+            residual_component = 1.f;
         }
 
         residual += residual_component;
@@ -495,7 +481,7 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
         printf("\nresidual is Inf!\n");
 #endif
 
-        residual = 0.f;
+        residual = 1.f;
     }
 
     return residual;
@@ -504,7 +490,7 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
 CUDA_HOST_DEVICE float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_entry &ed_entry, const int &partial_derivative_index, const float &ed_residual, struct_device_resources &dev_res,
                                       struct_measures &measures)
 {
-    float ds = derivative_step(partial_derivative_index);
+    float ds = derivative_step(partial_derivative_index, measures);
 
     float *mapped_ed_node = (float *)&ed_node;
 
@@ -539,20 +525,20 @@ CUDA_HOST_DEVICE float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_ent
     return partial_derivative;
 }
 
-__device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures &measures)
 {
     glm::vec3 dist = vertex.position - ed_node.position;
     const float skinning_weight = 1.f; // expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
 
-    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight, dev_res, measures);
+    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight, measures);
 
-    float residual = 0.000001f;
+    float residual = 0.f;
 
     glm::uvec3 wp_cv_inv_space = glm::uvec3(warped_position * 200.f / 140.f);
 
-    if(!in_cv_xyz_inv(wp_cv_inv_space, dev_res, measures))
+    if(!in_cv_xyz_inv(wp_cv_inv_space, measures))
     {
-        return 0.f;
+        return 1.f;
     }
 
     for(int i = 0; i < 4; i++)
@@ -607,16 +593,15 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
     return residual;
 }
 
-__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_device_resources &dev_res,
-                                  struct_measures &measures)
+__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, struct_measures &measures)
 {
-    float ds = derivative_step(partial_derivative_index);
+    float ds = derivative_step(partial_derivative_index, measures);
 
     float *mapped_ed_node = (float *)&ed_node;
 
     mapped_ed_node[partial_derivative_index] += ds;
 
-    float residual_pos = evaluate_hull_residual(vertex, ed_node, dev_res, measures);
+    float residual_pos = evaluate_hull_residual(vertex, ed_node, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -645,15 +630,22 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
     return partial_derivative;
 }
 
-#ifndef __CUDACC__
-
-extern "C" glm::uvec3 test_index_3d(unsigned int brick_id) { return index_3d(brick_id); }
-extern "C" glm::uvec3 test_position_3d(unsigned int position_id) { return position_3d(position_id); }
-extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id) { return ed_cell_3d(ed_cell_id); }
-extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d) { return ed_cell_id(ed_cell_3d); };
-extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d) { return ed_cell_voxel_id(ed_cell_voxel_3d); }
-extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight) { return warp_position(dist, ed_node, skinning_weight); }
-extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight) { return warp_normal(normal, ed_node, skinning_weight); }
-extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry) { return evaluate_ed_node_residual(ed_node, ed_entry); }
-
-#endif
+extern "C" glm::uvec3 test_index_3d(unsigned int brick_id, struct_measures &measures) { return index_3d(brick_id, measures); }
+extern "C" glm::uvec3 test_position_3d(unsigned int position_id, struct_measures &measures) { return position_3d(position_id, measures); }
+extern "C" glm::uvec3 test_ed_cell_3d(unsigned int ed_cell_id, struct_measures &measures) { return ed_cell_3d(ed_cell_id, measures); }
+extern "C" unsigned int test_ed_cell_id(glm::uvec3 ed_cell_3d, struct_measures &measures) { return ed_cell_id(ed_cell_3d, measures); };
+extern "C" unsigned int test_ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d, struct_measures &measures) { return ed_cell_voxel_id(ed_cell_voxel_3d, measures); }
+extern "C" glm::vec3 test_warp_position(glm::vec3 &dist, struct_ed_node &ed_node, const float &skinning_weight, struct_measures &measures)
+{
+    return warp_position(dist, ed_node, skinning_weight, measures);
+}
+extern "C" glm::vec3 test_warp_normal(glm::vec3 &normal, struct_ed_node &ed_node, const float &skinning_weight, struct_measures &measures)
+{
+    return warp_normal(normal, ed_node, skinning_weight, measures);
+}
+extern "C" unsigned int test_identify_brick_id(const glm::vec3 position, struct_measures &measures) { return identify_brick_id(position, measures); }
+extern "C" unsigned int test_identify_ed_cell_id(const glm::vec3 position, struct_measures &measures) { return identify_ed_cell_id(position, measures); }
+// extern "C" float test_evaluate_ed_node_residual(struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_measures &measures)
+//{
+//    return evaluate_ed_node_residual(ed_node, ed_entry, measures);
+//}

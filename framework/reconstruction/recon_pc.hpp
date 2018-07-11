@@ -95,9 +95,13 @@ class ReconPerformanceCapture : public Reconstruction
 
     glm::fmat4 _mat_vol_to_world;
 
-    globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
+    globjects::Program *_program_pc_debug_reference, *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
 
     GLuint _volume_tsdf_data;
+
+    globjects::VertexArray *_vao_debug_reference;
+    globjects::Buffer *_buffer_debug_reference;
+    std::vector<glm::fvec3> _vec_debug_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
@@ -119,6 +123,7 @@ class ReconPerformanceCapture : public Reconstruction
     void divideBox();
     void extract_reference_mesh();
     void draw_data();
+    void draw_debug_reference_mesh();
 
     // privatized temporarily
     void setVoxelSize(float size);

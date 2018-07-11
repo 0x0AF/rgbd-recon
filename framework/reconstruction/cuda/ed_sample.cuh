@@ -14,10 +14,10 @@ __global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, 
             return;
         }
 
-        glm::vec3 position_voxel_space = vx_ptr[vertex_position].position * glm::vec3(measures.data_volume_res);
+        struct_vertex vx = vx_ptr[vertex_position];
 
-        const unsigned int brick_id = identify_brick_id(position_voxel_space, dev_res, measures);
-        const unsigned int ed_cell_id = identify_ed_cell_id(position_voxel_space, brick_id, dev_res, measures);
+        const unsigned int brick_id = identify_brick_id(vx.position, measures);
+        const unsigned int ed_cell_id = identify_ed_cell_id(vx.position, measures);
         const unsigned int ed_node_offset = dev_res.bricks_inv_index[brick_id] * measures.brick_num_ed_cells + ed_cell_id;
 
         if(ed_node_offset >= ed_nodes_count)
@@ -28,8 +28,10 @@ __global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, 
 
         atomicAdd(&ed_reference_counter[ed_node_offset], 1);
 
-        vx_ptr[vertex_position].brick_id = brick_id;
-        vx_ptr[vertex_position].ed_cell_id = ed_cell_id;
+        vx.brick_id = brick_id;
+        vx.ed_cell_id = ed_cell_id;
+
+        memcpy(&vx_ptr[vertex_position], &vx, sizeof(struct_vertex));
     }
 }
 
@@ -93,7 +95,6 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
         }
 
         struct_vertex vx = vx_ptr[vertex_position];
-        vx.position = vx.position * glm::vec3(measures.data_volume_res);
 
         unsigned long long int sorted_vx_ptr_offset = 0u;
         bool found_ed = false;
@@ -152,12 +153,16 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
         if(found_ed)
         {
             memcpy(&dev_res.sorted_vx_ptr[sorted_vx_ptr_offset], &vx, sizeof(struct_vertex));
-        }
 
-        //        if((int)vx.position.x == 0 || (int)sorted_vx_ptr[sorted_vx_ptr_offset].position.x == 0)
-        //        {
-        //            printf("\nvx.position.x == %f || sorted_vx.x == %f, node_idx: %u\n", vx.position.x, sorted_vx_ptr[sorted_vx_ptr_offset].position.x, idx);
-        //        }
+            //      printf("\nvx.position.x == %f || sorted_vx.x == %f, node_idx: %u\n", vx.position.x, dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].position.x, idx);
+            //      printf("\nvx.normal.x == %f || sorted_vx.normal.x == %f, node_idx: %u\n", vx.normal.x, dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].normal.x, idx);
+        }
+        else
+        {
+          // TODO
+            //printf("\ncorresponding ed node not found, idx: %u, vx.brick_id: %u, vx.ed_cell_id: %u, vx.position: (%f,%f,%f)\n", idx, vx.brick_id, vx.ed_cell_id, vx.position.x, vx.position.y,
+            //       vx.position.z);
+        }
     }
 }
 
@@ -186,6 +191,9 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
             continue;
         }
 
+        // printf("\nsorted_vx.normal: (%f,%f,%f)\n", dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].normal.x, dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].normal.y,
+        // dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].normal.z);
+
         //        if((int)sorted_vx_ptr[sorted_vx_ptr_offset].position.x == 0)
         //        {
         //            printf("\nsorted_vx.x == 0, node_idx: %u\n", idx);
@@ -193,11 +201,11 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
 
         position = position + dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].position / (float)(ed_entry.vx_length);
 
-        //        if(idx == 100)
-        //        {
-        //            glm::vec3 vx_pos = sorted_vx_ptr[sorted_vx_ptr_offset].position;
-        //            printf("\nposition %u, length %u: (%f,%f,%f), av (%f,%f,%f)\n", vx_position, ed_entry.vx_length, vx_pos.x, vx_pos.y, vx_pos.z, position.x, position.y, position.z);
-        //        }
+        /*if(idx == 100)
+        {
+            glm::vec3 vx_pos = sorted_vx_ptr[sorted_vx_ptr_offset].position;
+            printf("\nposition %u, length %u: (%f,%f,%f), av (%f,%f,%f)\n", vx_position, ed_entry.vx_length, vx_pos.x, vx_pos.y, vx_pos.z, position.x, position.y, position.z);
+        }*/
     }
 
     __syncthreads();

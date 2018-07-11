@@ -1,7 +1,7 @@
 #include <reconstruction/cuda/resources.cuh>
 
 #define EVALUATE_DATA
-// #define EVALUATE_VISUAL_HULL
+#define EVALUATE_VISUAL_HULL
 #define EVALUATE_ED_REGULARIZATION
 
 // #define DEBUG_JTJ
@@ -52,7 +52,7 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, dev_res, measures), evaluate_hull_residual(vx, ed_node, dev_res, measures));
+        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, measures), evaluate_hull_residual(vx, ed_node, measures));
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -70,7 +70,7 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
 
     energy /= (float)ed_entry.vx_length;
 
-    ed_entry.rejected = energy > 0.01f; // TODO: figure out threshold
+    ed_entry.rejected = energy > 0.1f; // TODO: figure out threshold
 
     // printf("\nenergy: %f\n", energy);
 }
@@ -111,11 +111,11 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -169,11 +169,11 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -282,11 +282,11 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -305,11 +305,11 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         pds[component] = 0.f;
 
 #ifdef EVALUATE_DATA
-        pds[component] += evaluate_vx_pd(vx, ed_node, dev_res.ed_graph[idx], component, vx_residual, dev_res, measures);
+        pds[component] += evaluate_vx_pd(vx, ed_node, dev_res.ed_graph[idx], component, vx_residual, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, dev_res, measures);
+        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, measures);
 #endif
 
         if(isnan(pds[component]))
@@ -933,7 +933,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
 {
     map_GPU_resources();
 
-    const unsigned int max_iterations = 1u;
+    const unsigned int max_iterations = 2u;
     unsigned int iterations = 0u;
     float mu = 1.0f;
     float initial_misalignment_energy, solution_misalignment_energy;
@@ -962,7 +962,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
             cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
             cudaDeviceSynchronize();
 
-            mu -= 0.01f;
+            mu -= 0.05f;
             initial_misalignment_energy = solution_misalignment_energy;
             printf("\nmu lowered: %f\n", mu);
         }
@@ -970,7 +970,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
         {
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
-            mu += 0.01f;
+            mu += 0.05f;
             printf("\nmu raised: %f\n", mu);
         }
 
