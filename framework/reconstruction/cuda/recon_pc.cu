@@ -75,12 +75,9 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     }
 
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+    checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_ref, native_handles.volume_tsdf_ref, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
 
     memcpy(&_host_res.measures, &measures, sizeof(struct_measures));
-
-    cudaExtent volume_extent = make_cudaExtent(volume_res.x, volume_res.y, volume_res.z);
-    cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaMalloc3DArray(&_dev_res.volume_array_tsdf_ref, &channel_desc, volume_extent, cudaArraySurfaceLoadStore));
 
     cublasCreate(&cublas_handle);
     getLastCudaError("cublasCreate failure");
@@ -106,6 +103,7 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_sorted_vertices_debug));
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_data));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_ref));
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_depths));
     // TODO: rgbs output
@@ -116,11 +114,6 @@ extern "C" void deinit_cuda()
     {
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz_inv[i]));
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz[i]));
-    }
-
-    if(_dev_res.volume_array_tsdf_ref != nullptr)
-    {
-        checkCudaErrors(cudaFreeArray(_dev_res.volume_array_tsdf_ref));
     }
 
     if(_dev_res.ed_graph != nullptr)

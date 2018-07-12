@@ -22,6 +22,7 @@ struct struct_native_handles
     unsigned int buffer_sorted_vertices_debug;
 
     unsigned int volume_tsdf_data;
+    unsigned int volume_tsdf_ref;
 
     unsigned int texture_kinect_rgbs;
     unsigned int texture_kinect_depths;
@@ -43,7 +44,7 @@ struct struct_measures
     const unsigned int brick_dim_ed_cells = 3u;
     const unsigned int brick_dim_voxels = 9u;
 
-    const unsigned int ed_cell_num_voxels = 9u;
+    const unsigned int ed_cell_num_voxels = 27u;
     const unsigned int brick_num_ed_cells = 27u; // implied in 27-neighborhood!
     const unsigned int brick_num_voxels = 729u;
 

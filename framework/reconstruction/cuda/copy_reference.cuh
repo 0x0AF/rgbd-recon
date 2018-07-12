@@ -76,10 +76,14 @@ extern "C" void copy_reference()
     allocate_brick_resources();
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_occupied, 0));
 
     cudaArray *volume_array_tsdf_data = nullptr;
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, _cgr.volume_tsdf_data, 0, 0));
+
+    cudaArray *volume_array_tsdf_ref = nullptr;
+    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref, _cgr.volume_tsdf_ref, 0, 0));
 
     size_t occupied_brick_bytes;
     GLuint *brick_sparse_list;
@@ -87,7 +91,7 @@ extern "C" void copy_reference()
 
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _dev_res.volume_array_tsdf_ref, &channel_desc));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
 
     int block_size;
     int min_grid_size;
@@ -109,6 +113,7 @@ extern "C" void copy_reference()
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_occupied, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
 
     if(active_bricks_count != nullptr)

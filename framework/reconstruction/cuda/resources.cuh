@@ -35,6 +35,7 @@ struct struct_graphic_resources
     cudaGraphicsResource *volume_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *volume_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *volume_tsdf_data{nullptr};
+    cudaGraphicsResource *volume_tsdf_ref{nullptr};
 };
 
 struct_graphic_resources _cgr;
@@ -57,8 +58,6 @@ struct struct_device_resources
     float *pcg_p = nullptr;
     float *pcg_omega = nullptr;
     float *pcg_Ax = nullptr;
-
-    cudaArray *volume_array_tsdf_ref = nullptr;
 };
 
 struct_device_resources _dev_res;

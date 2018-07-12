@@ -97,14 +97,14 @@ class ReconPerformanceCapture : public Reconstruction
 
     globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
 
-    GLuint _volume_tsdf_data;
+    GLuint _volume_tsdf_data, _volume_tsdf_ref;
 
     globjects::VertexArray *_vao_debug;
     globjects::Buffer *_buffer_debug;
     std::vector<glm::fvec3> _vec_debug;
 
     globjects::Buffer *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug;
-    globjects::Program *_program_pc_debug_sorted_vertices,*_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
+    globjects::Program *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices,*_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
@@ -126,6 +126,7 @@ class ReconPerformanceCapture : public Reconstruction
     void divideBox();
     void extract_reference_mesh();
     void draw_data();
+    void draw_debug_reference_volume();
     void draw_debug_reference_mesh();
     void draw_debug_ed_sampling();
     void draw_debug_sorted_vertices();

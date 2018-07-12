@@ -26,13 +26,15 @@ in vec3 geo_Position[];
 
 out vec3 pass_Position;
 
+#include </inc_bbox_test.glsl>
+
 void main()
 {
     EDNode node = ed_nodes[uint(geo_Position[0].x * 100000.f)];
 
     pass_Position = node.position;
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(pass_Position, 1.0);
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vec4(pass_Position + bbox_min, 1.0);
     gl_PointSize = 4.0f;
 
     EmitVertex();

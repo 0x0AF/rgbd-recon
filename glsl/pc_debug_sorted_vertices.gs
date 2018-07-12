@@ -29,6 +29,8 @@ out float pass_BrickIdColor;
 out vec3 pass_Normal;
 out float pass_EDCellIdColor;
 
+#include </inc_bbox_test.glsl>
+
 void main()
 {
     Vertex vertex = vertices[uint(geo_Position[0].x * 100000.f)];
@@ -38,7 +40,7 @@ void main()
     pass_Normal = vertex.normal;
     pass_EDCellIdColor = (vertex.ed_cell_id % 27) / 27.0f;
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(pass_Position, 1.0);
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vec4(pass_Position + bbox_min, 1.0);
     gl_PointSize = 2.0f;
 
     EmitVertex();

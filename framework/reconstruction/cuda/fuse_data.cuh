@@ -20,9 +20,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     unsigned int edc_voxel_id = idx % measures.ed_cell_num_voxels;
 
     glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 position = ed_cell_3d(ed_cell_id, measures) * measures.ed_cell_dim_voxels;
     glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id, measures);
-    glm::uvec3 position = ed_cell_3d(ed_cell_id, measures) + ed_cell_index3d;
-    glm::uvec3 world = brick + position;
+    glm::uvec3 world = brick + position + ed_cell_index3d;
 
     //    if(position_id == 0)
     //    {
@@ -31,7 +31,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     if(!in_data_volume(world, measures))
     {
-        printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
+        //        printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
         return;
     }
 
@@ -59,8 +59,9 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
 
     if(!in_data_volume(warped_position, measures))
     {
-        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x, brick.y,
-               brick.z, position.x, position.y, position.z);
+        //        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x,
+        //        brick.y,
+        //               brick.z, position.x, position.y, position.z);
         return;
     }
 
@@ -207,19 +208,23 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
     surf3Dwrite(ed_cell_voxels[edc_voxel_id], _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
     // surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // TODO surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
 }
 
 extern "C" void fuse_data()
 {
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
 
     cudaArray *volume_array_tsdf_data = nullptr;
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, _cgr.volume_tsdf_data, 0, 0));
 
+    cudaArray *volume_array_tsdf_ref = nullptr;
+    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref, _cgr.volume_tsdf_ref, 0, 0));
+
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, _dev_res.volume_array_tsdf_ref, &channel_desc));
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
 
     unsigned int active_ed_voxels = _host_res.active_ed_nodes_count * _host_res.measures.ed_cell_num_voxels;
     size_t grid_size = (active_ed_voxels + _host_res.measures.ed_cell_num_voxels - 1) / _host_res.measures.ed_cell_num_voxels;
@@ -231,4 +236,5 @@ extern "C" void fuse_data()
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref, 0));
 }

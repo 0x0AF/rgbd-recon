@@ -16,13 +16,16 @@ __global__ void kernel_mark_ed_nodes(GLuint *vx_counter, struct_vertex *vx_ptr, 
 
         struct_vertex vx = vx_ptr[vertex_position];
 
+        vx.position = bbox_transform_position(vx.position, measures);
+        vx.normal = bbox_transform_vector(vx.normal, measures);
+
         const unsigned int brick_id = identify_brick_id(vx.position, measures);
         const unsigned int ed_cell_id = identify_ed_cell_id(vx.position, measures);
         const unsigned int ed_node_offset = dev_res.bricks_inv_index[brick_id] * measures.brick_num_ed_cells + ed_cell_id;
 
         if(ed_node_offset >= ed_nodes_count)
         {
-            printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+            printf("\ned_node_offset overshot: %u = %u * 27 + %u, ed_nodes_count: %u\n", ed_node_offset, brick_id, ed_cell_id, ed_nodes_count);
             return;
         }
 
@@ -159,9 +162,8 @@ __global__ void kernel_sort_active_ed_vx(unsigned int active_ed_nodes, unsigned 
         }
         else
         {
-            // TODO
-            // printf("\ncorresponding ed node not found, idx: %u, vx.brick_id: %u, vx.ed_cell_id: %u, vx.position: (%f,%f,%f)\n", idx, vx.brick_id, vx.ed_cell_id, vx.position.x, vx.position.y,
-            //       vx.position.z);
+            //            printf("\ncorresponding ed node not found, idx: %u, vx.brick_id: %u, vx.ed_cell_id: %u, vx.position: (%f,%f,%f)\n", idx, vx.brick_id, vx.ed_cell_id, vx.position.x,
+            //            vx.position.y, vx.position.z);
         }
     }
 }
@@ -363,7 +365,6 @@ __global__ void kernel_push_debug_sorted_vertices(struct_vertex *vx_ptr, unsigne
         }
 
         struct_vertex vx = dev_res.sorted_vx_ptr[vx_position];
-
         memcpy(&vx_ptr[vx_position], &vx, sizeof(struct_ed_node_debug));
     }
 }

@@ -33,14 +33,40 @@ inline void __checkMsg(const char *errorMessage, const char *file, const int lin
     }
 }
 
-CUDA_HOST_DEVICE bool in_data_volume(glm::uvec3 pos, struct_measures &measures)
+// CUDA_HOST_DEVICE glm::vec3 bbox_original_position(glm::vec3 &pos, struct_measures &measures)
+//{
+//    pos = pos + measures.bbox_translation;
+//    pos = pos * measures.bbox_dimensions;
+//    return pos;
+//}
+//
+// CUDA_HOST_DEVICE glm::vec3 bbox_original_vector(glm::vec3 &vec, struct_measures &measures)
+//{
+//    vec = vec * measures.bbox_dimensions;
+//    return vec;
+//}
+
+CUDA_HOST_DEVICE glm::vec3 bbox_transform_position(glm::vec3 &pos, struct_measures &measures)
+{
+    pos = pos * measures.bbox_dimensions;
+    //pos = pos - measures.bbox_translation;
+    return pos;
+}
+
+CUDA_HOST_DEVICE glm::vec3 bbox_transform_vector(glm::vec3 &vec, struct_measures &measures)
+{
+    vec = vec * measures.bbox_dimensions;
+    return vec;
+}
+
+CUDA_HOST_DEVICE bool in_data_volume(glm::uvec3 &pos, struct_measures &measures)
 {
     return pos.x < measures.data_volume_res.x && pos.y < measures.data_volume_res.y && pos.z < measures.data_volume_res.z;
 }
 
-CUDA_HOST_DEVICE bool in_cv_xyz(glm::uvec3 pos, struct_measures &measures) { return pos.x < measures.cv_xyz_res.x && pos.y < measures.cv_xyz_res.y && pos.z < measures.cv_xyz_res.z; }
+CUDA_HOST_DEVICE bool in_cv_xyz(glm::uvec3 &pos, struct_measures &measures) { return pos.x < measures.cv_xyz_res.x && pos.y < measures.cv_xyz_res.y && pos.z < measures.cv_xyz_res.z; }
 
-CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 pos, struct_measures &measures) { return pos.x < measures.cv_xyz_inv_res.x && pos.y < measures.cv_xyz_inv_res.y && pos.z < measures.cv_xyz_inv_res.z; }
+CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 &pos, struct_measures &measures) { return pos.x < measures.cv_xyz_inv_res.x && pos.y < measures.cv_xyz_inv_res.y && pos.z < measures.cv_xyz_inv_res.z; }
 
 CUDA_HOST_DEVICE glm::uvec3 index_3d(unsigned int brick_id, struct_measures &measures)
 {
@@ -227,7 +253,9 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         scaled_pixel.x = (unsigned int)(data.x * measures.cv_xyz_res.x);
         scaled_pixel.y = (unsigned int)(data.y * measures.cv_xyz_res.y);
 
-        if(!in_cv_xyz(glm::vec3(scaled_pixel.x, scaled_pixel.y, depth_voxel_space), measures))
+        glm::uvec3 coordinate = glm::uvec3(scaled_pixel.x, scaled_pixel.y, depth_voxel_space);
+
+        if(!in_cv_xyz(coordinate, measures))
         {
             continue;
         }
@@ -237,16 +265,16 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         switch(i)
         {
         case 0:
-            surf3Dread(&projected, _volume_cv_xyz_0, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_0, coordinate.x * sizeof(float4), coordinate.y, coordinate.z);
             break;
         case 1:
-            surf3Dread(&projected, _volume_cv_xyz_1, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_1, coordinate.x * sizeof(float4), coordinate.y, coordinate.z);
             break;
         case 2:
-            surf3Dread(&projected, _volume_cv_xyz_2, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_2, coordinate.x * sizeof(float4), coordinate.y, coordinate.z);
             break;
         case 3:
-            surf3Dread(&projected, _volume_cv_xyz_3, scaled_pixel.x * sizeof(float4), scaled_pixel.y, depth_voxel_space);
+            surf3Dread(&projected, _volume_cv_xyz_3, coordinate.x * sizeof(float4), coordinate.y, coordinate.z);
             break;
         }
 
@@ -258,11 +286,11 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         //        }
 
         glm::vec3 extracted_position = glm::vec3(projected.x, projected.y, projected.z);
+        extracted_position = bbox_transform_position(extracted_position, measures);
 
-        extracted_position = extracted_position - measures.bbox_translation;
-        extracted_position = extracted_position / measures.bbox_dimensions;
+        glm::uvec3 epvs = extracted_position / measures.size_voxel;
 
-        if(!in_data_volume(extracted_position / measures.size_voxel, measures))
+        if(!in_data_volume(epvs, measures))
         {
             continue;
         }
