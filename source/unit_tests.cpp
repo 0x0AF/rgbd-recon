@@ -53,6 +53,7 @@ namespace
 const float ACCEPTED_FLOAT_TOLERANCE = 0.0000001f;
 struct_measures mock_measures;
 
+TEST(UtilTest, StructEDMetaSize) { EXPECT_EQ(sizeof(struct_ed_meta_entry), 136); }
 TEST(UtilTest, StructEDSize) { EXPECT_EQ(sizeof(struct_ed_node), 40); }
 TEST(UtilTest, IdentifyBrickId)
 {
@@ -218,7 +219,7 @@ TEST(UtilTest, WarpPositionRotation)
 
     EXPECT_NEAR(warped_position.x, position.x, ACCEPTED_FLOAT_TOLERANCE);
     EXPECT_NEAR(warped_position.y, position.z, ACCEPTED_FLOAT_TOLERANCE);
-    EXPECT_NEAR(warped_position.z, position.y, ACCEPTED_FLOAT_TOLERANCE);
+    EXPECT_NEAR(warped_position.z, -position.y, ACCEPTED_FLOAT_TOLERANCE);
 }
 TEST(UtilTest, WarpNormalNoImpact)
 {
@@ -253,7 +254,7 @@ TEST(UtilTest, WarpNormalRotation)
 
     EXPECT_NEAR(warped_normal.x, normal.x, ACCEPTED_FLOAT_TOLERANCE);
     EXPECT_NEAR(warped_normal.y, normal.z, ACCEPTED_FLOAT_TOLERANCE);
-    EXPECT_NEAR(warped_normal.z, normal.y, ACCEPTED_FLOAT_TOLERANCE);
+    EXPECT_NEAR(warped_normal.z, -normal.y, ACCEPTED_FLOAT_TOLERANCE);
 }
 } // namespace
 

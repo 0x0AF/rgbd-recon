@@ -178,7 +178,9 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
         return;
     }
 
-    glm::vec3 position{0.f};
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+    ed_node.position = glm::vec3(0.f);
+
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
     // printf("\ned_entry.vx_offset %lu, ed_entry.vx_length %u\n", ed_entry.vx_offset, ed_entry.vx_length);
@@ -201,7 +203,7 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
         //            printf("\nsorted_vx.x == 0, node_idx: %u\n", idx);
         //        }
 
-        position = position + dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].position / (float)(ed_entry.vx_length);
+        ed_node.position = ed_node.position + dev_res.sorted_vx_ptr[sorted_vx_ptr_offset].position / (float)(ed_entry.vx_length);
 
         /*if(idx == 100)
         {
@@ -212,7 +214,10 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
 
     __syncthreads();
 
-    memcpy(&dev_res.ed_graph[idx], &position, sizeof(glm::vec3));
+    ed_node.translation = glm::vec3(0.f);
+    ed_node.affine = glm::quat(1.f, 0.f, 0.f, 0.f);
+
+    memcpy(&dev_res.ed_graph[idx], &ed_node, sizeof(struct_ed_node));
 }
 
 extern "C" void sample_ed_nodes()
@@ -323,6 +328,9 @@ __global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigne
         node.brick_id = dev_res.ed_graph_meta[ed_position].brick_id;
         node.translation = dev_res.ed_graph[ed_position].translation;
         node.ed_cell_id = dev_res.ed_graph_meta[ed_position].ed_cell_id;
+        node.affine = dev_res.ed_graph[ed_position].affine;
+        node.vx_offset = (unsigned int)dev_res.ed_graph_meta[ed_position].vx_offset;
+        node.vx_length = dev_res.ed_graph_meta[ed_position].vx_length;
 
         memcpy(&ed_ptr[ed_position], &node, sizeof(struct_ed_node_debug));
     }
@@ -364,8 +372,7 @@ __global__ void kernel_push_debug_sorted_vertices(struct_vertex *vx_ptr, unsigne
             return;
         }
 
-        struct_vertex vx = dev_res.sorted_vx_ptr[vx_position];
-        memcpy(&vx_ptr[vx_position], &vx, sizeof(struct_ed_node_debug));
+        memcpy(&vx_ptr[vx_position], &dev_res.sorted_vx_ptr[vx_position], sizeof(struct_vertex));
     }
 }
 

@@ -9,6 +9,12 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define CUDA_HOST_DEVICE
 #endif
 
+#ifdef __CUDACC__
+#define CUDA_ALIGN_8 __align__(8)
+#else
+#define CUDA_ALIGN_8
+#endif
+
 // #define DEBUG_NANS
 
 struct struct_native_handles
@@ -38,6 +44,8 @@ struct struct_measures
     float size_ed_cell{0.f};
     float size_brick{0.f};
 
+    float sigma{0.f};
+
     /** Constant values strictly define the available relationships between resolutions, dimensions and sizes **/
 
     const unsigned int ed_cell_dim_voxels = 3u;
@@ -62,35 +70,35 @@ struct struct_measures
     glm::fvec3 bbox_dimensions{0.f, 0.f, 0.f};
 };
 
-struct struct_vertex
+struct CUDA_ALIGN_8 struct_vertex
 {
     glm::vec3 position;
-    unsigned int brick_id; // TODO: fill at extraction time
+    unsigned int brick_id; // TODO: fill at reference extraction time
     glm::vec3 normal;
     unsigned int ed_cell_id;
 };
 
-struct struct_ed_node_debug
+struct CUDA_ALIGN_8 struct_ed_node_debug
 {
     glm::vec3 position;
     unsigned int brick_id;
     glm::vec3 translation;
     unsigned int ed_cell_id;
+    glm::quat affine;
+
+    unsigned int vx_offset;
+    unsigned int vx_length;
+    unsigned int pad[2];
 };
 
-struct struct_ed_node
+struct CUDA_ALIGN_8 struct_ed_node
 {
-    glm::vec3 position{0.f};
-    glm::quat affine{glm::mat4(1.f)};
-    glm::vec3 translation{0.f};
+    glm::vec3 position;
+    glm::quat affine;
+    glm::vec3 translation;
 };
 
-struct struct_vertex_weights
-{
-    float skinning_weights[27];
-};
-
-struct struct_ed_meta_entry
+struct CUDA_ALIGN_8 struct_ed_meta_entry
 {
     unsigned int brick_id;
     unsigned int ed_cell_id;

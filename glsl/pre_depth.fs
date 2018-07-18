@@ -28,7 +28,7 @@ const int kernel_size = 6; // in pixel
 const int kernel_end = kernel_size + 1;
 
 layout(location = 0) out vec2 out_Depth;
-layout(location = 1) out vec3 out_Color;
+layout(location = 1) out vec4 out_Color;
 
 #include </inc_bbox_test.glsl>
 
@@ -133,11 +133,11 @@ void main(void) {
   vec3 pos_world = texture(cv_xyz[layer], vec3(pass_TexCoord, depth_norm)).xyz;
   bool is_in_box = in_bbox(pos_world);
   
-  out_Color = rgb_to_lab(get_color(vec3(pass_TexCoord, (depth_norm <= 0.0 || depth_norm >= 1.0) ? 1.0 : depth_norm)));
+  out_Color = vec4(rgb_to_lab(get_color(vec3(pass_TexCoord, (depth_norm <= 0.0 || depth_norm >= 1.0) ? 1.0 : depth_norm))), 1.0f);
 #if 0
   // uncomment this for depth visualizazion (in lab sapce channel)
   float orig_depth_normalized = (depth > cv_max_ds) ? 1.0 : (depth/cv_max_ds);
-  out_Color = vec3(orig_depth_normalized);
+  out_Color = vec4(orig_depth_normalized, 1.0f);
 
 #endif
   if (!is_in_box) {

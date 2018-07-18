@@ -13,6 +13,7 @@
 using namespace gl;
 
 #include <globjects/Framebuffer.h>
+#include <globjects/Sync.h>
 
 #include <globjects/NamedString.h>
 #include <globjects/Query.h>
@@ -37,10 +38,13 @@ NetKinectArray::NetKinectArray(std::string const &serverport, CalibrationFiles c
       m_textures_color{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, m_textures_bg{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY),
                                                                                               globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       m_textures_silhouette{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, m_fbo{new globjects::Framebuffer()}, m_colorArray_back(), m_colorsize(0), m_depthsize(0), m_pbo_colors(),
-      m_pbo_depths(), m_pbo_silhouettes(new globjects::Buffer()), m_mutex_pbo(), m_readThread(), m_running(true), m_filter_textures(true), m_refine_bound(true),
-      m_serverport(serverport), m_num_frame{0}, m_curr_frametime{0.0}, m_use_processed_depth{true}, m_start_texture_unit(0), m_calib_files{calibs}, m_calib_vols{vols},
-      m_out_rgbs{globjects::Texture::createDefault(GL_TEXTURE_3D)}, m_out_depths{globjects::Texture::createDefault(GL_TEXTURE_3D)}, m_out_silhouettes{globjects::Texture::createDefault(GL_TEXTURE_3D)}
+      m_pbo_depths(), m_mutex_pbo(), m_readThread(), m_running(true), m_filter_textures(true), m_refine_bound(true),
+      m_serverport(serverport), m_num_frame{0}, m_curr_frametime{0.0}, m_use_processed_depth{true}, m_start_texture_unit(0), m_calib_files{calibs}, m_calib_vols{vols}
 {
+    m_out_pbo_colors = new globjects::Buffer();
+    m_out_pbo_depths = new globjects::Buffer();
+    m_out_pbo_silhouettes = new globjects::Buffer();
+
     m_programs.emplace("filter", new globjects::Program());
     m_programs.emplace("normal", new globjects::Program());
     m_programs.emplace("quality", new globjects::Program());
@@ -124,7 +128,7 @@ bool NetKinectArray::init()
         m_colorArray = std::unique_ptr<TextureArray>{new TextureArray(m_resolution_color.x, m_resolution_color.y, m_numLayers, GL_RGB, GL_RGB, GL_UNSIGNED_BYTE)};
     }
     m_colorArray_back = std::unique_ptr<TextureArray>{new TextureArray(m_resolution_color.x, m_resolution_color.y, m_numLayers, GL_RGB, GL_RGB, GL_UNSIGNED_BYTE)};
-    m_textures_color->image3D(0, GL_RGB32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RGB, GL_FLOAT, (void *)nullptr);
+    m_textures_color->image3D(0, GL_RGBA32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RGBA, GL_FLOAT, (void *)nullptr);
 
     m_textures_quality->image3D(0, GL_LUMINANCE32F_ARB, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
     m_textures_normal->image3D(0, GL_RGB32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RGB, GL_FLOAT, (void *)nullptr);
@@ -134,8 +138,16 @@ bool NetKinectArray::init()
     m_textures_bg.back->image3D(0, GL_RG32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RG, GL_FLOAT, empty_bg_tex.data());
     m_textures_silhouette->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
 
-    m_pbo_silhouettes->setData(m_depthsize * m_numLayers, nullptr, GL_DYNAMIC_DRAW);
-    m_pbo_silhouettes->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    m_out_pbo_colors->setData(m_depthsize * m_numLayers * 4, nullptr, GL_DYNAMIC_COPY_ARB);
+    m_out_pbo_colors->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
+    m_out_pbo_depths->setData(m_depthsize * m_numLayers * 2, nullptr, GL_DYNAMIC_COPY_ARB);
+    m_out_pbo_depths->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
+    m_out_pbo_silhouettes->setData(m_depthsize * m_numLayers, nullptr, GL_DYNAMIC_COPY_ARB);
+    m_out_pbo_silhouettes->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
     if(m_calib_files->isCompressedDepth())
@@ -160,27 +172,6 @@ bool NetKinectArray::init()
     m_textures_depth2.front->setParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     m_textures_depth2.back->setParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     m_textures_depth2.back->setParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    // TODO: rgb outputs
-    /*if(m_calib_files->isCompressedRGB() == 1)
-    {
-        m_out_rgbs->image3D(0, GL_RGB32F, m_resolution_color.x, m_resolution_color.y, m_numLayers, 0, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, GL_UNSIGNED_BYTE, (void *)nullptr);
-    }
-    else if(m_calib_files->isCompressedRGB() == 5)
-    {
-        m_out_rgbs->image3D(0, GL_RGB32F, m_resolution_color.x, m_resolution_color.y, m_numLayers, 0, GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, GL_UNSIGNED_BYTE, (void *)nullptr);
-    }
-    else
-    {
-        m_out_rgbs->image3D(0, GL_RGB32F, m_resolution_color.x, m_resolution_color.y, m_numLayers, 0, GL_RGB, GL_UNSIGNED_BYTE, (void *)nullptr);
-    }*/
-    m_out_depths->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
-    m_out_silhouettes->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
-
-    m_out_depths->setParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    m_out_depths->setParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    m_out_silhouettes->setParameter(GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    m_out_silhouettes->setParameter(GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     m_texture_unit_offsets.emplace("morph_input", 42);
     m_texture_unit_offsets.emplace("raw_depth", 40);
@@ -233,12 +224,6 @@ NetKinectArray::~NetKinectArray()
     m_textures_normal->destroy();
     m_textures_quality->destroy();
     m_textures_silhouette->destroy();
-
-    m_pbo_silhouettes->destroy();
-    m_out_silhouettes->destroy();
-    // TODO: rgb outputs
-    /*m_out_rgbs->destroy();*/
-    m_out_depths->destroy();
 }
 
 bool NetKinectArray::update()
@@ -252,44 +237,24 @@ bool NetKinectArray::update()
     m_colorArray->fillLayersFromPBO(m_pbo_colors.get()->id());
     m_depthArray_raw->fillLayersFromPBO(m_pbo_depths.get()->id());
 
-    glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_silhouette->id());
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, m_pbo_silhouettes->id());
-    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_color->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, m_out_pbo_colors->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, GL_FLOAT, 0);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
-    // TODO: rgb outputs
-    /*glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, m_pbo_colors.get()->id());
-    if(m_calib_files->isCompressedRGB() == 1)
-    {
-        m_out_rgbs->bind();
-        glCompressedTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, m_resolution_color.x, m_resolution_color.y, m_numLayers, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, m_colorsize * m_numLayers, 0);
-        m_out_rgbs->unbind();
-    }
-    else if(m_calib_files->isCompressedRGB() == 5)
-    {
-        m_out_rgbs->bind();
-        glCompressedTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, m_resolution_color.x, m_resolution_color.y, m_numLayers, GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, m_colorsize * m_numLayers, 0);
-        m_out_rgbs->unbind();
-    }
-    else
-    {
-        m_out_rgbs->subImage3D(0, 0, 0, 0, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, GL_RGB, GL_UNSIGNED_BYTE, 0);
-    }
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);*/
-
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, m_pbo_depths.get()->id());
-    m_out_depths->subImage3D(0, 0, 0, 0, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, GL_RED, GL_FLOAT, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_depth->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, m_out_pbo_depths->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RG, GL_FLOAT, 0);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, m_pbo_silhouettes->id());
-    m_out_silhouettes->subImage3D(0, 0, 0, 0, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, GL_RED, GL_FLOAT, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_silhouette->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, m_out_pbo_silhouettes->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
-    // processTextures();
     return true;
 }
 
@@ -514,12 +479,14 @@ void NetKinectArray::bindToTextureUnits() const
 {
     glActiveTexture(GL_TEXTURE0 + getTextureUnit("color"));
     m_colorArray->bind();
+
     m_textures_quality->bindActive(getTextureUnit("quality"));
     m_textures_normal->bindActive(getTextureUnit("normal"));
     m_textures_silhouette->bindActive(getTextureUnit("silhouette"));
     // m_textures_bg.front->bindActive(getTextureUnit("bg"));
     m_textures_depth2.front->bindActive(getTextureUnit("morph_depth"));
     m_textures_color->bindActive(getTextureUnit("color_lab"));
+
     glActiveTexture(GL_TEXTURE0 + getTextureUnit("raw_depth"));
     m_depthArray_raw->bind();
 }
@@ -834,8 +801,29 @@ void NetKinectArray::readFromFiles()
     }
 }
 
-const unsigned int NetKinectArray::getColorHandle() { return m_out_rgbs->id(); }
-const unsigned int NetKinectArray::getDepthHandle() { return m_out_depths->id(); }
-const unsigned int NetKinectArray::getSilhouettes() { return m_out_silhouettes->id(); }
+const unsigned int NetKinectArray::getColorHandle(bool texture)
+{
+    if(texture)
+    {
+        return m_textures_color->id();
+    }
+    return m_out_pbo_colors->id();
+}
+const unsigned int NetKinectArray::getDepthHandle(bool texture)
+{
+    if(texture)
+    {
+        return m_textures_depth->id();
+    }
+    return m_out_pbo_depths->id();
+}
+const unsigned int NetKinectArray::getSilhouetteHandle(bool texture)
+{
+    if(texture)
+    {
+        return m_textures_silhouette->id();
+    }
+    m_out_pbo_silhouettes->id();
+}
 std::mutex &NetKinectArray::getPBOMutex() { return m_mutex_pbo; }
 } // namespace kinect

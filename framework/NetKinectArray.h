@@ -64,9 +64,9 @@ class NetKinectArray
 
     int getTextureUnit(std::string const &name) const;
 
-    const unsigned int getColorHandle();
-    const unsigned int getDepthHandle();
-    const unsigned int getSilhouettes();
+    const unsigned int getColorHandle(bool textures = false);
+    const unsigned int getDepthHandle(bool textures = false);
+    const unsigned int getSilhouetteHandle(bool textures = false);
     std::mutex &getPBOMutex();
 
   private:
@@ -83,9 +83,9 @@ class NetKinectArray
 
     unsigned m_numLayers;
 
-    globjects::ref_ptr<globjects::Texture> m_out_rgbs;
-    globjects::ref_ptr<globjects::Texture> m_out_depths;
-    globjects::ref_ptr<globjects::Texture> m_out_silhouettes;
+    globjects::ref_ptr<globjects::Buffer> m_out_pbo_colors;
+    globjects::ref_ptr<globjects::Buffer> m_out_pbo_depths;
+    globjects::ref_ptr<globjects::Buffer> m_out_pbo_silhouettes;
 
     std::unique_ptr<TextureArray> m_colorArray;
     std::unique_ptr<TextureArray> m_depthArray_raw;
@@ -107,8 +107,6 @@ class NetKinectArray
     unsigned m_depthsize; // per frame
     double_pbo m_pbo_colors;
     double_pbo m_pbo_depths;
-
-    globjects::ref_ptr<globjects::Buffer> m_pbo_silhouettes;
 
     std::mutex m_mutex_pbo;
     std::unique_ptr<std::thread> m_readThread;

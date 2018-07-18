@@ -30,6 +30,7 @@ using namespace gl;
 #include <globjects/globjects.h>
 
 #include <cuda_runtime.h>
+#include <globjects/Sync.h>
 #include <vector_types.h>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
@@ -37,23 +38,28 @@ extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" unsigned int push_debug_ed_nodes();
 extern "C" unsigned long push_debug_sorted_vertices();
+extern "C" void generate_smooth_hull();
 extern "C" void estimate_correspondence_field();
 extern "C" void pcg_solve();
 extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
-// #define WIPE_DATA
+#define WIPE_DATA
 
+// #define PIPELINE_DEBUG_TEXTURE_COLORS
+// #define PIPELINE_DEBUG_TEXTURE_DEPTHS
+#define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
 // #define PIPELINE_DEBUG_REFERENCE_VOLUME
 // #define PIPELINE_DEBUG_REFERENCE_MESH
-#define PIPELINE_DEBUG_ED_SAMPLING
+// #define PIPELINE_DEBUG_ED_SAMPLING
 // #define PIPELINE_DEBUG_SORTED_VERTICES
 
-#define PIPELINE_SAMPLE
+// #define PIPELINE_SAMPLE
 // #define PIPELINE_CORRESPONDENCE
+#define PIPELINE_SMOOTH_HULL
 // #define PIPELINE_ALIGN
-#define PIPELINE_FUSE
+// #define PIPELINE_FUSE
 
 namespace kinect
 {
@@ -148,6 +154,7 @@ int ReconPerformanceCapture::TRI_TABLE[] = {
 std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA_VOLUME_INTEGRATION";
 std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
 std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
+std::string ReconPerformanceCapture::TIMER_SMOOTH_HULL = "TIMER_SMOOTH_HULL";
 std::string ReconPerformanceCapture::TIMER_CORRESPONDENCE = "TIMER_CORRESPONDENCE";
 std::string ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT = "TIMER_NON_RIGID_ALIGNMENT";
 std::string ReconPerformanceCapture::TIMER_FUSION = "TIMER_FUSION";
@@ -194,6 +201,16 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _vao_debug->binding(0)->setBuffer(_buffer_debug, 0, sizeof(float) * 3);
     _vao_debug->binding(0)->setFormat(3, GL_FLOAT);
 
+    const std::array<glm::vec2, 4> raw{{glm::vec2(+1.f, -1.f), glm::vec2(+1.f, +1.f), glm::vec2(-1.f, -1.f), glm::vec2(-1.f, +1.f)}};
+
+    _buffer_fsquad_debug->setData(raw, GL_STATIC_DRAW); // needed for some drivers
+
+    auto binding = _vao_fsquad_debug->binding(0);
+    binding->setAttribute(0);
+    binding->setBuffer(_buffer_fsquad_debug, 0, sizeof(float) * 2);
+    binding->setFormat(2, GL_FLOAT, GL_FALSE, 0);
+    _vao_fsquad_debug->enable(0);
+
     setVoxelSize(_voxel_size);
     setBrickSize(_brick_size);
 
@@ -211,10 +228,9 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
     _native_handles.volume_tsdf_ref = _volume_tsdf_ref;
 
-    // TODO: rgbs output
-    /*_native_handles.texture_kinect_rgbs = _nka->getColorHandle();*/
+    _native_handles.texture_kinect_rgbs = _nka->getColorHandle();
     _native_handles.texture_kinect_depths = _nka->getDepthHandle();
-    _native_handles.texture_kinect_silhouettes = _nka->getSilhouettes();
+    _native_handles.texture_kinect_silhouettes = _nka->getSilhouetteHandle();
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
     {
@@ -224,6 +240,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     }
 
     _measures.size_voxel = _voxel_size;
+    _measures.sigma = _voxel_size * 0.5f;
     _measures.size_ed_cell = _ed_cell_size;
     _measures.size_brick = _brick_size;
 
@@ -239,10 +256,15 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _measures.cv_xyz_res = glm::uvec3(128u, 128u, 128u);
     _measures.cv_xyz_inv_res = glm::uvec3(200u, 200u, 200u);
 
+    _texture2darray_debug = globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY);
+    _texture2darray_debug->image3D(0, GL_R32F, _measures.depth_res.x, _measures.depth_res.y, 4, 0, GL_RED, GL_FLOAT, (void *)nullptr);
+    _texture2darray_debug->bindActive(7);
+
     init_cuda(_res_volume, _measures, _native_handles);
 
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
     TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
+    TimerDatabase::instance().addTimer(TIMER_SMOOTH_HULL);
     TimerDatabase::instance().addTimer(TIMER_CORRESPONDENCE);
     TimerDatabase::instance().addTimer(TIMER_NON_RIGID_ALIGNMENT);
     TimerDatabase::instance().addTimer(TIMER_FUSION);
@@ -257,11 +279,14 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_reference_mesh_vertices = new Buffer();
     _buffer_debug = new Buffer();
     _vao_debug = new VertexArray();
+    _buffer_fsquad_debug = new Buffer();
+    _vao_fsquad_debug = new VertexArray();
     _buffer_ed_nodes_debug = new Buffer();
     _buffer_sorted_vertices_debug = new Buffer();
 
     _vec_debug = std::vector<glm::vec3>(524288);
 
+    _program_pc_debug_textures = new Program();
     _program_pc_debug_draw_ref = new Program();
     _program_pc_debug_reference = new Program();
     _program_pc_debug_ed_sampling = new Program();
@@ -327,7 +352,7 @@ void ReconPerformanceCapture::init_shaders()
 #endif
     _program_pc_draw_data->setUniform("vol_to_world", _mat_vol_to_world);
     _program_pc_draw_data->setUniform("size_voxel", _voxel_size);
-    _program_pc_draw_data->setUniform("volume_tsdf", 29);
+    _program_pc_draw_data->setUniform("volume_tsdf", 31);
     _program_pc_draw_data->setUniform("kinect_colors", 1);
     _program_pc_draw_data->setUniform("kinect_depths", 2);
     _program_pc_draw_data->setUniform("kinect_qualities", 3);
@@ -343,12 +368,12 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference_volume.fs"));
     _program_pc_debug_draw_ref->setUniform("vol_to_world", _mat_vol_to_world);
     _program_pc_debug_draw_ref->setUniform("size_voxel", _voxel_size);
-    _program_pc_debug_draw_ref->setUniform("volume_tsdf", 30);
+    _program_pc_debug_draw_ref->setUniform("volume_tsdf", 32);
 
     _program_pc_extract_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_extract_reference.gs"));
     _program_pc_extract_reference->setUniform("vol_to_world", _mat_vol_to_world);
     _program_pc_extract_reference->setUniform("size_voxel", _voxel_size);
-    _program_pc_extract_reference->setUniform("volume_tsdf", 29);
+    _program_pc_extract_reference->setUniform("volume_tsdf", 31);
 
     _program_pc_debug_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_reference.vs"));
     _program_pc_debug_reference->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_reference.gs"));
@@ -377,6 +402,20 @@ void ReconPerformanceCapture::init_shaders()
     _program_integration->setUniform("res_depth", glm::uvec2{m_cf->getWidth(), m_cf->getHeight()});
     _program_integration->setUniform("limit", _limit);
 
+    _program_pc_debug_textures->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_textures.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_textures.fs"));
+
+#ifdef PIPELINE_DEBUG_TEXTURE_COLORS
+    _program_pc_debug_textures->setUniform("texture_2d_array", 1);
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_DEPTHS
+    _program_pc_debug_textures->setUniform("texture_2d_array", 2);
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+    _program_pc_debug_textures->setUniform("texture_2d_array", 7);
+#endif
+
     _program_solid->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
     _program_bricks->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
 }
@@ -395,6 +434,10 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_debug->destroy();
     _buffer_ed_nodes_debug->destroy();
     _buffer_sorted_vertices_debug->destroy();
+
+    _texture2darray_debug->destroy();
+    glDeleteTextures(1, &_volume_tsdf_data);
+    glDeleteTextures(1, &_volume_tsdf_ref);
 }
 
 void ReconPerformanceCapture::drawF()
@@ -431,6 +474,26 @@ void ReconPerformanceCapture::draw()
         TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
     }
 
+#endif
+
+#ifdef PIPELINE_SMOOTH_HULL
+
+    if(_should_update_silhouettes)
+    {
+        TimerDatabase::instance().begin(TIMER_SMOOTH_HULL);
+
+        generate_smooth_hull();
+
+        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _nka->getSilhouetteHandle());
+        glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id ());
+        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+        TimerDatabase::instance().end(TIMER_SMOOTH_HULL);
+
+        _should_update_silhouettes = false;
+    }
 #endif
 
 #ifdef PIPELINE_ALIGN
@@ -495,8 +558,21 @@ void ReconPerformanceCapture::draw()
 
     _frame_number.store(_frame_number.load() + 1);
 
+#ifdef PIPELINE_DEBUG_TEXTURE_COLORS
+    draw_debug_texture_colors();
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_DEPTHS
+    draw_debug_texture_depths();
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+    draw_debug_texture_silhouettes();
+#endif
+
     _nka->getPBOMutex().unlock();
 }
+void ReconPerformanceCapture::setShouldUpdateSilhouettes(bool update) { _should_update_silhouettes = update; }
 void ReconPerformanceCapture::extract_reference_mesh()
 {
     glEnable(GL_RASTERIZER_DISCARD);
@@ -535,7 +611,7 @@ void ReconPerformanceCapture::draw_data()
 
     _program_pc_draw_data->use();
 
-    glBindTextureUnit(29, _volume_tsdf_data);
+    glBindTextureUnit(31, _volume_tsdf_data);
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -577,7 +653,7 @@ void ReconPerformanceCapture::draw_debug_reference_volume()
 {
     _program_pc_debug_draw_ref->use();
 
-    glBindTextureUnit(30, _volume_tsdf_ref);
+    glBindTextureUnit(32, _volume_tsdf_ref);
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -668,12 +744,56 @@ void ReconPerformanceCapture::draw_debug_sorted_vertices()
     float zero = 0.f;
     _buffer_sorted_vertices_debug->clearData(GL_R8, GL_RED, GL_FLOAT, &zero);
     auto vx_count = push_debug_sorted_vertices();
+    _buffer_ed_nodes_debug->clearData(GL_R8, GL_RED, GL_FLOAT, &zero);
+    auto ed_count = push_debug_ed_nodes();
 
     // std::cout << vx_count << std::endl;
 
     _vao_debug->bind();
-    _vao_debug->drawArrays(GL_POINTS, 0, vx_count);
+    _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
     globjects::VertexArray::unbind();
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_texture_colors()
+{
+    _program_pc_debug_textures->use();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _nka->getColorHandle(true));
+
+    _vao_fsquad_debug->bind();
+    _vao_fsquad_debug->drawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    globjects::VertexArray::unbind();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_texture_depths()
+{
+    _program_pc_debug_textures->use();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _nka->getDepthHandle(true));
+
+    _vao_fsquad_debug->bind();
+    _vao_fsquad_debug->drawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    globjects::VertexArray::unbind();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_texture_silhouettes()
+{
+    _program_pc_debug_textures->use();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
+
+    _vao_fsquad_debug->bind();
+    _vao_fsquad_debug->drawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    globjects::VertexArray::unbind();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
     Program::release();
 }
@@ -702,7 +822,7 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-    glBindTextureUnit(29, _volume_tsdf_data);
+    glBindTextureUnit(31, _volume_tsdf_data);
 
     glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -711,7 +831,7 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-    glBindTextureUnit(30, _volume_tsdf_ref);
+    glBindTextureUnit(32, _volume_tsdf_ref);
 
     setBrickSize(_brick_size);
 }

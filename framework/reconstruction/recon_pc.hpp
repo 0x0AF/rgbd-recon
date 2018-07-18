@@ -73,12 +73,14 @@ class ReconPerformanceCapture : public Reconstruction
     void setMinVoxelsPerBrick(unsigned i);
     void setTsdfLimit(float limit);
 
+    void setShouldUpdateSilhouettes(bool update);
+
     void clearOccupiedBricks() const;
     void updateOccupiedBricks();
     void drawOccupiedBricks() const;
 
     static int TRI_TABLE[4096];
-    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_CORRESPONDENCE, TIMER_NON_RIGID_ALIGNMENT, TIMER_FUSION;
+    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_SMOOTH_HULL, TIMER_CORRESPONDENCE, TIMER_NON_RIGID_ALIGNMENT, TIMER_FUSION;
 
   private:
     NetKinectArray *_nka = nullptr;
@@ -99,12 +101,14 @@ class ReconPerformanceCapture : public Reconstruction
 
     GLuint _volume_tsdf_data, _volume_tsdf_ref;
 
-    globjects::VertexArray *_vao_debug;
-    globjects::Buffer *_buffer_debug;
+    globjects::VertexArray *_vao_debug, *_vao_fsquad_debug;
+    globjects::Buffer *_buffer_debug, *_buffer_fsquad_debug;
     std::vector<glm::fvec3> _vec_debug;
 
+    globjects::Texture *_texture2darray_debug;
+
     globjects::Buffer *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug;
-    globjects::Program *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices,*_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
+    globjects::Program *_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
@@ -119,6 +123,8 @@ class ReconPerformanceCapture : public Reconstruction
     float _ratio_occupied;
     unsigned _min_voxels_per_brick;
 
+    bool _should_update_silhouettes;
+
     std::atomic<uint64_t> _frame_number;
 
     void init(float limit, float size, float ed_cell_size);
@@ -130,6 +136,9 @@ class ReconPerformanceCapture : public Reconstruction
     void draw_debug_reference_mesh();
     void draw_debug_ed_sampling();
     void draw_debug_sorted_vertices();
+    void draw_debug_texture_colors();
+    void draw_debug_texture_depths();
+    void draw_debug_texture_silhouettes();
 
     // privatized temporarily
     void setVoxelSize(float size);

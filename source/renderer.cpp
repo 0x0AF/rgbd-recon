@@ -50,6 +50,9 @@ renderer::renderer()
 renderer::~renderer() { _buffer_shading->destroy(); }
 void renderer::init()
 {
+    //    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    //    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_POINT_SPRITE);
 
@@ -85,17 +88,17 @@ void renderer::update_gui()
             recon_pc->updateOccupiedBricks();
             recon_pc->integrate_data_frame();
         }
-//        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2))
-//        {
-//            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-//            recon_integration->setTsdfLimit(_io->_tsdf_limit);
-//            recon_integration->setVoxelSize(_io->_voxel_size);
-//            _io->_brick_size = recon_integration->getBrickSize();
-//            recon_integration->setBrickSize(_io->_brick_size);
-//            recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
-//            recon_integration->updateOccupiedBricks();
-//            recon_integration->integrate();
-//        }
+        //        if(ImGui::RadioButton("Integration", &_io->_recon_mode, 2))
+        //        {
+        //            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
+        //            recon_integration->setTsdfLimit(_io->_tsdf_limit);
+        //            recon_integration->setVoxelSize(_io->_voxel_size);
+        //            _io->_brick_size = recon_integration->getBrickSize();
+        //            recon_integration->setBrickSize(_io->_brick_size);
+        //            recon_integration->setMinVoxelsPerBrick(_io->_min_voxels);
+        //            recon_integration->updateOccupiedBricks();
+        //            recon_integration->integrate();
+        //        }
     }
     if(ImGui::CollapsingHeader("Visualisation"))
     {
@@ -314,7 +317,7 @@ void renderer::update_gui()
 
             TexInfo test = {(uint16_t)(_model->get_nka()->getStartTextureUnit() + setting.first), (uint16_t)(-setting.second - 1)};
             ImTextureID cont;
-            std::memcpy(&cont, &test, sizeof(test));
+            std::memcpy(&cont, &test, sizeof(TexInfo));
             glm::uvec2 res{_model->get_nka()->getDepthResolution()};
 
             // float aspect = float(res.x) / res.y;
@@ -430,7 +433,8 @@ void renderer::draw3d()
         break;
         case 1: // performance capture
         {
-            // integrate regardless
+            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+            recon_pc->setShouldUpdateSilhouettes(update_textures);
         }
         break;
         case 2: // raymarched integration

@@ -80,12 +80,12 @@ void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector
     _cv = std::make_shared<kinect::CalibVolumes>(calib_filenames, *_bbox);
     _nka = std::make_shared<kinect::NetKinectArray>(io._server_socket, _calib_files.get(), _cv.get());
 
-    // binds to unit 1 to 3
+    // binds to unit 1 to 18
     _nka->setStartTextureUnit(1);
-    // bind calibration volumes from 4 - 13
-    _cv->setStartTextureUnit(9);
+    // bind calibration volumes from 12 - 24
+    _cv->setStartTextureUnit(12);
     _cv->loadInverseCalibs(resource_path);
-    _cv->setStartTextureUnitInv(30);
+    _cv->setStartTextureUnitInv(20);
 
     _recon_points = std::make_shared<kinect::ReconPoints>(*_calib_files, _cv.get(), *_bbox);
     _recon_pc = std::make_shared<kinect::ReconPerformanceCapture>(*_nka, *_calib_files, _cv.get(), *_bbox, io._tsdf_limit, io._voxel_size, io._ed_cell_size);

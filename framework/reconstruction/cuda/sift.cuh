@@ -132,9 +132,7 @@ class CudaImage
     void CopyToTexture(CudaImage &dst, bool host);
 };
 
-int iDivUp(int a, int b) { return (a % b != 0) ? (a / b + 1) : (a / b); }
 int iDivDown(int a, int b) { return a / b; }
-int iAlignUp(int a, int b) { return (a % b != 0) ? (a - a % b + b) : a; }
 int iAlignDown(int a, int b) { return a - a % b; }
 
 void CudaImage::Allocate(int w, int h, int p, bool host, float *devmem, float *hostmem)
