@@ -8,8 +8,12 @@
 #define FAST_QUAT_OPS
 
 // #define DEBUG_JTJ
+// #define DEBUG_JTJ_COO
+// #define DEBUG_JTJ_DENSE
+// #define DEBUG_JTJ_PUSH_ORDERED_INTEGERS
 // #define DEBUG_JTF
 // #define DEBUG_H
+
 #define SOLVER_DIRECT_CHOL
 // #define SOLVER_DIRECT_QR
 // #define SOLVER_PCG
@@ -55,7 +59,19 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_misalignment = glm::min(evaluate_vx_misalignment(vx, ed_node, measures), evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures));
+        float vx_misalignment = 0.f;
+
+#ifdef EVALUATE_DATA
+        vx_misalignment = evaluate_vx_misalignment(vx, ed_node, measures);
+
+#ifdef EVALUATE_VISUAL_HULL
+        vx_misalignment = glm::min(vx_misalignment, evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures));
+#endif
+#else
+#ifdef EVALUATE_VISUAL_HULL
+        vx_misalignment = evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures);
+#endif
+#endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -78,7 +94,7 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
     // printf("\nenergy: %f\n", energy);
 }
 
-__global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_count, struct_ed_node *step_ed_graph, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -89,14 +105,16 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     }
 
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
-    struct_ed_node ed_node = step_ed_graph[idx];
+    struct_ed_node ed_node = dev_res.ed_graph_step[idx];
 
 #ifdef EVALUATE_ED_REGULARIZATION
     float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
     {
+#ifdef DEBUG_NANS
         printf("\ned_residual is NaN!\n");
+#endif
 
         ed_residual = 0.f;
     }
@@ -125,7 +143,9 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 
         if(isnan(vx_residual))
         {
+#ifdef DEBUG_NANS
             printf("\nvx_residual is NaN!\n");
+#endif
 
             vx_residual = 0.f;
         }
@@ -154,7 +174,9 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
     if(isnan(ed_residual))
     {
+#ifdef DEBUG_NANS
         printf("\ned_residual is NaN!\n");
+#endif
 
         ed_residual = 0.f;
     }
@@ -183,7 +205,9 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
         if(isnan(vx_residual))
         {
+#ifdef DEBUG_NANS
             printf("\nvx_residual is NaN!\n");
+#endif
 
             vx_residual = 0.f;
         }
@@ -326,12 +350,9 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         __syncthreads();
 
-        //        if(idx == 0)
+        //        if(component == 0)
         //        {
-        //            for(int i = 0; i < ED_COMPONENT_COUNT; i++)
-        //            {
-        //                printf("\nvx_pds[%u]: %f\n", i, vx_pds[i]);
-        //            }
+        //            printf("\npds: {%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f}\n", pds[0], pds[1], pds[2], pds[3], pds[4], pds[5], pds[6], pds[7], pds[8], pds[9]);
         //        }
 
         float jtf_value = -pds[component] * vx_residual;
@@ -345,13 +366,18 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
             jtf_value = 0.f;
         }
 
-        shared_jtf_block[component] += jtf_value;
+        atomicAdd(&shared_jtf_block[component], jtf_value);
 
         for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
         {
             unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
 
             float jtj_value = pds[component] * pds[component_k];
+
+            //            if(jtf_value == 0.f)
+            //            {
+            //                printf("\ncoords:(%u,%u), v(%.2f,%.2f,%.2f)\n", component, component_k, vx.position.x, vx.position.y, vx.position.z);
+            //            }
 
             if(isnan(jtj_value))
             {
@@ -370,15 +396,8 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 
-    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
-    {
-        unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
-
-        if(component == component_k)
-        {
-            atomicAdd(&shared_jtj_coo_val_block[jtj_pos], mu);
-        }
-    }
+    unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component;
+    atomicAdd(&shared_jtj_coo_val_block[jtj_pos], mu);
 
     __syncthreads();
 
@@ -390,15 +409,28 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
     //        }
     //    }
 
-    memcpy(&dev_res.jtf[ed_node_offset * ED_COMPONENT_COUNT], &shared_jtf_block[0], sizeof(float) * ED_COMPONENT_COUNT);
-    memcpy(&dev_res.jtj_vals[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[0], sizeof(float) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
+#ifdef DEBUG_JTJ_PUSH_ORDERED_INTEGERS
+
+    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
+    {
+        unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
+        shared_jtj_coo_val_block[jtj_pos] = jtj_pos;
+    }
+
+    __syncthreads();
+
+#endif
+
+    memcpy(&dev_res.jtf[idx], &shared_jtf_block[component], sizeof(float));
+    memcpy(&dev_res.jtj_vals[idx * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[component * ED_COMPONENT_COUNT], sizeof(float) * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_rows(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_jtj_coo_cols_rows(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    __shared__ int jtj_diag_coo_row_blocks[ED_COMPONENT_COUNT * ED_COMPONENT_COUNT];
+    int jtj_diag_coo_row_strip[ED_COMPONENT_COUNT];
+    int jtj_diag_coo_col_strip[ED_COMPONENT_COUNT];
 
     // printf("\ned_per_thread: %u\n", ed_per_thread);
 
@@ -409,79 +441,31 @@ __global__ void kernel_jtj_coo_rows(unsigned int active_ed_nodes_count, struct_d
         return;
     }
 
-    unsigned int component = idx % ED_COMPONENT_COUNT;
-
     // printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
 
-    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
+    for(unsigned int col = 0; col < ED_COMPONENT_COUNT; col++)
     {
-        unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
-        jtj_diag_coo_row_blocks[jtj_pos] = ed_node_offset * ED_COMPONENT_COUNT + component_k;
+        jtj_diag_coo_col_strip[col] = ed_node_offset * ED_COMPONENT_COUNT + col;
+        jtj_diag_coo_row_strip[col] = idx;
     }
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 
-    __syncthreads();
-
-    memcpy(&dev_res.jtj_rows[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_row_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
+    memcpy(&dev_res.jtj_rows[idx * ED_COMPONENT_COUNT], &jtj_diag_coo_row_strip[0], sizeof(int) * ED_COMPONENT_COUNT);
+    memcpy(&dev_res.jtj_cols[idx * ED_COMPONENT_COUNT], &jtj_diag_coo_col_strip[0], sizeof(int) * ED_COMPONENT_COUNT);
 }
 
-__global__ void kernel_jtj_coo_cols(unsigned int ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+__host__ void convert_to_csr()
 {
-    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
-
-    __shared__ int jtj_diag_coo_col_blocks[ED_COMPONENT_COUNT * ED_COMPONENT_COUNT];
-
-    // printf("\ned_per_thread: %u\n", ed_per_thread);
-
-    unsigned int ed_node_offset = idx / ED_COMPONENT_COUNT;
-    if(ed_node_offset >= ed_nodes_count)
-    {
-        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
-        return;
-    }
-
-    unsigned int component = idx % ED_COMPONENT_COUNT;
-
-    // printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
-
-    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
-    {
-        unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
-        jtj_diag_coo_col_blocks[jtj_pos] = ed_node_offset * ED_COMPONENT_COUNT + component;
-    }
-
-    // printf("\njtf[%u]\n", ed_node_offset * 10u);
-
-    __syncthreads();
-
-    memcpy(&dev_res.jtj_cols[ed_node_offset * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT], &jtj_diag_coo_col_blocks[0], sizeof(int) * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT);
-}
-
-#ifdef SOLVER_DIRECT_CHOL
-__host__ void solve_for_h()
-{
-    cusparseStatus_t status;
-
-    cusparseMatDescr_t descr = nullptr;
-    cusparseCreateMatDescr(&descr);
-    cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
-    cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO);
-
-    getLastCudaError("cusparseCreateMatDescr failure");
-    cudaDeviceSynchronize();
-
-    int *csr_row_ptr_jtj = nullptr;
     int csr_nnz = _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
-
     int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
+
+    cusparseStatus_t status;
 
     // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
 
-    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
-
     cudaDeviceSynchronize();
-    status = cusparseXcoo2csr(cusparse_handle, _dev_res.jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
+    status = cusparseXcoo2csr(cusparse_handle, _dev_res.jtj_rows, csr_nnz, N, _dev_res.jtj_rows_csr, CUSPARSE_INDEX_BASE_ZERO);
     cudaDeviceSynchronize();
 
     if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
@@ -490,6 +474,21 @@ __host__ void solve_for_h()
     }
 
     getLastCudaError("cusparseXcoo2csr failure");
+}
+
+#ifdef SOLVER_DIRECT_CHOL
+__host__ int solve_for_h()
+{
+    cusparseMatDescr_t descr = nullptr;
+    cusparseCreateMatDescr(&descr);
+    cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
+    cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO);
+
+    getLastCudaError("cusparseCreateMatDescr failure");
+    cudaDeviceSynchronize();
+
+    int csr_nnz = _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
+    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
 
     float tol = 1.e-6f;
     const int reorder = 0;
@@ -498,11 +497,9 @@ __host__ void solve_for_h()
     cudaDeviceSynchronize();
 
     cusolverStatus_t solver_status =
-        cusolverSpScsrlsvchol(cusolver_handle, N, csr_nnz, descr, _dev_res.jtj_vals, csr_row_ptr_jtj, _dev_res.jtj_cols, _dev_res.jtf, tol, reorder, _dev_res.h, &singularity);
+        cusolverSpScsrlsvchol(cusolver_handle, N, csr_nnz, descr, _dev_res.jtj_vals, _dev_res.jtj_rows_csr, _dev_res.jtj_cols, _dev_res.jtf, tol, reorder, _dev_res.h, &singularity);
 
     cudaDeviceSynchronize();
-
-    // printf("\nsingularity: %i\n", singularity);
 
     if(solver_status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS)
     {
@@ -511,16 +508,15 @@ __host__ void solve_for_h()
 
     getLastCudaError("cusolverSpScsrlsvchol failure");
 
-    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
     cusparseDestroyMatDescr(descr);
+
+    return singularity;
 }
 #endif
 
 #ifdef SOLVER_DIRECT_QR
-__host__ void solve_for_h()
+__host__ int solve_for_h()
 {
-    cusparseStatus_t status;
-
     cusparseMatDescr_t descr = nullptr;
     cusparseCreateMatDescr(&descr);
     cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -529,25 +525,10 @@ __host__ void solve_for_h()
     getLastCudaError("cusparseCreateMatDescr failure");
     cudaDeviceSynchronize();
 
-    int *csr_row_ptr_jtj = nullptr;
-    int csr_nnz = _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
-
-    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+    int csr_nnz = _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
+    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
 
     // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
-
-    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
-
-    cudaDeviceSynchronize();
-    status = cusparseXcoo2csr(cusparse_handle, _jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
-    cudaDeviceSynchronize();
-
-    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-    {
-        printf("\ncusparseStatus_t: %u\n", status);
-    }
-
-    getLastCudaError("cusparseXcoo2csr failure");
 
     float tol = 1.e-6f;
     const int reorder = 0;
@@ -558,11 +539,10 @@ __host__ void solve_for_h()
 
     cudaDeviceSynchronize();
 
-    cusolverStatus_t solver_status = cusolverSpScsrlsvqr(cusolver_handle, N, csr_nnz, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, _jtf, tol, reorder, _h, &singularity);
+    cusolverStatus_t solver_status =
+        cusolverSpScsrlsvqr(cusolver_handle, N, csr_nnz, descr, _dev_res.jtj_vals, _dev_res.jtj_rows_csr, _dev_res.jtj_cols, _dev_res.jtf, tol, reorder, _dev_res.h, &singularity);
 
     cudaDeviceSynchronize();
-
-    // printf("\nsingularity: %i\n", singularity);
 
     if(solver_status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS)
     {
@@ -571,16 +551,15 @@ __host__ void solve_for_h()
 
     getLastCudaError("cusolverSpScsrlsvlu failure");
 
-    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
     cusparseDestroyMatDescr(descr);
+
+    return singularity;
 }
 #endif
 
 #ifdef SOLVER_PCG
-__host__ void solve_for_h()
+__host__ int solve_for_h()
 {
-    cusparseStatus_t status;
-
     cusparseMatDescr_t descr = nullptr;
     cusparseCreateMatDescr(&descr);
     cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL);
@@ -589,28 +568,14 @@ __host__ void solve_for_h()
     getLastCudaError("cusparseCreateMatDescr failure");
     cudaDeviceSynchronize();
 
-    int *csr_row_ptr_jtj = nullptr;
-    int csr_nnz = _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
+    int csr_nnz = _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT;
 
-    int N = (int)_active_ed_nodes_count * ED_COMPONENT_COUNT;
+    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
 
     // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
 
-    checkCudaErrors(cudaMalloc(&csr_row_ptr_jtj, sizeof(int) * (N + 1)));
-
-    cudaDeviceSynchronize();
-    status = cusparseXcoo2csr(cusparse_handle, _jtj_rows, csr_nnz, N, csr_row_ptr_jtj, CUSPARSE_INDEX_BASE_ZERO);
-    cudaDeviceSynchronize();
-
-    if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
-    {
-        printf("\ncusparseStatus_t: %u\n", status);
-    }
-
-    getLastCudaError("cusparseXcoo2csr failure");
-
     const int max_iter = 16;
-    const float tol = 1e-12f;
+    const float tol = 1e-6f;
 
     float r0, r1, alpha, alpham1, beta;
     float dot;
@@ -623,7 +588,8 @@ __host__ void solve_for_h()
     r0 = 0.f;
 
     cudaDeviceSynchronize();
-    status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, _h, &beta, pcg_Ax);
+    cusparseStatus_t status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, _dev_res.jtj_vals, _dev_res.jtj_rows_csr, _dev_res.jtj_cols, _dev_res.h,
+                                             &beta, _dev_res.pcg_Ax);
     cudaDeviceSynchronize();
 
     if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
@@ -633,8 +599,8 @@ __host__ void solve_for_h()
 
     getLastCudaError("cusparseScsrmv failure");
 
-    cublasSaxpy(cublas_handle, N, &alpham1, pcg_Ax, 1, _jtf, 1);
-    cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+    cublasSaxpy(cublas_handle, N, &alpham1, _dev_res.pcg_Ax, 1, _dev_res.jtf, 1);
+    cublasSdot(cublas_handle, N, _dev_res.jtf, 1, _dev_res.jtf, 1, &r1);
 
     float init_res = sqrt(r1);
 
@@ -652,16 +618,17 @@ __host__ void solve_for_h()
         if(k > 1)
         {
             b = r1 / r0;
-            cublasSscal(cublas_handle, N, &b, pcg_p, 1);
-            cublasSaxpy(cublas_handle, N, &alpha, _jtf, 1, pcg_p, 1);
+            cublasSscal(cublas_handle, N, &b, _dev_res.pcg_p, 1);
+            cublasSaxpy(cublas_handle, N, &alpha, _dev_res.jtf, 1, _dev_res.pcg_p, 1);
         }
         else
         {
-            cublasScopy(cublas_handle, N, _jtf, 1, pcg_p, 1);
+            cublasScopy(cublas_handle, N, _dev_res.jtf, 1, _dev_res.pcg_p, 1);
         }
 
         cudaDeviceSynchronize();
-        status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, _jtj_vals, csr_row_ptr_jtj, _jtj_cols, pcg_p, &beta, pcg_Ax);
+        status = cusparseScsrmv(cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, csr_nnz, &alpha, descr, _dev_res.jtj_vals, _dev_res.jtj_rows_csr, _dev_res.jtj_cols, _dev_res.pcg_p, &beta,
+                                _dev_res.pcg_Ax);
         cudaDeviceSynchronize();
 
         if(status != cusparseStatus_t::CUSPARSE_STATUS_SUCCESS)
@@ -671,15 +638,15 @@ __host__ void solve_for_h()
 
         getLastCudaError("cusparseScsrmv failure");
 
-        cublasSdot(cublas_handle, N, pcg_p, 1, pcg_Ax, 1, &dot);
+        cublasSdot(cublas_handle, N, _dev_res.pcg_p, 1, _dev_res.pcg_Ax, 1, &dot);
         a = r1 / dot;
 
-        cublasSaxpy(cublas_handle, N, &a, pcg_p, 1, _h, 1);
+        cublasSaxpy(cublas_handle, N, &a, _dev_res.pcg_p, 1, _dev_res.h, 1);
         na = -a;
-        cublasSaxpy(cublas_handle, N, &na, pcg_Ax, 1, _jtf, 1);
+        cublasSaxpy(cublas_handle, N, &na, _dev_res.pcg_Ax, 1, _dev_res.jtf, 1);
 
         r0 = r1;
-        cublasSdot(cublas_handle, N, _jtf, 1, _jtf, 1, &r1);
+        cublasSdot(cublas_handle, N, _dev_res.jtf, 1, _dev_res.jtf, 1, &r1);
         k++;
 
         if(isnanf(sqrt(r1)))
@@ -690,47 +657,71 @@ __host__ void solve_for_h()
 
     printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
 
-    checkCudaErrors(cudaFree(csr_row_ptr_jtj));
     cusparseDestroyMatDescr(descr);
+
+    return -1;
 }
 #endif
 
 #ifdef DEBUG_JTJ
-
 __host__ void print_out_jtj()
 {
     float *host_jtj_vals;
     int *host_jtj_rows;
     int *host_jtj_cols;
 
-    host_jtj_vals = (float *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float));
-    host_jtj_rows = (int *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int));
-    host_jtj_cols = (int *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int));
+    host_jtj_vals = (float *)malloc(_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float));
+    host_jtj_rows = (int *)malloc(_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int));
+    host_jtj_cols = (int *)malloc(_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int));
 
-    cudaMemcpy(&host_jtj_vals[0], &_jtj_vals[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&host_jtj_rows[0], &_jtj_rows[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&host_jtj_cols[0], &_jtj_cols[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_jtj_vals[0], &_dev_res.jtj_vals[0], _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_jtj_rows[0], &_dev_res.jtj_rows[0], _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_jtj_cols[0], &_dev_res.jtj_cols[0], _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
 
     std::ofstream fs("jtj_" + std::to_string(rand()) + ".csv");
     text::csv::csv_ostream csvs(fs);
 
-    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+#ifdef DEBUG_JTJ_COO
+    for(int i = 0; i < _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
     {
         csvs << host_jtj_vals[i];
     }
     csvs << text::csv::endl;
 
-    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+    for(int i = 0; i < _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
     {
         csvs << host_jtj_rows[i];
     }
     csvs << text::csv::endl;
 
-    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+    for(int i = 0; i < _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
     {
         csvs << host_jtj_cols[i];
     }
     csvs << text::csv::endl;
+#endif
+
+#ifdef DEBUG_JTJ_DENSE
+    int row = 0;
+    int col = 0;
+    for(int i = 0; i < _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT; i++)
+    {
+        while(host_jtj_cols[i] > col)
+        {
+            csvs << 0;
+            col++;
+        }
+
+        while(host_jtj_rows[i] > row)
+        {
+            csvs << text::csv::endl;
+            row++;
+        }
+
+        csvs << host_jtj_vals[i];
+        col++;
+    }
+#endif
 
     fs.close();
 
@@ -738,7 +729,6 @@ __host__ void print_out_jtj()
     free(host_jtj_rows);
     free(host_jtj_cols);
 }
-
 #endif
 
 #ifdef DEBUG_JTF
@@ -747,14 +737,14 @@ __host__ void print_out_jtf()
 {
     float *host_jtf;
 
-    host_jtf = (float *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float));
+    host_jtf = (float *)malloc(_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float));
 
-    cudaMemcpy(&host_jtf[0], &_jtf[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_jtf[0], &_dev_res.jtf[0], _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
 
     std::ofstream fs("jtf_" + std::to_string(rand()) + ".csv");
     text::csv::csv_ostream csvs(fs);
 
-    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT; i++)
+    for(int i = 0; i < _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT; i++)
     {
         csvs << host_jtf[i];
     }
@@ -773,14 +763,14 @@ __host__ void print_out_h()
 {
     float *host_h;
 
-    host_h = (float *)malloc(_active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float));
+    host_h = (float *)malloc(_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float));
 
-    cudaMemcpy(&host_h[0], &_h[0], _active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&host_h[0], &_dev_res.h[0], _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT * sizeof(float), cudaMemcpyDeviceToHost);
 
     std::ofstream fs("h_" + std::to_string(rand()) + ".csv");
     text::csv::csv_ostream csvs(fs);
 
-    for(int i = 0; i < _active_ed_nodes_count * ED_COMPONENT_COUNT; i++)
+    for(int i = 0; i < _host_res.active_ed_nodes_count * ED_COMPONENT_COUNT; i++)
     {
         csvs << host_h[i];
     }
@@ -795,16 +785,13 @@ __host__ void print_out_h()
 
 void evaluate_jtj_jtf(const float mu)
 {
-    size_t grid_size = (_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT + ED_COMPONENT_COUNT - 1) / ED_COMPONENT_COUNT;
+    size_t grid_size = _host_res.active_ed_nodes_count;
+
     kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_vx_count, _host_res.active_ed_nodes_count, mu, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
-    kernel_jtj_coo_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
-    getLastCudaError("render kernel failed");
-    cudaDeviceSynchronize();
-
-    kernel_jtj_coo_cols<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    kernel_jtj_coo_cols_rows<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 };
@@ -829,21 +816,18 @@ void evaluate_misalignment_energy(float &misalignment_energy)
     cudaFree(device_misalignment_energy);
 }
 
-void evaluate_step_misalignment_energy(float &misalignment_energy)
+void evaluate_step_misalignment_energy(float &misalignment_energy, const float mu)
 {
     float *device_misalignment_energy = nullptr;
     cudaMallocManaged(&device_misalignment_energy, sizeof(float));
     *device_misalignment_energy = 0.f;
 
-    struct_ed_node *step_ed_graph = nullptr;
-    cudaMalloc(&step_ed_graph, _host_res.active_ed_nodes_count * sizeof(struct_ed_node));
-    cudaMemcpy(step_ed_graph, _dev_res.ed_graph, _host_res.active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(&_dev_res.ed_graph_step[0], &_dev_res.ed_graph[0], _host_res.active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
 
     cudaDeviceSynchronize();
 
     int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
-    const float one = 1.0f;
-    cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&step_ed_graph[0], 1);
+    cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph_step[0], 1);
 
     cudaDeviceSynchronize();
 
@@ -851,14 +835,13 @@ void evaluate_step_misalignment_energy(float &misalignment_energy)
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_step_energy, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_step_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, step_ed_graph, _dev_res, _host_res.measures);
+    kernel_step_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
     cudaMemcpy(&misalignment_energy, &device_misalignment_energy[0], sizeof(float), cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
 
-    cudaFree(step_ed_graph);
     cudaFree(device_misalignment_energy);
 }
 
@@ -878,13 +861,13 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
     map_calibration_volumes();
     map_tsdf_volumes();
 
-    const unsigned int max_iterations = 2u;
+    const unsigned int max_iterations = 1u;
     unsigned int iterations = 0u;
-    float mu = 0.5f;
+    float mu = 1.f;
     float initial_misalignment_energy, solution_misalignment_energy;
+    int singularity = 0;
 
     evaluate_misalignment_energy(initial_misalignment_energy);
-    cudaDeviceSynchronize();
 
     while(iterations < max_iterations)
     {
@@ -892,22 +875,50 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
 
         cudaDeviceSynchronize();
 
-        solve_for_h();
+        convert_to_csr();
+
+        singularity = solve_for_h();
         cudaDeviceSynchronize();
 
-        evaluate_step_misalignment_energy(solution_misalignment_energy);
-        cudaDeviceSynchronize();
+        if(singularity != -1)
+        {
+            mu += 0.2f;
+            printf("\nsingularity encountered, mu raised: %f\n", mu);
+
+            iterations++;
+            continue;
+        }
+
+#ifdef DEBUG_JTJ
+
+        print_out_jtj();
+
+#endif
+
+#ifdef DEBUG_JTF
+
+        print_out_jtf();
+
+#endif
+
+#ifdef DEBUG_H
+
+        print_out_h();
+
+#endif
+
+        evaluate_step_misalignment_energy(solution_misalignment_energy, mu);
+        printf("\ninitial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
         if(solution_misalignment_energy < initial_misalignment_energy && (unsigned int)(solution_misalignment_energy * 1000) != 0u)
         {
             printf("\naccepted step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
             int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
-            const float one = 1.0f;
-            cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
+            cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
             cudaDeviceSynchronize();
 
-            mu -= 0.05f;
+            mu -= 0.2f;
             initial_misalignment_energy = solution_misalignment_energy;
             printf("\nmu lowered: %f\n", mu);
         }
@@ -915,7 +926,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
         {
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
-            mu += 0.05f;
+            mu += 0.2f;
             printf("\nmu raised: %f\n", mu);
         }
 
@@ -923,24 +934,6 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
     }
 
     reject_misaligned_deformations();
-
-#ifdef DEBUG_JTJ
-
-    print_out_jtj();
-
-#endif
-
-#ifdef DEBUG_JTF
-
-    print_out_jtf();
-
-#endif
-
-#ifdef DEBUG_H
-
-    print_out_h();
-
-#endif
 
     unmap_calibration_volumes();
     unmap_tsdf_volumes();

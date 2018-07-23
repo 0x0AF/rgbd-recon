@@ -69,13 +69,9 @@ extern "C" void copy_reference()
     cudaMallocManaged(&active_bricks_count, sizeof(unsigned int));
     *active_bricks_count = 0u;
 
-    free_brick_resources();
+    clean_brick_resources();
 
-    cudaDeviceSynchronize();
-
-    allocate_brick_resources();
-
-    cudaDeviceSynchronize();
+    checkCudaErrors(cudaDeviceSynchronize());
 
     map_tsdf_volumes();
 

@@ -15,7 +15,7 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define CUDA_ALIGN_8
 #endif
 
-// #define DEBUG_NANS
+#define DEBUG_NANS
 
 struct struct_native_handles
 {
@@ -30,9 +30,10 @@ struct struct_native_handles
     unsigned int volume_tsdf_data;
     unsigned int volume_tsdf_ref;
 
-    unsigned int texture_kinect_rgbs;
-    unsigned int texture_kinect_depths;
-    unsigned int texture_kinect_silhouettes;
+    unsigned int pbo_kinect_rgbs;
+    unsigned int pbo_kinect_depths;
+    unsigned int pbo_kinect_silhouettes;
+    unsigned int pbo_kinect_silhouettes_debug;
 
     unsigned int volume_cv_xyz_inv[4];
     unsigned int volume_cv_xyz[4];

@@ -57,21 +57,23 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     cudaDeviceGetLimit(&value, cudaLimitDevRuntimePendingLaunchCount);
     printf("\nLimit Pending Launch: %lu\n\n", value);
 
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_vertex_counter, native_handles.buffer_vertex_counter, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_reference_mesh_vertices, native_handles.buffer_reference_vertices, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_ed_nodes_debug, native_handles.buffer_ed_nodes_debug, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_sorted_vertices_debug, native_handles.buffer_sorted_vertices_debug, cudaGraphicsRegisterFlagsNone));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_bricks, native_handles.buffer_bricks, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_occupied, native_handles.buffer_occupied, cudaGraphicsRegisterFlagsReadOnly));
 
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.texture_kinect_rgbs, native_handles.texture_kinect_rgbs, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.texture_kinect_depths, native_handles.texture_kinect_depths, cudaGraphicsRegisterFlagsNone));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.texture_kinect_silhouettes, native_handles.texture_kinect_silhouettes, cudaGraphicsRegisterFlagsNone));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_vertex_counter, native_handles.buffer_vertex_counter, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_reference_mesh_vertices, native_handles.buffer_reference_vertices, cudaGraphicsRegisterFlagsNone));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_ed_nodes_debug, native_handles.buffer_ed_nodes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_sorted_vertices_debug, native_handles.buffer_sorted_vertices_debug, cudaGraphicsRegisterFlagsWriteDiscard));
+
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_rgbs, native_handles.pbo_kinect_rgbs, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_depths, native_handles.pbo_kinect_depths, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes, native_handles.pbo_kinect_silhouettes, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes_debug, native_handles.pbo_kinect_silhouettes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz_inv[i], native_handles.volume_cv_xyz_inv[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsNone));
-        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz[i], native_handles.volume_cv_xyz[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsNone));
+        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz_inv[i], native_handles.volume_cv_xyz_inv[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz[i], native_handles.volume_cv_xyz[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
     }
 
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
@@ -127,10 +129,16 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     cusolverSpCreate(&cusolver_handle);
     getLastCudaError("cusolverSpCreate failure");
+
+    allocate_brick_resources();
+    allocate_ed_resources();
 }
 
 extern "C" void deinit_cuda()
 {
+    free_ed_resources();
+    free_brick_resources();
+
     free(_host_res.kernel_gauss);
 
     cusparseDestroy(cusparse_handle);
@@ -147,9 +155,10 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_data));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_ref));
 
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_rgbs));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_depths));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.texture_kinect_silhouettes));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_rgbs));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_depths));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes_debug));
 
     for(unsigned int i = 0; i < 4; i++)
     {
@@ -172,50 +181,8 @@ extern "C" void deinit_cuda()
         checkCudaErrors(cudaFree(_dev_res.kinect_silhouettes));
     }
 
-    if(_dev_res.ed_graph != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.ed_graph));
-    }
-
-    if(_dev_res.jtf != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.jtf));
-    }
-
-    if(_dev_res.jtj_vals != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.jtj_vals));
-    }
-
-    if(_dev_res.jtj_rows != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.jtj_rows));
-    }
-
-    if(_dev_res.jtj_cols != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.jtj_cols));
-    }
-
-    if(_dev_res.h != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.h));
-    }
-
-    if(_dev_res.pcg_Ax != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.pcg_Ax));
-    }
-
-    if(_dev_res.pcg_omega != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.pcg_omega));
-    }
-
-    if(_dev_res.pcg_p != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.pcg_p));
-    }
+    free_brick_resources();
+    free_ed_resources();
 
     cudaDeviceReset();
 }

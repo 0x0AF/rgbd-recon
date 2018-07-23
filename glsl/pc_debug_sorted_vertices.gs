@@ -46,24 +46,29 @@ out float pass_IsED;
 
 #include </inc_bbox_test.glsl>
 
+#define FAST_QUAT_OPS
+
+#ifdef FAST_QUAT_OPS
 vec3 qtransform(vec4 q, vec3 v) { return v + 2.f * cross(cross(v, q.xyz) + q.w * v, q.xyz); }
+#endif
 
 void main()
 {
-    EDNode ed_node = ed_nodes[uint(geo_Position[0].x * 100000.f)];
+    EDNode ed_node = ed_nodes[uint(geo_Position[0].x * 1000000.f)];
 
     pass_Position = ed_node.position;
-    pass_BrickIdColor = (ed_node.brick_id % 256) / 256.0f;
-    pass_EDCellIdColor = (ed_node.ed_cell_id % 27) / 27.0f;
+    pass_BrickIdColor = 0.1f + 0.9f * (ed_node.brick_id % 256) / 256.0f;
+    pass_EDCellIdColor = 0.1f + 0.9f * (ed_node.ed_cell_id % 27) / 27.0f;
     pass_IsED = 1.f;
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vec4(ed_node.position + bbox_min, 1.0);
-    gl_PointSize = 3.0f;
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
+    gl_PointSize = 3.5f;
 
     EmitVertex();
     EndPrimitive();
 
-    for(uint i = 0; i < ed_node.vx_length; i++){
+    for(uint i = 0; i < ed_node.vx_length; i++)
+    {
         Vertex vertex = vertices[ed_node.vx_offset + i];
 
         pass_Position = vertex.position;
@@ -75,8 +80,8 @@ void main()
         float skinning_weight = 1.f; // exp(length(dist) * length(dist) / 0.00005f); // TODO: generalize based on voxel size
         vec3 warped_position = skinning_weight * (qtransform(ed_node.affine, dist) + ed_node.position + ed_node.translation);
 
-        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vec4(warped_position + bbox_min, 1.0);
-        gl_PointSize = 2.0f;
+        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(warped_position, 1.0);
+        gl_PointSize = 2.5f;
 
         EmitVertex();
         EndPrimitive();

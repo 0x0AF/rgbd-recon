@@ -107,7 +107,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     globjects::Texture *_texture2darray_debug;
 
-    globjects::Buffer *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug;
+    globjects::Buffer *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug;
     globjects::Program *_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
     std::vector<brick> _bricks;
@@ -123,7 +123,7 @@ class ReconPerformanceCapture : public Reconstruction
     float _ratio_occupied;
     unsigned _min_voxels_per_brick;
 
-    bool _should_update_silhouettes;
+    bool _should_update_silhouettes = true;
 
     std::atomic<uint64_t> _frame_number;
 

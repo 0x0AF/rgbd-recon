@@ -138,15 +138,15 @@ bool NetKinectArray::init()
     m_textures_bg.back->image3D(0, GL_RG32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RG, GL_FLOAT, empty_bg_tex.data());
     m_textures_silhouette->image3D(0, GL_R32F, m_resolution_depth.x, m_resolution_depth.y, m_numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
 
-    m_out_pbo_colors->setData(m_depthsize * m_numLayers * 4, nullptr, GL_DYNAMIC_COPY_ARB);
+    m_out_pbo_colors->setData(m_depthsize * m_numLayers * 4, nullptr, GL_DYNAMIC_COPY);
     m_out_pbo_colors->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
-    m_out_pbo_depths->setData(m_depthsize * m_numLayers * 2, nullptr, GL_DYNAMIC_COPY_ARB);
+    m_out_pbo_depths->setData(m_depthsize * m_numLayers * 2, nullptr, GL_DYNAMIC_COPY);
     m_out_pbo_depths->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
-    m_out_pbo_silhouettes->setData(m_depthsize * m_numLayers, nullptr, GL_DYNAMIC_COPY_ARB);
+    m_out_pbo_silhouettes->setData(m_depthsize * m_numLayers, nullptr, GL_DYNAMIC_COPY);
     m_out_pbo_silhouettes->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
@@ -224,6 +224,10 @@ NetKinectArray::~NetKinectArray()
     m_textures_normal->destroy();
     m_textures_quality->destroy();
     m_textures_silhouette->destroy();
+
+    m_out_pbo_colors->destroy();
+    m_out_pbo_depths->destroy();
+    m_out_pbo_silhouettes->destroy();
 }
 
 bool NetKinectArray::update()
@@ -236,6 +240,8 @@ bool NetKinectArray::update()
 
     m_colorArray->fillLayersFromPBO(m_pbo_colors.get()->id());
     m_depthArray_raw->fillLayersFromPBO(m_pbo_depths.get()->id());
+
+    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
 
     glBindTexture(GL_TEXTURE_2D_ARRAY, m_textures_color->id());
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, m_out_pbo_colors->id());
@@ -254,6 +260,8 @@ bool NetKinectArray::update()
     glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
 
     return true;
 }

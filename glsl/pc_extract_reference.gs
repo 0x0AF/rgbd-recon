@@ -108,6 +108,7 @@ void main()
 
                 edge_vertices_indices[i] = atomicCounterIncrement(vertex_counter);
                 edge_vertex_buffer[i].position = edge_vertices[i];
+                edge_vertex_buffer[i].brick_id = brick_id;
             }
         }
 

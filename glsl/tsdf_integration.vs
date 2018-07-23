@@ -12,7 +12,7 @@ uniform sampler2DArray kinect_silhouettes;
 // calibration
 uniform sampler3D[5] cv_xyz_inv;
 
-layout(rg32f) uniform image3D volume_tsdf;
+layout(rg32f) restrict uniform image3D volume_tsdf;
 
 uniform float limit;
 uniform uint num_kinects;
