@@ -15,7 +15,38 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define CUDA_ALIGN_8
 #endif
 
+// #define VERBOSE
 #define DEBUG_NANS
+
+#define SIFT_MAX_CORRESPONDENCES 4096
+#define SIFT_MINIMAL_SCORE 0.95f
+#define SIFT_FILTER_MAX_MOTION 0.2f
+#define SIFT_USE_COLOR
+// #define SIFT_USE_SILHOUETTES
+
+#define SIFT_OCTAVES 5
+#define SIFT_BLUR 0.f
+#define SIFT_THRESHOLD 0.01f
+#define SIFT_LOWEST_SCALE 0.01f
+#define SIFT_UPSCALE false
+
+#define EVALUATE_DATA
+// #define EVALUATE_VISUAL_HULL
+// #define EVALUATE_ED_REGULARIZATION
+
+// #define ED_NODES_ROBUSTIFY
+// #define FAST_QUAT_OPS
+
+// #define DEBUG_JTJ
+// #define DEBUG_JTJ_COO
+// #define DEBUG_JTJ_DENSE
+// #define DEBUG_JTJ_PUSH_ORDERED_INTEGERS
+// #define DEBUG_JTF
+// #define DEBUG_H
+
+#define SOLVER_DIRECT_CHOL
+// #define SOLVER_DIRECT_QR
+// #define SOLVER_PCG
 
 struct struct_native_handles
 {
@@ -26,6 +57,7 @@ struct struct_native_handles
     unsigned int buffer_reference_vertices;
     unsigned int buffer_ed_nodes_debug;
     unsigned int buffer_sorted_vertices_debug;
+    unsigned int buffer_correspondences_debug;
 
     unsigned int volume_tsdf_data;
     unsigned int volume_tsdf_ref;
@@ -33,7 +65,9 @@ struct struct_native_handles
     unsigned int pbo_kinect_rgbs;
     unsigned int pbo_kinect_depths;
     unsigned int pbo_kinect_silhouettes;
+
     unsigned int pbo_kinect_silhouettes_debug;
+    unsigned int pbo_kinect_intens_debug;
 
     unsigned int volume_cv_xyz_inv[4];
     unsigned int volume_cv_xyz[4];
@@ -107,6 +141,20 @@ struct CUDA_ALIGN_8 struct_ed_meta_entry
     unsigned int vx_length;
     bool rejected;
     int neighbors[27];
+};
+
+struct CUDA_ALIGN_8 struct_correspondence
+{
+    glm::vec2 previous;
+    glm::vec2 current;
+    unsigned int layer;
+    unsigned int pad1;
+    float depth_prev;
+    float depth_curr;
+    /*glm::vec3 previous;
+    unsigned int pad1;
+    glm::vec3 current;
+    unsigned int pad2;*/
 };
 
 #endif // RECON_PC_CUDA_STRUCTURES

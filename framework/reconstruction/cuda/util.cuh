@@ -15,7 +15,7 @@ inline void __safeCall(cudaError err, const char *file, const int line)
 
 inline void __safeThreadSync(const char *file, const int line)
 {
-    cudaError err = cudaThreadSynchronize();
+    cudaError err = cudaDeviceSynchronize();
     if(cudaSuccess != err)
     {
         fprintf(stderr, "threadSynchronize() Driver API error in file '%s' in line %i : %s.\n", file, line, cudaGetErrorString(err));
@@ -222,7 +222,7 @@ CUDA_HOST_DEVICE glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_nod
 #ifdef FAST_QUAT_OPS
     return skinning_weight * (qtransform(ed_node.affine, normal));
 #else
-    return skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal);
+    return glm::normalize(skinning_weight * (glm::transpose(glm::inverse(glm::mat3(ed_node.affine))) * normal));
 #endif
 }
 
@@ -265,6 +265,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
     }
 
     // printf("\nwarped position: (%f,%f,%f)\n", warped_position.x, warped_position.y, warped_position.z);
+    // printf("\nwarped normal: (%.2f,%.2f,%.2f) [%.2f]\n", warped_normal.x, warped_normal.y, warped_normal.z, glm::length(warped_normal));
 
     for(int i = 0; i < 4; i++)
     {
@@ -317,8 +318,9 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         //        }
 
         glm::vec3 extracted_position = glm::vec3(projected.x, projected.y, projected.z);
-        extracted_position -= measures.bbox_translation;
-        extracted_position /= measures.bbox_dimensions;
+        extracted_position = bbox_transform_position (extracted_position, measures);
+
+        // printf("\nextracted_position (%.2f, %.2f, %.2f)\n", extracted_position.x, extracted_position.y, extracted_position.z);
 
         if(!in_normal_space(extracted_position))
         {
@@ -367,7 +369,7 @@ CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index, stru
     case 7:
     case 8:
     case 9:
-        step = measures.size_voxel * 2.5f; // one voxel step
+        step = measures.size_voxel * 0.5f; // one voxel step
         break;
     case 3:
     case 4:
@@ -394,6 +396,10 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
 
     float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, depths_ptr, measures);
 
+    mapped_ed_node[partial_derivative_index] -= 2.f * ds;
+
+    float residual_neg = evaluate_vx_residual(vertex, ed_node_new, ed_node, depths_ptr, measures);
+
     // printf("\nresidual_pos: %f\n", residual_pos);
 
     if(isnan(residual_pos))
@@ -405,7 +411,7 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
         residual_pos = 0.f;
     }
 
-    float partial_derivative = residual_pos / (2.0f * ds) - vx_residual / (2.0f * ds);
+    float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
 
     // printf("\npartial_derivative: %f\n", partial_derivative);
 
@@ -657,6 +663,10 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
 
     float residual_pos = evaluate_hull_residual(vertex, ed_node, silhouettes_ptr, measures);
 
+    mapped_ed_node[partial_derivative_index] -= 2.f * ds;
+
+    float residual_neg = evaluate_hull_residual(vertex, ed_node, silhouettes_ptr, measures);
+
     // printf("\nresidual_pos: %f\n", residual_pos);
 
     if(isnan(residual_pos))
@@ -668,7 +678,7 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
         residual_pos = 0.f;
     }
 
-    float partial_derivative = residual_pos / (2.0f * ds) - vx_residual / (2.0f * ds);
+    float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
 
     // printf("\npartial_derivative: %f\n", partial_derivative);
 

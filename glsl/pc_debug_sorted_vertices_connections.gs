@@ -6,7 +6,7 @@
 #extension GL_ARB_uniform_buffer_object : enable
 
 layout(points) in;
-layout(points, max_vertices = 128) out;
+layout(line_strip, max_vertices = 128) out;
 
 struct EDNode
 {
@@ -61,12 +61,6 @@ void main()
     pass_EDCellIdColor = 0.1f + 0.9f * (ed_node.ed_cell_id % 27) / 27.0f;
     pass_IsED = 1.f;
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
-    gl_PointSize = 3.5f;
-
-    EmitVertex();
-    EndPrimitive();
-
     for(uint i = 0; i < ed_node.vx_length; i++)
     {
         Vertex vertex = vertices[ed_node.vx_offset + i];
@@ -80,8 +74,11 @@ void main()
         float skinning_weight = 1.f; // exp(length(dist) * length(dist) / 0.00005f); // TODO: generalize based on voxel size
         vec3 warped_position = skinning_weight * (qtransform(ed_node.affine, dist) + ed_node.position + ed_node.translation);
 
+        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
+
+        EmitVertex();
+
         gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(warped_position, 1.0);
-        gl_PointSize = 2.5f;
 
         EmitVertex();
         EndPrimitive();

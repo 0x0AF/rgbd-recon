@@ -100,11 +100,9 @@ __global__ void kernel_filter_cols(float *silhouettes_ptr, int layer, struct_mea
     silhouettes_ptr[offset] = sum;
 }
 
-extern "C" void generate_smooth_hull()
+__host__ void preprocess_hull()
 {
     const int iterations = 20;
-
-    map_kinect_arrays();
 
     cudaMemcpyToSymbol(c_Kernel, _host_res.kernel_gauss, KERNEL_LENGTH * sizeof(float));
 
@@ -122,6 +120,56 @@ extern "C" void generate_smooth_hull()
             getLastCudaError("kernel_filter_cols execution failed\n");
         }
     }
+}
+
+__global__ void kernel_flatten_rgbs(struct_device_resources dev_res, int layer, struct_measures measures)
+{
+    const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
+    const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
+
+    if(ix >= measures.depth_res.x || iy >= measures.depth_res.y)
+    {
+        return;
+    }
+
+    if(iy < 0 || ix < 0)
+    {
+        return;
+    }
+
+    const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
+
+#ifdef SIFT_USE_COLOR
+    float4 color = dev_res.kinect_rgbs[offset];
+    // printf ("\ncolor: (%f,%f,%f,%f)\n",color.x,color.y,color.z, color.w);
+    dev_res.kinect_intens[offset] = 5.0f * color.x + color.y + 2.5f * color.z;
+#else
+#ifdef SIFT_USE_SILHOUETTES
+    dev_res.kinect_intens[offset] = dev_res.kinect_silhouettes[offset];
+#else
+    dev_res.kinect_intens[offset] = dev_res.kinect_depths[offset].x;
+#endif
+#endif
+}
+
+__host__ void preprocess_intensity()
+{
+    dim3 threads(8, 8);
+    dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
+
+    for(int layer = 0; layer < 4; layer++)
+    {
+        kernel_flatten_rgbs<<<blocks, threads>>>(_dev_res, layer, _host_res.measures);
+        getLastCudaError("kernel_filter_rows execution failed\n");
+    }
+}
+
+extern "C" void preprocess_textures()
+{
+    map_kinect_arrays();
+
+    preprocess_hull();
+    preprocess_intensity();
 
     unmap_kinect_arrays();
 }

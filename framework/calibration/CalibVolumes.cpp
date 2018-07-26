@@ -93,6 +93,7 @@ std::vector<int> CalibVolumes::getXYZVolumeUnitsInv() const
 }
 
 glm::uvec3 CalibVolumes::getVolumeRes() const { return m_data_volumes_xyz_inv[0].res(); }
+glm::uvec3 CalibVolumes::getVolumeResXYZ() const { return m_data_volumes_xyz[0].res(); }
 
 glm::fvec2 CalibVolumes::getDepthLimits(unsigned i) const { return m_data_volumes_xyz[i].depthLimits(); }
 

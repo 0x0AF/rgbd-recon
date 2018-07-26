@@ -27,11 +27,14 @@ struct struct_graphic_resources
     cudaGraphicsResource *buffer_occupied{nullptr};
     cudaGraphicsResource *buffer_ed_nodes_debug{nullptr};
     cudaGraphicsResource *buffer_sorted_vertices_debug{nullptr};
+    cudaGraphicsResource *buffer_correspondences_debug{nullptr};
 
     cudaGraphicsResource *pbo_kinect_rgbs{nullptr};
     cudaGraphicsResource *pbo_kinect_depths{nullptr};
     cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
+
     cudaGraphicsResource *pbo_kinect_silhouettes_debug{nullptr};
+    cudaGraphicsResource *pbo_kinect_intens_debug{nullptr};
 
     cudaGraphicsResource *volume_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *volume_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
@@ -44,14 +47,18 @@ struct_graphic_resources _cgr;
 struct struct_device_resources
 {
     float4 *kinect_rgbs = nullptr;
+    float *kinect_intens = nullptr;
     float2 *kinect_depths = nullptr;
+    float2 *kinect_depths_prev = nullptr;
     float *kinect_silhouettes = nullptr;
 
-    size_t mapped_bytes_kinect_arrays[4] = {0, 0, 0, 0};
+    size_t mapped_bytes_kinect_arrays[5] = {0, 0, 0, 0, 0};
     float4 *mapped_pbo_rgbs = nullptr;
     float2 *mapped_pbo_depths = nullptr;
     float1 *mapped_pbo_silhouettes = nullptr;
+
     float1 *mapped_pbo_silhouettes_debug = nullptr;
+    float1 *mapped_pbo_intens_debug = nullptr;
 
     unsigned int *bricks_dense_index = nullptr;
     unsigned int *bricks_inv_index = nullptr;
@@ -60,6 +67,8 @@ struct struct_device_resources
     struct_ed_meta_entry *ed_graph_meta = nullptr;
     struct_vertex *sorted_vx_ptr = nullptr;
     struct_vertex *unsorted_vx_ptr = nullptr;
+    struct_correspondence *sorted_correspondences = nullptr;
+    struct_correspondence *unsorted_correspondences = nullptr;
 
     float *jtj_vals = nullptr;
     int *jtj_rows = nullptr;
@@ -82,6 +91,8 @@ struct struct_host_resources
     unsigned int active_bricks_count = 0u;
     unsigned int active_ed_nodes_count = 0u;
     unsigned long active_ed_vx_count = 0u;
+
+    unsigned int valid_correspondences = 0u;
 
     float *kernel_gauss;
 };
@@ -163,13 +174,13 @@ void map_kinect_arrays()
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_rgbs, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_depths, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes_debug, 0));
 
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_rgbs, &_dev_res.mapped_bytes_kinect_arrays[0], _cgr.pbo_kinect_rgbs));
     checkCudaErrors(cudaMemcpy(&_dev_res.kinect_rgbs[0], &_dev_res.mapped_pbo_rgbs[0], _dev_res.mapped_bytes_kinect_arrays[0], cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_depths, &_dev_res.mapped_bytes_kinect_arrays[1], _cgr.pbo_kinect_depths));
+    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths_prev[0], &_dev_res.kinect_depths[0], _dev_res.mapped_bytes_kinect_arrays[1], cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths[0], &_dev_res.mapped_pbo_depths[0], _dev_res.mapped_bytes_kinect_arrays[1], cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
@@ -177,16 +188,38 @@ void map_kinect_arrays()
     checkCudaErrors(cudaMemcpy(&_dev_res.kinect_silhouettes[0], &_dev_res.mapped_pbo_silhouettes[0], _dev_res.mapped_bytes_kinect_arrays[2], cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes_debug, 0));
+
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes_debug, &_dev_res.mapped_bytes_kinect_arrays[3], _cgr.pbo_kinect_silhouettes_debug));
     checkCudaErrors(cudaDeviceSynchronize());
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_intens_debug, 0));
+
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_intens_debug, &_dev_res.mapped_bytes_kinect_arrays[4], _cgr.pbo_kinect_intens_debug));
+    checkCudaErrors(cudaDeviceSynchronize());
+#endif
 }
 
 void unmap_kinect_arrays()
 {
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaMemcpy(&_dev_res.mapped_pbo_silhouettes_debug[0], &_dev_res.kinect_silhouettes[0], _dev_res.mapped_bytes_kinect_arrays[2], cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes_debug));
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+    checkCudaErrors(
+        cudaMemcpy(&_dev_res.mapped_pbo_intens_debug[0], &_dev_res.kinect_intens[0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float1), cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_intens_debug));
+#endif
+
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_depths));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_rgbs));
@@ -326,12 +359,39 @@ __host__ void clean_ed_resources()
     checkCudaErrors(cudaMemset(_dev_res.jtj_rows, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
     checkCudaErrors(cudaMemset(_dev_res.jtj_cols, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
 
-    checkCudaErrors(cudaMemset(_dev_res.jtf, 0,_host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.jtf, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.h, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
 
     checkCudaErrors(cudaMemset(_dev_res.pcg_p, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.pcg_omega, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.pcg_Ax, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
+}
+
+__host__ void allocate_correspondence_resources()
+{
+    checkCudaErrors(cudaMalloc(&_dev_res.sorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
+    checkCudaErrors(cudaMalloc(&_dev_res.unsorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
+}
+
+__host__ void clean_correspondence_resources()
+{
+    checkCudaErrors(cudaMemset(_dev_res.sorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
+    checkCudaErrors(cudaMemset(_dev_res.unsorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
+}
+
+__host__ void free_correspondence_resources()
+{
+    if(_dev_res.sorted_correspondences != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.sorted_correspondences));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.unsorted_correspondences != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.unsorted_correspondences));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
 }
 
 #endif // RECON_PC_CUDA_RESOURCES

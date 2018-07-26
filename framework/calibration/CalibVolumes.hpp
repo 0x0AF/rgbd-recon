@@ -36,6 +36,7 @@ public:
   void calculateInverseVolumes2();
 
   glm::uvec3 getVolumeRes() const;
+  glm::uvec3 getVolumeResXYZ() const;
   glm::fvec2 getDepthLimits(unsigned i) const;
 
   void writeInverseCalibs(std::string const& path) const;

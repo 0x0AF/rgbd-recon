@@ -275,8 +275,8 @@ extern "C" void sample_ed_nodes()
 
     clean_ed_resources ();
 
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices));
 
     size_t vx_bytes;
     GLuint *vx_counter;
@@ -344,8 +344,8 @@ extern "C" void sample_ed_nodes()
         checkCudaErrors(cudaFree(active_vx_count));
     }
 
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_reference_mesh_vertices, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_vertex_counter, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_reference_mesh_vertices));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_vertex_counter));
 }
 
 __global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigned int ed_node_count, struct_device_resources dev_res, struct_measures measures)
@@ -378,7 +378,7 @@ __global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigne
 
 extern "C" unsigned int push_debug_ed_nodes()
 {
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_ed_nodes_debug, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_ed_nodes_debug));
 
     struct_ed_node_debug *ed_ptr;
     size_t ed_bytes;
@@ -393,7 +393,7 @@ extern "C" unsigned int push_debug_ed_nodes()
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_ed_nodes_debug, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_ed_nodes_debug));
 
     return _host_res.active_ed_nodes_count;
 }
@@ -418,7 +418,7 @@ __global__ void kernel_push_debug_sorted_vertices(struct_vertex *vx_ptr, unsigne
 
 extern "C" unsigned long push_debug_sorted_vertices()
 {
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_sorted_vertices_debug, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_sorted_vertices_debug));
 
     struct_vertex *vx_ptr;
     size_t vx_bytes;
@@ -427,13 +427,12 @@ extern "C" unsigned long push_debug_sorted_vertices()
     int block_size;
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_push_debug_sorted_vertices, 0, 0);
-
     size_t grid_size = (_host_res.active_ed_vx_count + block_size - 1) / block_size;
     kernel_push_debug_sorted_vertices<<<grid_size, block_size>>>(vx_ptr, _host_res.active_ed_vx_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_sorted_vertices_debug, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_sorted_vertices_debug));
 
     return _host_res.active_ed_vx_count;
 }

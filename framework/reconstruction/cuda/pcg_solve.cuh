@@ -1,23 +1,5 @@
 #include <reconstruction/cuda/resources.cuh>
 
-#define EVALUATE_DATA
-#define EVALUATE_VISUAL_HULL
-// #define EVALUATE_ED_REGULARIZATION
-
-// #define ED_NODES_ROBUSTIFY
-#define FAST_QUAT_OPS
-
-// #define DEBUG_JTJ
-// #define DEBUG_JTJ_COO
-// #define DEBUG_JTJ_DENSE
-// #define DEBUG_JTJ_PUSH_ORDERED_INTEGERS
-// #define DEBUG_JTF
-// #define DEBUG_H
-
-#define SOLVER_DIRECT_CHOL
-// #define SOLVER_DIRECT_QR
-// #define SOLVER_PCG
-
 #ifdef DEBUG_JTJ
 
 #include "../../../external/csv/ostream.hpp"

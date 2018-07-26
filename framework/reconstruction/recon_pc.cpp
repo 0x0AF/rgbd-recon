@@ -39,27 +39,30 @@ extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" unsigned int push_debug_ed_nodes();
 extern "C" unsigned long push_debug_sorted_vertices();
-extern "C" void generate_smooth_hull();
+extern "C" unsigned int push_debug_correspondences();
+extern "C" void preprocess_textures();
 extern "C" void estimate_correspondence_field();
 extern "C" void pcg_solve();
 extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
-#define WIPE_DATA
+// #define WIPE_DATA
 
 // #define PIPELINE_DEBUG_TEXTURE_COLORS
 // #define PIPELINE_DEBUG_TEXTURE_DEPTHS
 // #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+#define PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
 // #define PIPELINE_DEBUG_REFERENCE_VOLUME
 // #define PIPELINE_DEBUG_REFERENCE_MESH
-#define PIPELINE_DEBUG_ED_SAMPLING
+// #define PIPELINE_DEBUG_ED_SAMPLING
 // #define PIPELINE_DEBUG_SORTED_VERTICES
+// #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
 
-#define PIPELINE_SAMPLE
-// #define PIPELINE_CORRESPONDENCE
 #define PIPELINE_TEXTURES_PREPROCESS
-#define PIPELINE_ALIGN
+// #define PIPELINE_SAMPLE
+#define PIPELINE_CORRESPONDENCE
+// #define PIPELINE_ALIGN
 // #define PIPELINE_FUSE
 
 #define DATA_IMAGE_UNIT 6
@@ -98,6 +101,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _native_handles.buffer_reference_vertices = _buffer_reference_mesh_vertices->id();
     _native_handles.buffer_ed_nodes_debug = _buffer_ed_nodes_debug->id();
     _native_handles.buffer_sorted_vertices_debug = _buffer_sorted_vertices_debug->id();
+    _native_handles.buffer_correspondences_debug = _buffer_correspondences_debug->id();
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
     _native_handles.volume_tsdf_ref = _volume_tsdf_ref;
@@ -126,8 +130,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
 
     _measures.data_volume_num_bricks = _res_bricks.x * _res_bricks.y * _res_bricks.z;
 
-    // TODO: generalize
-    _measures.cv_xyz_res = glm::uvec3(128u, 128u, 128u);
+    _measures.cv_xyz_res = cv->getVolumeResXYZ();
     _measures.cv_xyz_inv_res = cv->getVolumeRes();
 
     _texture2darray_debug = globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY);
@@ -141,7 +144,13 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     glBindTextureUnit(32, _volume_tsdf_data);
     glBindTextureUnit(33, _volume_tsdf_ref);
 
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_textures_debug->id();
+#endif
+
+    //#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+    //    _native_handles.pbo_kinect_intens_debug = _buffer_pbo_textures_debug->id();
+    //#endif
 
     init_cuda(_res_volume, _measures, _native_handles);
 
@@ -167,6 +176,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_ed_nodes_debug = new Buffer();
     _buffer_sorted_vertices_debug = new Buffer();
     _buffer_pbo_textures_debug = new Buffer();
+    _buffer_correspondences_debug = new Buffer();
 
     _vec_debug = std::vector<glm::vec3>(524288);
 
@@ -175,6 +185,8 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_pc_debug_reference = new Program();
     _program_pc_debug_ed_sampling = new Program();
     _program_pc_debug_sorted_vertices = new Program();
+    _program_pc_debug_sorted_vertices_connections = new Program();
+    _program_pc_debug_correspondences = new Program();
     _program_pc_draw_data = new Program();
     _program_pc_extract_reference = new Program();
     _program_integration = new Program();
@@ -242,6 +254,9 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
 
     _buffer_sorted_vertices_debug->setData(sizeof(struct_vertex) * 524288, nullptr, GL_STREAM_COPY);
     _buffer_sorted_vertices_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
+
+    _buffer_correspondences_debug->setData(sizeof(struct_correspondence) * 4 * SIFT_MAX_CORRESPONDENCES, nullptr, GL_STREAM_COPY);
+    _buffer_correspondences_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 10);
 
     for(size_t i = 0; i < 524288; i++)
     {
@@ -318,6 +333,12 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_debug_sorted_vertices->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_sorted_vertices.fs"));
     _program_pc_debug_sorted_vertices->setUniform("vol_to_world", _mat_vol_to_world);
 
+    _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_reference.vs"));
+    _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_sorted_vertices_connections.gs"));
+    _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
+    _program_pc_debug_sorted_vertices_connections->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_debug_sorted_vertices_connections->setUniform("Color", glm::fvec3{1.0f, 0.0f, 0.0f});
+
     _program_integration->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
     _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
     _program_integration->setUniform("volume_tsdf", DATA_IMAGE_UNIT);
@@ -344,6 +365,16 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_debug_textures->setUniform("texture_2d_array", 8);
 #endif
 
+#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+    // _program_pc_debug_textures->setUniform("texture_2d_array", 8);
+    _program_pc_debug_correspondences->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_correspondences.vs"));
+    _program_pc_debug_correspondences->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_correspondences.gs"));
+    _program_pc_debug_correspondences->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_correspondences.fs"));
+    _program_pc_debug_correspondences->setUniform("kinect_depths", 2);
+    _program_pc_debug_correspondences->setUniform("cv_xyz", m_cv->getXYZVolumeUnits());
+    _program_pc_debug_correspondences->setUniform("vol_to_world", _mat_vol_to_world);
+#endif
+
     _program_solid->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
     _program_bricks->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
 }
@@ -359,9 +390,12 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_occupied->destroy();
 
     _vao_debug->destroy();
+    _vao_fsquad_debug->destroy();
     _buffer_debug->destroy();
+    _buffer_fsquad_debug->destroy();
     _buffer_ed_nodes_debug->destroy();
     _buffer_sorted_vertices_debug->destroy();
+    _buffer_correspondences_debug->destroy();
 
     _texture2darray_debug->destroy();
     glDeleteTextures(1, &_volume_tsdf_data);
@@ -412,7 +446,17 @@ void ReconPerformanceCapture::draw()
     {
         TimerDatabase::instance().begin(TIMER_SMOOTH_HULL);
 
-        generate_smooth_hull();
+        preprocess_textures();
+
+#ifdef PIPELINE_CORRESPONDENCE
+
+        TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
+
+        estimate_correspondence_field();
+
+        TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
+
+#endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
         glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
@@ -422,6 +466,14 @@ void ReconPerformanceCapture::draw()
         glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 #endif
 
+        //#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+        //        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
+        //        glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
+        //        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+        //        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        //        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+        //#endif
+
         TimerDatabase::instance().end(TIMER_SMOOTH_HULL);
 
         _should_update_silhouettes = false;
@@ -429,16 +481,6 @@ void ReconPerformanceCapture::draw()
 #endif
 
 #ifdef PIPELINE_ALIGN
-
-#ifdef PIPELINE_CORRESPONDENCE
-
-    TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
-
-    estimate_correspondence_field();
-
-    TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
-
-#endif
 
     // TODO: estimate ICP rigid body fit
 
@@ -497,7 +539,12 @@ void ReconPerformanceCapture::draw()
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-    draw_debug_texture_silhouettes();
+    draw_debug_texture();
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+    // draw_debug_texture();
+    draw_debug_correspondences();
 #endif
 
     _frame_number.store(_frame_number.load() + 1);
@@ -668,8 +715,6 @@ void ReconPerformanceCapture::draw_debug_ed_sampling()
 }
 void ReconPerformanceCapture::draw_debug_sorted_vertices()
 {
-    _program_pc_debug_sorted_vertices->use();
-
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
     gloost::Matrix viewport_translate;
@@ -686,11 +731,23 @@ void ReconPerformanceCapture::draw_debug_sorted_vertices()
 
     // std::cout << vx_count << std::endl;
 
+    _program_pc_debug_sorted_vertices->use();
+
     _vao_debug->bind();
     _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
     globjects::VertexArray::unbind();
 
     Program::release();
+
+#ifdef PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
+    _program_pc_debug_sorted_vertices_connections->use();
+
+    _vao_debug->bind();
+    _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
+    globjects::VertexArray::unbind();
+
+    Program::release();
+#endif
 }
 void ReconPerformanceCapture::draw_debug_texture_colors()
 {
@@ -720,7 +777,7 @@ void ReconPerformanceCapture::draw_debug_texture_depths()
 
     Program::release();
 }
-void ReconPerformanceCapture::draw_debug_texture_silhouettes()
+void ReconPerformanceCapture::draw_debug_texture()
 {
     _program_pc_debug_textures->use();
 
@@ -731,6 +788,30 @@ void ReconPerformanceCapture::draw_debug_texture_silhouettes()
     globjects::VertexArray::unbind();
 
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_correspondences()
+{
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    float zero = 0.f;
+    _buffer_correspondences_debug->clearData(GL_R8, GL_RED, GL_FLOAT, &zero);
+    auto correspondences_count = push_debug_correspondences();
+
+    // std::cout << correspondences_count << std::endl;
+
+    _program_pc_debug_correspondences->use();
+
+    _vao_debug->bind();
+    _vao_debug->drawArrays(GL_POINTS, 0, correspondences_count);
+    globjects::VertexArray::unbind();
 
     Program::release();
 }
