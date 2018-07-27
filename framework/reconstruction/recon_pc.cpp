@@ -110,13 +110,6 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _native_handles.pbo_kinect_depths = _nka->getDepthHandle();
     _native_handles.pbo_kinect_silhouettes = _nka->getSilhouetteHandle();
 
-    for(uint8_t i = 0; i < m_num_kinects; i++)
-    {
-        _native_handles.volume_cv_xyz_inv[i] = cv->getVolumesXYZInv().at(i)->id();
-        _native_handles.volume_cv_xyz[i] = cv->getVolumesXYZ().at(i)->id();
-        _measures.depth_limits[i] = cv->getDepthLimits(i);
-    }
-
     _measures.size_voxel = _voxel_size;
     _measures.sigma = _voxel_size * 0.5f;
     _measures.size_ed_cell = _ed_cell_size;
@@ -148,9 +141,44 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_textures_debug->id();
 #endif
 
-    //#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    //    _native_handles.pbo_kinect_intens_debug = _buffer_pbo_textures_debug->id();
-    //#endif
+    for(uint8_t i = 0; i < m_num_kinects; i++)
+    {
+        _buffer_pbo_cv_xyz[i] = new Buffer();
+        _buffer_pbo_cv_xyz[i]->setData(_measures.cv_xyz_res.x * _measures.cv_xyz_res.y * _measures.cv_xyz_res.z * sizeof(float4), nullptr, GL_DYNAMIC_COPY);
+        _buffer_pbo_cv_xyz[i]->bind(GL_PIXEL_PACK_BUFFER_ARB);
+        globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
+
+        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+        glBindTexture(GL_TEXTURE_3D, cv->getVolumesXYZ().at(i)->id());
+        glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _buffer_pbo_cv_xyz[i]->id());
+        glGetTexImage(GL_TEXTURE_3D, 0, GL_RGBA, GL_FLOAT, 0);
+        glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+        glBindTexture(GL_TEXTURE_3D, 0);
+
+        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+        _buffer_pbo_cv_xyz_inv[i] = new Buffer();
+        _buffer_pbo_cv_xyz_inv[i]->setData(_measures.cv_xyz_inv_res.x * _measures.cv_xyz_inv_res.y * _measures.cv_xyz_inv_res.z * sizeof(float4), nullptr, GL_DYNAMIC_COPY);
+        _buffer_pbo_cv_xyz_inv[i]->bind(GL_PIXEL_PACK_BUFFER_ARB);
+        globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
+
+        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+        glBindTexture(GL_TEXTURE_3D, cv->getVolumesXYZInv().at(i)->id());
+        glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _buffer_pbo_cv_xyz_inv[i]->id());
+        glGetTexImage(GL_TEXTURE_3D, 0, GL_RGBA, GL_FLOAT, 0);
+        glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+        glBindTexture(GL_TEXTURE_3D, 0);
+
+        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+        _native_handles.pbo_cv_xyz_inv[i] = _buffer_pbo_cv_xyz_inv[i]->id();
+        _native_handles.pbo_cv_xyz[i] = _buffer_pbo_cv_xyz[i]->id();
+        _measures.depth_limits[i] = cv->getDepthLimits(i);
+    }
+
+    glFlush();
 
     init_cuda(_res_volume, _measures, _native_handles);
 
@@ -382,6 +410,12 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
 {
     deinit_cuda();
 
+    for(int i = 0; i < 4; i++)
+    {
+        _buffer_pbo_cv_xyz[i]->destroy();
+        _buffer_pbo_cv_xyz_inv[i]->destroy();
+    }
+
     _tri_table_buffer->destroy();
 
     _buffer_reference_mesh_vertices->destroy();
@@ -396,6 +430,7 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_ed_nodes_debug->destroy();
     _buffer_sorted_vertices_debug->destroy();
     _buffer_correspondences_debug->destroy();
+    _buffer_pbo_textures_debug->destroy();
 
     _texture2darray_debug->destroy();
     glDeleteTextures(1, &_volume_tsdf_data);
@@ -466,14 +501,6 @@ void ReconPerformanceCapture::draw()
         glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 #endif
 
-        //#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-        //        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
-        //        glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
-        //        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
-        //        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-        //        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-        //#endif
-
         TimerDatabase::instance().end(TIMER_SMOOTH_HULL);
 
         _should_update_silhouettes = false;
@@ -543,7 +570,6 @@ void ReconPerformanceCapture::draw()
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    // draw_debug_texture();
     draw_debug_correspondences();
 #endif
 

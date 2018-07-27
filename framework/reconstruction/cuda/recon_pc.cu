@@ -75,14 +75,10 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes_debug, native_handles.pbo_kinect_silhouettes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 #endif
 
-#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_intens_debug, native_handles.pbo_kinect_intens_debug, cudaGraphicsRegisterFlagsWriteDiscard));
-#endif
-
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz_inv[i], native_handles.volume_cv_xyz_inv[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-        checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_cv_xyz[i], native_handles.volume_cv_xyz[i], GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+        checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_cv_xyz_inv[i], native_handles.pbo_cv_xyz_inv[i], cudaGraphicsRegisterFlagsReadOnly));
+        checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_cv_xyz[i], native_handles.pbo_cv_xyz[i], cudaGraphicsRegisterFlagsReadOnly));
     }
 
     checkCudaErrors(cudaGraphicsGLRegisterImage(&_cgr.volume_tsdf_data, native_handles.volume_tsdf_data, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
@@ -90,7 +86,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     memcpy(&_host_res.measures, &measures, sizeof(struct_measures));
 
-    checkCudaErrors(cudaMalloc(&_dev_res.kinect_rgbs, _host_res.measures.color_res.x * _host_res.measures.color_res.y * 4 * sizeof(float4)));
+    checkCudaErrors(cudaMalloc(&_dev_res.kinect_rgbs, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float4)));
     checkCudaErrors(cudaMalloc(&_dev_res.kinect_intens, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float1)));
     checkCudaErrors(cudaMalloc(&_dev_res.kinect_depths, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float2)));
     checkCudaErrors(cudaMalloc(&_dev_res.kinect_depths_prev, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float2)));
@@ -153,10 +149,14 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
         InitSiftData(sift_front[i], SIFT_MAX_CORRESPONDENCES, true, true);
         InitSiftData(sift_back[i], SIFT_MAX_CORRESPONDENCES, true, true);
     }
+
+    map_calibration_volumes();
 }
 
 extern "C" void deinit_cuda()
 {
+    unmap_calibration_volumes;
+
     for(int i = 0; i < 4; i++)
     {
         FreeSiftData(sift_front[i]);
@@ -195,14 +195,10 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes_debug));
 #endif
 
-#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_intens_debug));
-#endif
-
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz_inv[i]));
-        checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_cv_xyz[i]));
+        checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_cv_xyz_inv[i]));
+        checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_cv_xyz[i]));
     }
 
     if(_dev_res.kinect_rgbs != nullptr)

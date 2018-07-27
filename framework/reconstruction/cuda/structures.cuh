@@ -18,7 +18,7 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define VERBOSE
 #define DEBUG_NANS
 
-#define SIFT_MAX_CORRESPONDENCES 4096
+#define SIFT_MAX_CORRESPONDENCES 2048
 #define SIFT_MINIMAL_SCORE 0.95f
 #define SIFT_FILTER_MAX_MOTION 0.2f
 #define SIFT_USE_COLOR
@@ -69,8 +69,8 @@ struct struct_native_handles
     unsigned int pbo_kinect_silhouettes_debug;
     unsigned int pbo_kinect_intens_debug;
 
-    unsigned int volume_cv_xyz_inv[4];
-    unsigned int volume_cv_xyz[4];
+    unsigned int pbo_cv_xyz_inv[4];
+    unsigned int pbo_cv_xyz[4];
 };
 
 struct struct_measures
@@ -145,16 +145,10 @@ struct CUDA_ALIGN_8 struct_ed_meta_entry
 
 struct CUDA_ALIGN_8 struct_correspondence
 {
-    glm::vec2 previous;
-    glm::vec2 current;
-    unsigned int layer;
-    unsigned int pad1;
-    float depth_prev;
-    float depth_curr;
-    /*glm::vec3 previous;
+    glm::vec3 previous;
     unsigned int pad1;
     glm::vec3 current;
-    unsigned int pad2;*/
+    unsigned int pad2;
 };
 
 #endif // RECON_PC_CUDA_STRUCTURES

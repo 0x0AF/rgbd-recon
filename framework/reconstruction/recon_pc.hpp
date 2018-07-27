@@ -91,6 +91,8 @@ class ReconPerformanceCapture : public Reconstruction
     globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied;
     globjects::Buffer *_buffer_vertex_counter, *_buffer_reference_mesh_vertices;
 
+    globjects::ref_ptr<globjects::Buffer> _buffer_pbo_cv_xyz[4], _buffer_pbo_cv_xyz_inv[4];
+
     glm::uvec3 _res_volume, _res_bricks;
 
     VolumeSampler *_sampler;

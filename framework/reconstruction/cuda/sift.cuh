@@ -31,8 +31,9 @@ __global__ void kernel_extract_correspondences(int valid_matches, int offset, in
 
             struct_correspondence correspondence = dev_res.unsorted_correspondences[offset + index];
 
+            int match = current.d_data[index].match;
             glm::uvec2 curr(current.d_data[index].xpos, current.d_data[index].ypos);
-            glm::uvec2 prev(previous.d_data[current.d_data[index].match].xpos, previous.d_data[current.d_data[index].match].ypos);
+            glm::uvec2 prev(previous.d_data[match].xpos, previous.d_data[match].ypos);
 
             float2 depth_curr = sample_depths_ptr(dev_res.kinect_depths, curr, layer, measures);
             float2 depth_prev = sample_depths_ptr(dev_res.kinect_depths_prev, prev, layer, measures);
@@ -42,30 +43,24 @@ __global__ void kernel_extract_correspondences(int valid_matches, int offset, in
                 continue;
             }
 
-            correspondence.current = glm::vec2(((float)curr.x) / measures.depth_res.x, ((float)curr.y) / measures.depth_res.y);
-            correspondence.previous = glm::vec2(((float)prev.x) / measures.depth_res.x, ((float)prev.y) / measures.depth_res.y);
-            correspondence.depth_curr = depth_curr.x;
-            correspondence.depth_prev = depth_prev.x;
-            correspondence.layer = layer;
-
-            /*glm::vec3 norm_curr = glm::vec3(((float)curr.x) / measures.depth_res.x, ((float)curr.y) / measures.depth_res.y, depth_curr.x);
+            glm::vec3 norm_curr = glm::vec3(((float)curr.x) / measures.depth_res.x, ((float)curr.y) / measures.depth_res.y, depth_curr.x);
             glm::vec3 norm_prev = glm::vec3(((float)prev.x) / measures.depth_res.x, ((float)prev.y) / measures.depth_res.y, depth_prev.x);
 
             // printf("\ndepth_curr: %f, depth_prev: %f\n", depth_curr.x, depth_prev.x);
 
-            float4 current = sample_cv_xyz(norm_2_cv_xyz(norm_curr, measures), layer);
-            float4 previous = sample_cv_xyz(norm_2_cv_xyz(norm_prev, measures), layer);
+            float4 current = sample_cv_xyz(dev_res.cv_xyz_tex[layer], norm_curr);
+            float4 previous = sample_cv_xyz(dev_res.cv_xyz_tex[layer], norm_prev);
 
-            correspondence.current = bbox_transform_position(glm::vec3(current.x, current.y, current.z), measures);
-            correspondence.previous = bbox_transform_position(glm::vec3(previous.x, previous.y, previous.z), measures);
+            correspondence.current = glm::vec3(current.x, current.y, current.z);
+            correspondence.previous = glm::vec3(previous.x, previous.y, previous.z);
 
-            *//*printf("\ncorrespondence: p(%f,%f,%f) === c(%f,%f,%f)\n", correspondence.current.x, correspondence.current.y, correspondence.current.z, correspondence.previous.x,
-                   correspondence.previous.y, correspondence.previous.z);*//*
+            printf("\ncorrespondence: p(%f,%f,%f) === c(%f,%f,%f)\n", correspondence.current.x, correspondence.current.y, correspondence.current.z, correspondence.previous.x,
+                   correspondence.previous.y, correspondence.previous.z);
+
             if(glm::length(correspondence.current - correspondence.previous) > SIFT_FILTER_MAX_MOTION)
             {
                 continue;
             }
-            */
 
             memcpy(&dev_res.unsorted_correspondences[offset + index], &correspondence, sizeof(struct_correspondence));
         }
@@ -75,7 +70,6 @@ __global__ void kernel_extract_correspondences(int valid_matches, int offset, in
 extern "C" void estimate_correspondence_field()
 {
     clean_correspondence_resources();
-    map_calibration_volumes();
 
     int w = (int)_host_res.measures.depth_res.x;
     int h = (int)_host_res.measures.depth_res.y;
@@ -104,8 +98,6 @@ extern "C" void estimate_correspondence_field()
     }
 
     _host_res.valid_correspondences = offset;
-
-    unmap_calibration_volumes();
 
     SiftData *tmp = sift_front;
     sift_front = sift_back;

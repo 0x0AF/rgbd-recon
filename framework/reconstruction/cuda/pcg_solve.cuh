@@ -114,11 +114,11 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.kinect_depths, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -176,11 +176,11 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.kinect_depths, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -291,11 +291,11 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.kinect_depths, measures);
+        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node,dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures);
+        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -314,11 +314,11 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         pds[component] = 0.f;
 
 #ifdef EVALUATE_DATA
-        pds[component] += evaluate_vx_pd(vx, ed_node, dev_res.ed_graph[idx], component, vx_residual, dev_res.kinect_depths, measures);
+        pds[component] += evaluate_vx_pd(vx, ed_node, dev_res.ed_graph[idx], component, vx_residual,dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual, dev_res.kinect_silhouettes, measures);
+        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual,dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
 #endif
 
         if(isnan(pds[component]))
@@ -840,7 +840,6 @@ void reject_misaligned_deformations()
 
 extern "C" void pcg_solve(struct_native_handles &native_handles)
 {
-    map_calibration_volumes();
     map_tsdf_volumes();
 
     const unsigned int max_iterations = 1u;
@@ -917,6 +916,5 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
 
     reject_misaligned_deformations();
 
-    unmap_calibration_volumes();
     unmap_tsdf_volumes();
 }

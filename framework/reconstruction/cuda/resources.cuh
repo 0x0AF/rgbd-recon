@@ -34,10 +34,10 @@ struct struct_graphic_resources
     cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
 
     cudaGraphicsResource *pbo_kinect_silhouettes_debug{nullptr};
-    cudaGraphicsResource *pbo_kinect_intens_debug{nullptr};
 
-    cudaGraphicsResource *volume_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
-    cudaGraphicsResource *volume_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
+    cudaGraphicsResource *pbo_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
+    cudaGraphicsResource *pbo_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
+
     cudaGraphicsResource *volume_tsdf_data{nullptr};
     cudaGraphicsResource *volume_tsdf_ref{nullptr};
 };
@@ -58,7 +58,14 @@ struct struct_device_resources
     float1 *mapped_pbo_silhouettes = nullptr;
 
     float1 *mapped_pbo_silhouettes_debug = nullptr;
-    float1 *mapped_pbo_intens_debug = nullptr;
+
+    float4 *mapped_pbo_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
+    float4 *mapped_pbo_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
+
+    cudaArray *cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
+    cudaArray *cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
+    cudaTextureObject_t cv_xyz_tex[4] = {0, 0, 0, 0};
+    cudaTextureObject_t cv_xyz_inv_tex[4] = {0, 0, 0, 0};
 
     unsigned int *bricks_dense_index = nullptr;
     unsigned int *bricks_inv_index = nullptr;
@@ -103,52 +110,117 @@ cublasHandle_t cublas_handle = nullptr;
 cusparseHandle_t cusparse_handle = nullptr;
 cusolverSpHandle_t cusolver_handle = nullptr;
 
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_0;
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_1;
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_2;
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_inv_3;
-
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_0;
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_1;
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_2;
-surface<void, cudaSurfaceType3D> _volume_cv_xyz_3;
-
 surface<void, cudaSurfaceType3D> _volume_tsdf_data;
 surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
 
-void map_calibration_volumes()
+__host__ void map_calibration_volumes()
 {
-    checkCudaErrors(cudaGraphicsMapResources(4, _cgr.volume_cv_xyz_inv, 0));
-    checkCudaErrors(cudaGraphicsMapResources(4, _cgr.volume_cv_xyz, 0));
-
-    cudaArray *volume_array_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
-    cudaArray *volume_array_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
-
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz_inv[i], _cgr.volume_cv_xyz_inv[i], 0, 0));
-        checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_cv_xyz[i], _cgr.volume_cv_xyz[i], 0, 0));
-    }
+    checkCudaErrors(cudaGraphicsMapResources(4, _cgr.pbo_cv_xyz_inv, 0));
+    checkCudaErrors(cudaGraphicsMapResources(4, _cgr.pbo_cv_xyz, 0));
 
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_0, volume_array_cv_xyz_inv[0], &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_1, volume_array_cv_xyz_inv[1], &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_2, volume_array_cv_xyz_inv[2], &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_inv_3, volume_array_cv_xyz_inv[3], &channel_desc));
+    cudaExtent extent_cv_xyz = make_cudaExtent(_host_res.measures.cv_xyz_res.x, _host_res.measures.cv_xyz_res.y, _host_res.measures.cv_xyz_res.z);
+    cudaExtent extent_cv_xyz_inv = make_cudaExtent(_host_res.measures.cv_xyz_inv_res.x, _host_res.measures.cv_xyz_inv_res.y, _host_res.measures.cv_xyz_inv_res.z);
 
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_0, volume_array_cv_xyz[0], &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_1, volume_array_cv_xyz[1], &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_2, volume_array_cv_xyz[2], &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_cv_xyz_3, volume_array_cv_xyz[3], &channel_desc));
+    for(int i = 0; i < 4; i++)
+    {
+        size_t bytes = 0;
+        checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_cv_xyz[i], &bytes, _cgr.pbo_cv_xyz[i]));
+
+        float4 *h_cv_xyz = (float4 *)malloc(bytes);
+
+        checkCudaErrors(cudaMemcpy(&h_cv_xyz[0], _dev_res.mapped_pbo_cv_xyz[i], bytes, cudaMemcpyDeviceToHost));
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        checkCudaErrors(cudaMalloc3DArray(&_dev_res.cv_xyz[i], &channel_desc, extent_cv_xyz));
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        cudaMemcpy3DParms cv_xyz_copy = {0};
+        cv_xyz_copy.srcPos = make_cudaPos(0, 0, 0);
+        cv_xyz_copy.dstPos = make_cudaPos(0, 0, 0);
+        cv_xyz_copy.srcPtr = make_cudaPitchedPtr(h_cv_xyz, extent_cv_xyz.width * sizeof(float4), extent_cv_xyz.width, extent_cv_xyz.height);
+        cv_xyz_copy.dstArray = _dev_res.cv_xyz[i];
+        cv_xyz_copy.extent = extent_cv_xyz;
+        cv_xyz_copy.kind = cudaMemcpyHostToDevice;
+        checkCudaErrors(cudaMemcpy3D(&cv_xyz_copy));
+        cudaDeviceSynchronize();
+
+        free(h_cv_xyz);
+
+        struct cudaResourceDesc cv_xyz_descr;
+        memset(&cv_xyz_descr, 0, sizeof(cv_xyz_descr));
+        cv_xyz_descr.resType = cudaResourceTypeArray;
+        cv_xyz_descr.res.array.array = _dev_res.cv_xyz[i];
+
+        struct cudaTextureDesc cv_xyz_tex_descr;
+        memset(&cv_xyz_tex_descr, 0, sizeof(cv_xyz_tex_descr));
+        cv_xyz_tex_descr.addressMode[0] = cudaAddressModeClamp;
+        cv_xyz_tex_descr.addressMode[1] = cudaAddressModeClamp;
+        cv_xyz_tex_descr.addressMode[2] = cudaAddressModeClamp;
+        cv_xyz_tex_descr.filterMode = cudaFilterModeLinear;
+        cv_xyz_tex_descr.readMode = cudaReadModeElementType;
+        cv_xyz_tex_descr.normalizedCoords = 1;
+
+        cudaCreateTextureObject(&_dev_res.cv_xyz_tex[i], &cv_xyz_descr, &cv_xyz_tex_descr, NULL);
+
+        checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_cv_xyz_inv[i], &bytes, _cgr.pbo_cv_xyz_inv[i]));
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        checkCudaErrors(cudaMalloc3DArray(&_dev_res.cv_xyz_inv[i], &channel_desc, extent_cv_xyz_inv));
+
+        float4 *h_cv_xyz_inv = (float4 *)malloc(bytes);
+
+        checkCudaErrors(cudaMemcpy(&h_cv_xyz_inv[0], _dev_res.mapped_pbo_cv_xyz_inv[i], bytes, cudaMemcpyDeviceToHost));
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        checkCudaErrors(cudaMalloc3DArray(&_dev_res.cv_xyz_inv[i], &channel_desc, extent_cv_xyz_inv));
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        cudaMemcpy3DParms cv_xyz_inv_copy = {0};
+        cv_xyz_inv_copy.srcPos = make_cudaPos(0, 0, 0);
+        cv_xyz_inv_copy.dstPos = make_cudaPos(0, 0, 0);
+        cv_xyz_inv_copy.srcPtr = make_cudaPitchedPtr(h_cv_xyz_inv, extent_cv_xyz_inv.width * sizeof(float4), extent_cv_xyz_inv.width, extent_cv_xyz_inv.height);
+        cv_xyz_inv_copy.dstArray = _dev_res.cv_xyz_inv[i];
+        cv_xyz_inv_copy.extent = extent_cv_xyz_inv;
+        cv_xyz_inv_copy.kind = cudaMemcpyHostToDevice;
+        checkCudaErrors(cudaMemcpy3D(&cv_xyz_inv_copy));
+        cudaDeviceSynchronize();
+
+        free(h_cv_xyz_inv);
+
+        struct cudaResourceDesc cv_xyz_inv_descr;
+        memset(&cv_xyz_inv_descr, 0, sizeof(cv_xyz_inv_descr));
+        cv_xyz_inv_descr.resType = cudaResourceTypeArray;
+        cv_xyz_inv_descr.res.array.array = _dev_res.cv_xyz_inv[i];
+
+        struct cudaTextureDesc cv_xyz_inv_tex_descr;
+        memset(&cv_xyz_inv_tex_descr, 0, sizeof(cv_xyz_inv_tex_descr));
+        cv_xyz_inv_tex_descr.addressMode[0] = cudaAddressModeClamp;
+        cv_xyz_inv_tex_descr.addressMode[1] = cudaAddressModeClamp;
+        cv_xyz_inv_tex_descr.addressMode[2] = cudaAddressModeClamp;
+        cv_xyz_inv_tex_descr.filterMode = cudaFilterModeLinear;
+        cv_xyz_inv_tex_descr.readMode = cudaReadModeElementType;
+        cv_xyz_inv_tex_descr.normalizedCoords = 1;
+
+        cudaCreateTextureObject(&_dev_res.cv_xyz_inv_tex[i], &cv_xyz_inv_descr, &cv_xyz_inv_tex_descr, NULL);
+    }
 }
 
-void unmap_calibration_volumes()
+__host__ void unmap_calibration_volumes()
 {
-    checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.volume_cv_xyz, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.volume_cv_xyz_inv, 0));
+    for(int i = 0; i < 4; i++)
+    {
+        cudaDestroyTextureObject(_dev_res.cv_xyz_tex[i]);
+        cudaFreeArray(_dev_res.cv_xyz[i]);
+        cudaDestroyTextureObject(_dev_res.cv_xyz_inv_tex[i]);
+        cudaFreeArray(_dev_res.cv_xyz_inv[i]);
+    }
+
+    checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.pbo_cv_xyz, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.pbo_cv_xyz_inv, 0));
 }
 
-void map_tsdf_volumes()
+__host__ void map_tsdf_volumes()
 {
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref, 0));
@@ -163,13 +235,13 @@ void map_tsdf_volumes()
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
 }
 
-void unmap_tsdf_volumes()
+__host__ void unmap_tsdf_volumes()
 {
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref, 0));
 }
 
-void map_kinect_arrays()
+__host__ void map_kinect_arrays()
 {
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_rgbs, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_depths, 0));
@@ -194,30 +266,15 @@ void map_kinect_arrays()
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes_debug, &_dev_res.mapped_bytes_kinect_arrays[3], _cgr.pbo_kinect_silhouettes_debug));
     checkCudaErrors(cudaDeviceSynchronize());
 #endif
-
-#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_intens_debug, 0));
-
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_intens_debug, &_dev_res.mapped_bytes_kinect_arrays[4], _cgr.pbo_kinect_intens_debug));
-    checkCudaErrors(cudaDeviceSynchronize());
-#endif
 }
 
-void unmap_kinect_arrays()
+__host__ void unmap_kinect_arrays()
 {
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaMemcpy(&_dev_res.mapped_pbo_silhouettes_debug[0], &_dev_res.kinect_silhouettes[0], _dev_res.mapped_bytes_kinect_arrays[2], cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes_debug));
-#endif
-
-#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    checkCudaErrors(
-        cudaMemcpy(&_dev_res.mapped_pbo_intens_debug[0], &_dev_res.kinect_intens[0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float1), cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaDeviceSynchronize());
-
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_intens_debug));
 #endif
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes));
