@@ -33,19 +33,14 @@ void main()
 {
     Correspondence correspondence = correspondences[uint(geo_Position[0].x * 1000000.f)];
 
-//    if(!in_bbox(coords_curr) || !in_bbox(coords_prev) || length(coords_curr - coords_prev) > 0.2f)
-//    {
-//        return;
-//    }
-
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix /** vol_to_world*/ * vec4(correspondence.previous, 1.0f);
-    pass_Length = 10.f * length(correspondence.current - correspondence.previous);
-    pass_Color = vec3(0.f, 1.0f, 0.f);
-    EmitVertex();
-
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix /** vol_to_world*/ * vec4(correspondence.current, 1.0f);
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(correspondence.previous, 1.0f);
     pass_Length = 10.f * length(correspondence.current - correspondence.previous);
     pass_Color = vec3(0.f, 0.0f, 1.f);
+    EmitVertex();
+
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(correspondence.current, 1.0f);
+    pass_Length = 10.f * length(correspondence.current - correspondence.previous);
+    pass_Color = vec3(0.f, 1.f, 0.f);
     EmitVertex();
 
     EndPrimitive();

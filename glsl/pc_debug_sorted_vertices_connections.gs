@@ -44,14 +44,6 @@ out float pass_BrickIdColor;
 out float pass_EDCellIdColor;
 out float pass_IsED;
 
-#include </inc_bbox_test.glsl>
-
-#define FAST_QUAT_OPS
-
-#ifdef FAST_QUAT_OPS
-vec3 qtransform(vec4 q, vec3 v) { return v + 2.f * cross(cross(v, q.xyz) + q.w * v, q.xyz); }
-#endif
-
 void main()
 {
     EDNode ed_node = ed_nodes[uint(geo_Position[0].x * 1000000.f)];
@@ -70,15 +62,11 @@ void main()
         pass_EDCellIdColor = (vertex.ed_cell_id % 27) / 27.0f;
         pass_IsED = -1.f;
 
-        vec3 dist = vertex.position - ed_node.position;
-        float skinning_weight = 1.f; // exp(length(dist) * length(dist) / 0.00005f); // TODO: generalize based on voxel size
-        vec3 warped_position = skinning_weight * (qtransform(ed_node.affine, dist) + ed_node.position + ed_node.translation);
-
         gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
 
         EmitVertex();
 
-        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(warped_position, 1.0);
+        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(vertex.position, 1.0);
 
         EmitVertex();
         EndPrimitive();

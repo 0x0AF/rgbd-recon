@@ -47,23 +47,7 @@ extern "C" void fuse_data();
 extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
-// #define WIPE_DATA
-
-// #define PIPELINE_DEBUG_TEXTURE_COLORS
-// #define PIPELINE_DEBUG_TEXTURE_DEPTHS
-// #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-#define PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-// #define PIPELINE_DEBUG_REFERENCE_VOLUME
-// #define PIPELINE_DEBUG_REFERENCE_MESH
-// #define PIPELINE_DEBUG_ED_SAMPLING
-// #define PIPELINE_DEBUG_SORTED_VERTICES
-// #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
-
-#define PIPELINE_TEXTURES_PREPROCESS
-// #define PIPELINE_SAMPLE
-#define PIPELINE_CORRESPONDENCE
-// #define PIPELINE_ALIGN
-// #define PIPELINE_FUSE
+#define WIPE_DATA
 
 #define DATA_IMAGE_UNIT 6
 #define REF_IMAGE_UNIT 7
@@ -206,7 +190,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_pbo_textures_debug = new Buffer();
     _buffer_correspondences_debug = new Buffer();
 
-    _vec_debug = std::vector<glm::vec3>(524288);
+    _vec_debug = std::vector<glm::vec3>(MAX_REFERENCE_VERTICES);
 
     _program_pc_debug_textures = new Program();
     _program_pc_debug_draw_ref = new Program();
@@ -274,19 +258,19 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
     _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
 
-    _buffer_reference_mesh_vertices->setData(sizeof(struct_vertex) * 524288, nullptr, GL_STREAM_COPY);
+    _buffer_reference_mesh_vertices->setData(sizeof(struct_vertex) * MAX_REFERENCE_VERTICES, nullptr, GL_STREAM_COPY);
     _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 7);
 
     _buffer_ed_nodes_debug->setData(sizeof(struct_ed_node_debug) * 16384, nullptr, GL_STREAM_COPY);
     _buffer_ed_nodes_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
 
-    _buffer_sorted_vertices_debug->setData(sizeof(struct_vertex) * 524288, nullptr, GL_STREAM_COPY);
+    _buffer_sorted_vertices_debug->setData(sizeof(struct_vertex) * MAX_REFERENCE_VERTICES, nullptr, GL_STREAM_COPY);
     _buffer_sorted_vertices_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
 
     _buffer_correspondences_debug->setData(sizeof(struct_correspondence) * 4 * SIFT_MAX_CORRESPONDENCES, nullptr, GL_STREAM_COPY);
     _buffer_correspondences_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 10);
 
-    for(size_t i = 0; i < 524288; i++)
+    for(size_t i = 0; i < MAX_REFERENCE_VERTICES; i++)
     {
         auto vec = glm::vec3(1, 1, 1) * ((float)i) / 1000000.f;
         memcpy(&_vec_debug[i], &vec, sizeof(float) * 3);
@@ -394,7 +378,6 @@ void ReconPerformanceCapture::init_shaders()
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
-    // _program_pc_debug_textures->setUniform("texture_2d_array", 8);
     _program_pc_debug_correspondences->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_correspondences.vs"));
     _program_pc_debug_correspondences->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_correspondences.gs"));
     _program_pc_debug_correspondences->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_correspondences.fs"));

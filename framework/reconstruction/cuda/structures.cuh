@@ -16,13 +16,30 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #endif
 
 // #define VERBOSE
-#define DEBUG_NANS
+// #define DEBUG_NANS
+
+// #define PIPELINE_DEBUG_TEXTURE_COLORS
+// #define PIPELINE_DEBUG_TEXTURE_DEPTHS
+// #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+#define PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+// #define PIPELINE_DEBUG_REFERENCE_VOLUME
+// #define PIPELINE_DEBUG_REFERENCE_MESH
+// #define PIPELINE_DEBUG_ED_SAMPLING
+#define PIPELINE_DEBUG_SORTED_VERTICES
+// #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
+
+#define PIPELINE_TEXTURES_PREPROCESS
+#define PIPELINE_SAMPLE
+#define PIPELINE_CORRESPONDENCE
+#define PIPELINE_ALIGN
+// #define PIPELINE_FUSE
+
+#define MAX_REFERENCE_VERTICES 262144
 
 #define SIFT_MAX_CORRESPONDENCES 2048
 #define SIFT_MINIMAL_SCORE 0.95f
-#define SIFT_FILTER_MAX_MOTION 0.2f
+#define SIFT_FILTER_MAX_MOTION 0.1f
 #define SIFT_USE_COLOR
-// #define SIFT_USE_SILHOUETTES
 
 #define SIFT_OCTAVES 5
 #define SIFT_BLUR 0.f
@@ -31,11 +48,11 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define SIFT_UPSCALE false
 
 #define EVALUATE_DATA
-// #define EVALUATE_VISUAL_HULL
+#define EVALUATE_VISUAL_HULL
 // #define EVALUATE_ED_REGULARIZATION
 
 // #define ED_NODES_ROBUSTIFY
-// #define FAST_QUAT_OPS
+#define FAST_QUAT_OPS
 
 // #define DEBUG_JTJ
 // #define DEBUG_JTJ_COO
@@ -108,9 +125,14 @@ struct struct_measures
 struct CUDA_ALIGN_8 struct_vertex
 {
     glm::vec3 position;
-    unsigned int brick_id; // TODO: fill at reference extraction time
+    unsigned int brick_id;
     glm::vec3 normal;
     unsigned int ed_cell_id;
+};
+
+struct CUDA_ALIGN_8 struct_projection
+{
+    glm::uvec2 projection[4];
 };
 
 struct CUDA_ALIGN_8 struct_ed_node_debug

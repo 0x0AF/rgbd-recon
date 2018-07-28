@@ -18,6 +18,46 @@
 
 #endif
 
+__global__ void kernel_warp(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        return;
+    }
+
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+    const float w = __int2float_rn(measures.depth_res.x);
+    const float h = __int2float_rn(measures.depth_res.y);
+
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        unsigned int address = ed_entry.vx_offset + vx_idx;
+        struct_vertex vx = dev_res.sorted_vx_ptr[address];
+
+        glm::vec3 dist = vx.position - ed_node.position;
+
+        struct_vertex warped_vx = dev_res.warped_sorted_vx_ptr[address];
+        warped_vx.position = glm::clamp(warp_position(dist, ed_node, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+        warped_vx.brick_id = vx.brick_id;
+        warped_vx.normal = warp_normal(vx.normal, ed_node, 1.f, measures);
+        warped_vx.ed_cell_id = vx.ed_cell_id;
+        memcpy(&dev_res.warped_sorted_vx_ptr[address], &warped_vx, sizeof(struct_vertex));
+
+        struct_projection vx_projection = dev_res.warped_vx_projections[address];
+        for(unsigned int i = 0; i < 4; i++)
+        {
+            float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+            vx_projection.projection[i].x = __float2int_rn(projection.x * w);
+            vx_projection.projection[i].y = __float2int_rn(projection.y * h);
+        }
+        memcpy(&dev_res.warped_vx_projections[address], &vx_projection, sizeof(struct_projection));
+    }
+}
+
 __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -28,7 +68,6 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
         return;
     }
 
-    struct_ed_node ed_node = dev_res.ed_graph[idx];
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
     // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
@@ -37,21 +76,22 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
 
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex vx = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection vx_proj = dev_res.warped_vx_projections[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
         float vx_misalignment = 0.f;
 
 #ifdef EVALUATE_DATA
-        vx_misalignment = evaluate_vx_misalignment(vx, ed_node, measures);
+        vx_misalignment = evaluate_vx_misalignment(vx, measures);
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_misalignment = glm::min(vx_misalignment, evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures));
+        vx_misalignment = glm::min(vx_misalignment, evaluate_hull_residual(vx_proj, dev_res, measures));
 #endif
 #else
 #ifdef EVALUATE_VISUAL_HULL
-        vx_misalignment = evaluate_hull_residual(vx, ed_node, dev_res.kinect_silhouettes, measures);
+        vx_misalignment = evaluate_hull_residual(vx_proj, dev_res, measures);
 #endif
 #endif
 
@@ -89,6 +129,9 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
     struct_ed_node ed_node = dev_res.ed_graph_step[idx];
 
+    const float w = __int2float_rn(measures.depth_res.x);
+    const float h = __int2float_rn(measures.depth_res.y);
+
 #ifdef EVALUATE_ED_REGULARIZATION
     float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
@@ -110,15 +153,31 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     {
         struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
 
+        glm::vec3 dist = vx.position - ed_node.position;
+
+        struct_vertex warped_vx;
+        warped_vx.position = glm::clamp(warp_position(dist, ed_node, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+        warped_vx.brick_id = vx.brick_id;
+        warped_vx.normal = warp_normal(vx.normal, ed_node, 1.f, measures);
+        warped_vx.ed_cell_id = vx.ed_cell_id;
+
+        struct_projection vx_projection;
+        for(unsigned int i = 0; i < 4; i++)
+        {
+            float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+            vx_projection.projection[i].x = __float2int_rn(projection.x * w);
+            vx_projection.projection[i].y = __float2int_rn(projection.y * h);
+        }
+
         // printf("\ned_node + vertex match\n");
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
+        vx_residual += evaluate_vx_residual(warped_vx, vx_projection, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
+        vx_residual += evaluate_hull_residual(vx_projection, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -149,9 +208,10 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
     }
 
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
-    struct_ed_node ed_node = dev_res.ed_graph[idx];
 
 #ifdef EVALUATE_ED_REGULARIZATION
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+
     float ed_residual = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
@@ -170,17 +230,18 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex vx = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection vx_proj = dev_res.warped_vx_projections[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
+        vx_residual += evaluate_vx_residual(vx, vx_proj, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.cv_xyz_tex, dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
+        vx_residual += evaluate_hull_residual(vx_proj, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -217,6 +278,9 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
     struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
 
+    struct_ed_node ed_node_new;
+    memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
+
     unsigned int component = idx % ED_COMPONENT_COUNT;
 
 #ifdef EVALUATE_ED_REGULARIZATION
@@ -233,7 +297,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         ed_residual = 0.f;
     }
 
-    ed_pds[component] = evaluate_ed_pd(ed_node, ed_entry, component, ed_residual, dev_res, measures);
+    ed_pds[component] = evaluate_ed_pd(ed_node_new, ed_entry, component, dev_res, measures);
 
     if(isnan(ed_pds[component]))
     {
@@ -286,16 +350,18 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
         struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex warped_vx = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection warped_vx_proj = dev_res.warped_vx_projections[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += evaluate_vx_residual(vx, ed_node, ed_node,dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
+        vx_residual += evaluate_vx_residual(warped_vx, warped_vx_proj, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += evaluate_hull_residual(vx, ed_node, dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
+        vx_residual += evaluate_hull_residual(warped_vx_proj, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -314,11 +380,11 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         pds[component] = 0.f;
 
 #ifdef EVALUATE_DATA
-        pds[component] += evaluate_vx_pd(vx, ed_node, dev_res.ed_graph[idx], component, vx_residual,dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_depths, measures);
+        pds[component] += evaluate_vx_pd(vx, warped_vx_proj, ed_node_new, component, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        pds[component] += evaluate_hull_pd(vx, ed_node, component, vx_residual,dev_res.cv_xyz_tex,dev_res.cv_xyz_inv_tex, dev_res.kinect_silhouettes, measures);
+        pds[component] += evaluate_hull_pd(vx, ed_node_new, component, dev_res, measures);
 #endif
 
         if(isnan(pds[component]))
@@ -352,7 +418,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
         {
-            unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component_k;
+            unsigned int jtj_pos = UMAD(component, ED_COMPONENT_COUNT, component_k);
 
             float jtj_value = pds[component] * pds[component_k];
 
@@ -378,7 +444,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 
-    unsigned int jtj_pos = component * ED_COMPONENT_COUNT + component;
+    unsigned int jtj_pos = UMAD(component, ED_COMPONENT_COUNT, component);
     atomicAdd(&shared_jtj_coo_val_block[jtj_pos], mu);
 
     __syncthreads();
@@ -765,7 +831,7 @@ __host__ void print_out_h()
 
 #endif
 
-void evaluate_jtj_jtf(const float mu)
+__host__ void evaluate_jtj_jtf(const float mu)
 {
     size_t grid_size = _host_res.active_ed_nodes_count;
 
@@ -778,7 +844,7 @@ void evaluate_jtj_jtf(const float mu)
     cudaDeviceSynchronize();
 };
 
-void evaluate_misalignment_energy(float &misalignment_energy)
+__host__ void evaluate_misalignment_energy(float &misalignment_energy)
 {
     float *device_misalignment_energy = nullptr;
     cudaMallocManaged(&device_misalignment_energy, sizeof(float));
@@ -798,7 +864,7 @@ void evaluate_misalignment_energy(float &misalignment_energy)
     cudaFree(device_misalignment_energy);
 }
 
-void evaluate_step_misalignment_energy(float &misalignment_energy, const float mu)
+__host__ void evaluate_step_misalignment_energy(float &misalignment_energy, const float mu)
 {
     float *device_misalignment_energy = nullptr;
     cudaMallocManaged(&device_misalignment_energy, sizeof(float));
@@ -827,7 +893,7 @@ void evaluate_step_misalignment_energy(float &misalignment_energy, const float m
     cudaFree(device_misalignment_energy);
 }
 
-void reject_misaligned_deformations()
+__host__ void reject_misaligned_deformations()
 {
     int block_size;
     int min_grid_size;
@@ -838,9 +904,22 @@ void reject_misaligned_deformations()
     cudaDeviceSynchronize();
 }
 
+__host__ void apply_warp()
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_warp, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_warp<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+}
+
 extern "C" void pcg_solve(struct_native_handles &native_handles)
 {
     map_tsdf_volumes();
+
+    apply_warp();
 
     const unsigned int max_iterations = 1u;
     unsigned int iterations = 0u;
@@ -863,11 +942,9 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
 
         if(singularity != -1)
         {
-            mu += 0.2f;
-            printf("\nsingularity encountered, mu raised: %f\n", mu);
+            printf("\nsingularity encountered\n");
 
-            iterations++;
-            continue;
+            break;
         }
 
 #ifdef DEBUG_JTJ
@@ -899,7 +976,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
             cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
             cudaDeviceSynchronize();
 
-            mu -= 0.2f;
+            mu -= 0.05f;
             initial_misalignment_energy = solution_misalignment_energy;
             printf("\nmu lowered: %f\n", mu);
         }
@@ -907,7 +984,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
         {
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 
-            mu += 0.2f;
+            mu += 0.05f;
             printf("\nmu raised: %f\n", mu);
         }
 

@@ -141,14 +141,13 @@ __global__ void kernel_flatten_rgbs(struct_device_resources dev_res, int layer, 
 
 #ifdef SIFT_USE_COLOR
     float4 color = dev_res.kinect_rgbs[offset];
+
     // printf ("\ncolor: (%f,%f,%f,%f)\n",color.x,color.y,color.z, color.w);
-    dev_res.kinect_intens[offset] = 5.0f * color.x + color.y + 2.5f * color.z;
-#else
-#ifdef SIFT_USE_SILHOUETTES
-    dev_res.kinect_intens[offset] = dev_res.kinect_silhouettes[offset];
+
+    /// Following statement maps to two-instruction equivalent of 5.0f * color.x + color.y + 2.5f * color.z
+    dev_res.kinect_intens[offset] = __fmaf_rn(2.5f, color.z, __fmaf_rn(5.f, color.x, color.y));
 #else
     dev_res.kinect_intens[offset] = dev_res.kinect_depths[offset].x;
-#endif
 #endif
 }
 

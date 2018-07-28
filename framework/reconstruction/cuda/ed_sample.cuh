@@ -273,7 +273,7 @@ extern "C" void sample_ed_nodes()
     checkCudaErrors(cudaMalloc(&ed_reference_counter, ed_nodes_count * sizeof(int)));
     checkCudaErrors(cudaMemset(ed_reference_counter, 0, ed_nodes_count * sizeof(int)));
 
-    clean_ed_resources ();
+    clean_ed_resources();
 
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_vertex_counter));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.buffer_reference_mesh_vertices));
@@ -284,9 +284,6 @@ extern "C" void sample_ed_nodes()
 
     struct_vertex *vx_ptr;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_reference_mesh_vertices));
-
-    checkCudaErrors(cudaMalloc(&_dev_res.unsorted_vx_ptr, vx_bytes));
-    checkCudaErrors(cudaMemset(_dev_res.unsorted_vx_ptr, 0, vx_bytes));
 
     // printf("\nvx_bytes: %zu\n", vx_bytes);
 
@@ -412,7 +409,7 @@ __global__ void kernel_push_debug_sorted_vertices(struct_vertex *vx_ptr, unsigne
             return;
         }
 
-        memcpy(&vx_ptr[vx_position], &dev_res.sorted_vx_ptr[vx_position], sizeof(struct_vertex));
+        memcpy(&vx_ptr[vx_position], &dev_res.warped_sorted_vx_ptr[vx_position], sizeof(struct_vertex));
     }
 }
 

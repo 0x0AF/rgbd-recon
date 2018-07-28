@@ -51,11 +51,11 @@ __global__ void kernel_extract_correspondences(int valid_matches, int offset, in
             float4 current = sample_cv_xyz(dev_res.cv_xyz_tex[layer], norm_curr);
             float4 previous = sample_cv_xyz(dev_res.cv_xyz_tex[layer], norm_prev);
 
-            correspondence.current = glm::vec3(current.x, current.y, current.z);
-            correspondence.previous = glm::vec3(previous.x, previous.y, previous.z);
+            correspondence.current = glm::clamp(bbox_transform_position(glm::vec3(current.x, current.y, current.z), measures), glm::vec3(0.f), glm::vec3(1.f));
+            correspondence.previous = glm::clamp(bbox_transform_position(glm::vec3(previous.x, previous.y, previous.z), measures), glm::vec3(0.f), glm::vec3(1.f));
 
-            printf("\ncorrespondence: p(%f,%f,%f) === c(%f,%f,%f)\n", correspondence.current.x, correspondence.current.y, correspondence.current.z, correspondence.previous.x,
-                   correspondence.previous.y, correspondence.previous.z);
+            //            printf("\ncorrespondence: p(%f,%f,%f) === c(%f,%f,%f)\n", correspondence.current.x, correspondence.current.y, correspondence.current.z, correspondence.previous.x,
+            //                   correspondence.previous.y, correspondence.previous.z);
 
             if(glm::length(correspondence.current - correspondence.previous) > SIFT_FILTER_MAX_MOTION)
             {
@@ -84,7 +84,7 @@ extern "C" void estimate_correspondence_field()
         ExtractSift(sift_front[i], img, SIFT_OCTAVES, SIFT_BLUR, SIFT_THRESHOLD, SIFT_LOWEST_SCALE, SIFT_UPSCALE);
         // printf("\nextracted: %i, layer[%i]\n", sift_front[i].numPts, i);
         MatchSiftData(sift_front[i], sift_back[i]);
-        // printf("\nmatches: %i\n", ???);
+        // printf("\nmatches: %f\n", );
 
         int block_size;
         int min_grid_size;
@@ -98,6 +98,14 @@ extern "C" void estimate_correspondence_field()
     }
 
     _host_res.valid_correspondences = offset;
+
+    /*int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_extract_correspondences, 0, 0);
+    size_t grid_size = (sift_front[i].numPts + block_size - 1) / block_size;
+    kernel_sort_correspondences<<<grid_size, block_size>>>(sift_front[i].numPts, offset, i, sift_front[i], sift_back[i], _dev_res, _host_res.measures);
+    getLastCudaError("kernel_extract_correspondences failed");
+    cudaDeviceSynchronize();*/
 
     SiftData *tmp = sift_front;
     sift_front = sift_back;

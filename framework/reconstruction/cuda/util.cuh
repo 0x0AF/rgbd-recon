@@ -46,54 +46,9 @@ __device__ float sample_silhouettes_ptr(float *silhouettes_ptr, glm::uvec2 &pos,
     return silhouettes_ptr[pos.x + pos.y * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y];
 }
 
-__device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::vec3 &pos)
-{
-    /*float4 projected{0.f, 0.f, 0.f, 0.f};
+__device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
 
-    switch(layer)
-    {
-    case 0:
-        surf3Dread(&projected, _volume_cv_xyz_0, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    case 1:
-        surf3Dread(&projected, _volume_cv_xyz_1, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    case 2:
-        surf3Dread(&projected, _volume_cv_xyz_2, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    case 3:
-        surf3Dread(&projected, _volume_cv_xyz_3, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    }
-
-    return projected;*/
-
-    return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z);
-}
-
-__device__ float4 sample_cv_xyz_inv(cudaTextureObject_t &cv_xyz_inv_tex, glm::vec3 &pos)
-{
-    /*float4 back_projected{0.f, 0.f, 0.f, 0.f};
-
-    switch(layer)
-    {
-    case 0:
-        surf3Dread(&back_projected, _volume_cv_xyz_inv_0, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    case 1:
-        surf3Dread(&back_projected, _volume_cv_xyz_inv_1, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    case 2:
-        surf3Dread(&back_projected, _volume_cv_xyz_inv_2, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    case 3:
-        surf3Dread(&back_projected, _volume_cv_xyz_inv_3, pos.x * sizeof(float4), pos.y, pos.z, cudaBoundaryModeClamp);
-        break;
-    }
-
-    return back_projected;*/
-    return tex3D<float4>(cv_xyz_inv_tex, pos.x, pos.y, pos.z);
-}
+__device__ float4 sample_cv_xyz_inv(cudaTextureObject_t &cv_xyz_inv_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_inv_tex, pos.x, pos.y, pos.z); }
 
 CUDA_HOST_DEVICE glm::vec3 bbox_transform_position(glm::vec3 pos, struct_measures &measures)
 {
@@ -229,13 +184,9 @@ CUDA_HOST_DEVICE glm::vec3 warp_normal(glm::vec3 &normal, struct_ed_node &ed_nod
 #endif
 }
 
-__device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node &ed_node, struct_measures &measures)
+__device__ float evaluate_vx_misalignment(struct_vertex &warped_vertex, struct_measures &measures)
 {
-    glm::vec3 dist = vertex.position - ed_node.position;
-    const float skinning_weight = 1.0f; // TODO expf(glm::length(dist) * glm::length(dist) / (2.f * glm::pow(measures.sigma, 2.f)));
-    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight, measures);
-
-    glm::uvec3 wp_voxel_space = glm::uvec3(warped_position / measures.size_voxel);
+    glm::uvec3 wp_voxel_space = glm::uvec3(warped_vertex.position / measures.size_voxel);
     // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
 
     if(!in_data_volume(wp_voxel_space, measures))
@@ -250,59 +201,42 @@ __device__ float evaluate_vx_misalignment(struct_vertex &vertex, struct_ed_node 
     return glm::abs(data.x);
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_node_new, struct_ed_node &ed_node, cudaTextureObject_t *cv_xyz_tex, cudaTextureObject_t *cv_xyz_inv_tex,
-                                      float2 *depths_ptr, struct_measures &measures)
+__device__ float evaluate_vx_residual(struct_vertex &warped_vertex, struct_projection &warped_projection, struct_device_resources &dev_res,  struct_measures &measures)
 {
-    glm::vec3 dist = vertex.position - ed_node_new.position;
-    const float skinning_weight = 1.0f; // TODO  = expf(glm::length(dist) * glm::length(dist) / (2.f * glm::pow(measures.sigma, 2.f)));
-
-    glm::vec3 warped_position = warp_position(dist, ed_node_new, skinning_weight, measures);
-    glm::vec3 warped_normal = warp_normal(vertex.normal, ed_node, skinning_weight, measures);
-
     float residual = 0.f;
 
-    if(!in_normal_space(warped_position))
-    {
-        // printf("\nwarped out of volume: (%.2f,%.2f,%.2f) [ed(%.2f,%.2f,%.2f)v(%.2f,%.2f,%.2f)]\n", warped_position.x, warped_position.y, warped_position.z, ed_node.position.x, ed_node.position.y,
-        // ed_node.position.z, vertex.position.x, vertex.position.y, vertex.position.z);
-        return 1.f;
-    }
+    //    if(!in_normal_space(warped_vertex.position))
+    //    {
+    //        // printf("\nwarped out of volume: (%.2f,%.2f,%.2f)]\n", warped_vertex.position.x, warped_vertex.position.y, warped_vertex.position.z);
+    //        return 1.f;
+    //    }
 
     // printf("\nwarped position: (%f,%f,%f)\n", warped_position.x, warped_position.y, warped_position.z);
     // printf("\nwarped normal: (%.2f,%.2f,%.2f) [%.2f]\n", warped_normal.x, warped_normal.y, warped_normal.z, glm::length(warped_normal));
 
     for(int i = 0; i < 4; i++)
     {
-        // printf("\nsampling inverse calibration volume: (%f,%f,%f)\n", warped_position.x, warped_position.y, warped_position.z);
-
-        float4 back_projection = sample_cv_xyz_inv(cv_xyz_inv_tex[i], warped_position);
-
-        // printf("\nback projection (%f,%f,%f,%f)\n", back_projection.x, back_projection.y, back_projection.z, back_projection.w);
-
-        // printf("\n (x,y): (%f,%f)\n", back_projection.x, back_projection.y);
-
-        glm::uvec2 pixel{0u, 0u};
-        pixel.x = (unsigned int)(back_projection.x * measures.depth_res.x);
-        pixel.y = (unsigned int)(back_projection.y * measures.depth_res.y);
-
-        if(pixel.x >= measures.depth_res.x || pixel.y >= measures.depth_res.y)
-        {
-            printf("\nprojected out of depth map: (%u,%u)\n", pixel.x, pixel.y);
-            continue;
-        }
-
         // printf("\nsampling depth maps: (%u,%u)\n", pixel.x, pixel.y);
 
-        float depth = sample_depths_ptr(depths_ptr, pixel, i, measures).x;
+        if(warped_projection.projection[i].x >= measures.depth_res.x || warped_projection.projection[i].y >= measures.depth_res.y)
+        {
+            // printf("\nprojected out of depth map: (%u,%u)\n", pixel.x, pixel.y);
+            continue;
+        }
 
-        if((int)(depth * 1000) == 0)
+        float depth = sample_depths_ptr(dev_res.kinect_depths, warped_projection.projection[i], i, measures).x;
+
+        if(depth == 0)
         {
             continue;
         }
 
-        // printf("\ndepth (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, depth);
+        // printf("\ndepth %f\n", depth);
 
-        glm::vec3 coordinate = glm::vec3(back_projection.x, back_projection.y, depth);
+        glm::vec3 coordinate = glm::vec3(warped_projection.projection[i].x, warped_projection.projection[i].y, depth);
+
+        coordinate.x /= measures.depth_res.x;
+        coordinate.y /= measures.depth_res.y;
 
         if(!in_normal_space(coordinate))
         {
@@ -312,7 +246,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
 
         // printf("\nsampling direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
 
-        float4 projected = sample_cv_xyz(cv_xyz_tex[i], coordinate);
+        float4 projected = sample_cv_xyz(dev_res.cv_xyz_tex[i], coordinate);
 
         // printf("\nprojected (%f,%f,%f,%f)\n", projected.x, projected.y, projected.z, projected.w);
 
@@ -334,7 +268,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
         //        printf("\nextracted_position (%.2f, %.2f, %.2f): (%.2f,%.2f,%.2f) = (%.2f,%.2f,%.2f)\n", coordinate.x, coordinate.y, coordinate.z, warped_position.x, warped_position.y,
         //        warped_position.z, extracted_position.x, extracted_position.y, extracted_position.z);
 
-        glm::vec3 diff = warped_position - extracted_position;
+        glm::vec3 diff = warped_vertex.position - extracted_position;
 
         // printf("\ndiff: %f\n", glm::length(diff));
 
@@ -343,7 +277,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vertex, struct_ed_node &ed_
             continue;
         }
 
-        float residual_component = glm::abs(glm::dot(warped_normal, diff));
+        float residual_component = glm::abs(glm::dot(warped_vertex.normal, diff));
 
         // printf("\nresidual_component: %f, warped_normal: (%f,%f,%f), diff: (%f,%f,%f)\n", residual_component, warped_normal.x, warped_normal.y, warped_normal.z, diff.x, diff.y, diff.z);
 
@@ -389,20 +323,27 @@ CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index, stru
     return step;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_new, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual,
-                                cudaTextureObject_t *cv_xyz_tex, cudaTextureObject_t *cv_xyz_inv_tex, float2 *depths_ptr, struct_measures &measures)
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_projection &warped_projection, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res,  struct_measures &measures)
 {
+    struct_vertex warped_vx;
+    memset(&warped_vx, 0, sizeof(struct_vertex));
+
     float ds = derivative_step(partial_derivative_index, measures);
+    glm::vec3 dist{0.f};
 
     float *mapped_ed_node = (float *)&ed_node_new;
 
     mapped_ed_node[partial_derivative_index] += ds;
-
-    float residual_pos = evaluate_vx_residual(vertex, ed_node_new, ed_node, cv_xyz_tex, cv_xyz_inv_tex, depths_ptr, measures);
+    dist = vertex.position - ed_node_new.position;
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    warped_vx.normal = vertex.normal;
+    float residual_pos = evaluate_vx_residual(warped_vx, warped_projection, dev_res, measures);
 
     mapped_ed_node[partial_derivative_index] -= 2.f * ds;
-
-    float residual_neg = evaluate_vx_residual(vertex, ed_node_new, ed_node, cv_xyz_tex, cv_xyz_inv_tex, depths_ptr, measures);
+    dist = vertex.position - ed_node_new.position;
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    warped_vx.normal = vertex.normal;
+    float residual_neg = evaluate_vx_residual(warped_vx, warped_projection, dev_res, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -413,6 +354,15 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_ed_node ed_node_ne
 #endif
 
         residual_pos = 0.f;
+    }
+
+    if(isnan(residual_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual_neg is NaN!\n");
+#endif
+
+        residual_neg = 0.f;
     }
 
     float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
@@ -559,16 +509,17 @@ CUDA_HOST_DEVICE float evaluate_ed_node_residual(struct_ed_node &ed_node, struct
     return residual;
 }
 
-CUDA_HOST_DEVICE float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_entry &ed_entry, const int &partial_derivative_index, const float &ed_residual, struct_device_resources &dev_res,
-                                      struct_measures &measures)
+CUDA_HOST_DEVICE float evaluate_ed_pd(struct_ed_node ed_node_new, struct_ed_meta_entry &ed_entry, const int &partial_derivative_index, struct_device_resources &dev_res, struct_measures &measures)
 {
     float ds = derivative_step(partial_derivative_index, measures);
 
-    float *mapped_ed_node = (float *)&ed_node;
+    float *mapped_ed_node = (float *)&ed_node_new;
 
     mapped_ed_node[partial_derivative_index] += ds;
+    float residual_pos = evaluate_ed_node_residual(ed_node_new, ed_entry, dev_res, measures);
 
-    float residual_pos = evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    mapped_ed_node[partial_derivative_index] -= ds;
+    float residual_neg = evaluate_ed_node_residual(ed_node_new, ed_entry, dev_res, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -581,7 +532,16 @@ CUDA_HOST_DEVICE float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_ent
         residual_pos = 0.f;
     }
 
-    float partial_derivative = residual_pos / (2.0f * ds) - ed_residual / (2.0f * ds);
+    if(isnan(residual_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual_pos is NaN!\n");
+#endif
+
+        residual_pos = 0.f;
+    }
+
+    float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
 
     // printf("\npartial_derivative: %f\n", partial_derivative);
 
@@ -597,42 +557,21 @@ CUDA_HOST_DEVICE float evaluate_ed_pd(struct_ed_node ed_node, struct_ed_meta_ent
     return partial_derivative;
 }
 
-__device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &ed_node, cudaTextureObject_t *cv_xyz_tex, cudaTextureObject_t *cv_xyz_inv_tex, float *silhouettes_ptr,
-                                        struct_measures &measures)
+__device__ float evaluate_hull_residual(struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
 {
-    glm::vec3 dist = vertex.position - ed_node.position;
-    const float skinning_weight = 1.0f; // TODO  = expf(glm::length(dist) * glm::length(dist) / (2.f * glm::pow(measures.sigma, 2.f)));
-
-    glm::vec3 warped_position = warp_position(dist, ed_node, skinning_weight, measures);
-
     float residual = 0.f;
-
-    if(!in_normal_space(warped_position))
-    {
-        //        printf("\nwarped out of volume: (%.2f,%.2f,%.2f) [ed(%.2f,%.2f,%.2f)v(%.2f,%.2f,%.2f)]\n", warped_position.x, warped_position.y, warped_position.z, ed_node.position.x,
-        //        ed_node.position.y, ed_node.position.z, vertex.position.x, vertex.position.y, vertex.position.z);
-        return 1.f;
-    }
 
     // printf("\nwarped position: (%f,%f,%f)\n", warped_position.x, warped_position.y, warped_position.z);
 
     for(int i = 0; i < 4; i++)
     {
-        float4 back_projection = sample_cv_xyz_inv(cv_xyz_inv_tex[i], warped_position);
-
-        // printf("\n (x,y): (%f,%f)\n", data.x, data.y);
-
-        glm::uvec2 pixel{0u, 0u};
-        pixel.x = (unsigned int)(back_projection.x * measures.depth_res.x);
-        pixel.y = (unsigned int)(back_projection.y * measures.depth_res.y);
-
-        if(pixel.x >= measures.depth_res.x || pixel.y >= measures.depth_res.y)
+        if(warped_projection.projection[i].x >= measures.depth_res.x || warped_projection.projection[i].y >= measures.depth_res.y)
         {
             // printf("\nprojected out of depth map: (%u,%u)\n", pixel.x, pixel.y);
             continue;
         }
 
-        float occupancy = sample_silhouettes_ptr(silhouettes_ptr, pixel, i, measures);
+        float occupancy = sample_silhouettes_ptr(dev_res.kinect_silhouettes, warped_projection.projection[i], i, measures);
 
         // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, occupancy);
 
@@ -658,20 +597,42 @@ __device__ float evaluate_hull_residual(struct_vertex &vertex, struct_ed_node &e
     return residual;
 }
 
-__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node, const int &partial_derivative_index, const float &vx_residual, cudaTextureObject_t *cv_xyz_tex,
-                                  cudaTextureObject_t *cv_xyz_inv_tex, float *silhouettes_ptr, struct_measures &measures)
+__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res,
+                                  struct_measures &measures)
 {
-    float ds = derivative_step(partial_derivative_index, measures);
+    struct_vertex warped_vx;
+    memset(&warped_vx, 0, sizeof(struct_vertex));
+    struct_projection vx_projection;
+    memset(&vx_projection, 0, sizeof(vx_projection));
 
-    float *mapped_ed_node = (float *)&ed_node;
+    float ds = derivative_step(partial_derivative_index, measures);
+    const float w = __int2float_rn(measures.depth_res.x);
+    const float h = __int2float_rn(measures.depth_res.y);
+    glm::vec3 dist{0.f};
+
+    float *mapped_ed_node = (float *)&ed_node_new;
 
     mapped_ed_node[partial_derivative_index] += ds;
-
-    float residual_pos = evaluate_hull_residual(vertex, ed_node, cv_xyz_tex, cv_xyz_inv_tex, silhouettes_ptr, measures);
+    dist = vertex.position - ed_node_new.position;
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+        vx_projection.projection[i].x = __float2int_rn(projection.x * w);
+        vx_projection.projection[i].y = __float2int_rn(projection.y * h);
+    }
+    float residual_pos = evaluate_hull_residual(vx_projection, dev_res, measures);
 
     mapped_ed_node[partial_derivative_index] -= 2.f * ds;
-
-    float residual_neg = evaluate_hull_residual(vertex, ed_node, cv_xyz_tex, cv_xyz_inv_tex, silhouettes_ptr, measures);
+    dist = vertex.position - ed_node_new.position;
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+        vx_projection.projection[i].x = __float2int_rn(projection.x * w);
+        vx_projection.projection[i].y = __float2int_rn(projection.y * h);
+    }
+    float residual_neg = evaluate_hull_residual(vx_projection, dev_res, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
@@ -682,6 +643,15 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node,
 #endif
 
         residual_pos = 0.f;
+    }
+
+    if(isnan(residual_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual_neg is NaN!\n");
+#endif
+
+        residual_neg = 0.f;
     }
 
     float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);

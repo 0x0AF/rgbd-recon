@@ -19,6 +19,9 @@
 #include <helper_cuda.h>
 #include <helper_cusolver.h>
 
+#define UMUL(a, b) ((a) * (b))
+#define UMAD(a, b, c) (UMUL((a), (b)) + (c))
+
 struct struct_graphic_resources
 {
     cudaGraphicsResource *buffer_reference_mesh_vertices{nullptr};
@@ -76,6 +79,8 @@ struct struct_device_resources
     struct_vertex *unsorted_vx_ptr = nullptr;
     struct_correspondence *sorted_correspondences = nullptr;
     struct_correspondence *unsorted_correspondences = nullptr;
+    struct_vertex *warped_sorted_vx_ptr = nullptr;
+    struct_projection *warped_vx_projections = nullptr;
 
     float *jtj_vals = nullptr;
     int *jtj_rows = nullptr;
@@ -310,6 +315,18 @@ __host__ void free_ed_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
+    if(_dev_res.warped_sorted_vx_ptr != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.warped_sorted_vx_ptr));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.warped_vx_projections != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.warped_vx_projections));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
     if(_dev_res.ed_graph != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.ed_graph));
@@ -383,45 +400,58 @@ __host__ void clean_brick_resources()
 
 __host__ void allocate_ed_resources()
 {
-    checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_ptr, 524288 * sizeof(struct_vertex)));
-    checkCudaErrors(cudaMalloc(&_dev_res.unsorted_vx_ptr, 524288 * sizeof(struct_vertex)));
+    unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
+    unsigned long int JTJ_ROWS = MAX_ED_CELLS * ED_COMPONENT_COUNT;
+    unsigned long int JTJ_NNZ = JTJ_ROWS * ED_COMPONENT_COUNT;
 
-    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * sizeof(struct_ed_node)));
-    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_step, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * sizeof(struct_ed_node)));
-    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_meta, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * sizeof(struct_ed_meta_entry)));
+    checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMalloc(&_dev_res.unsorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMalloc(&_dev_res.warped_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
-    checkCudaErrors(cudaMalloc(&_dev_res.jtj_vals, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMalloc(&_dev_res.jtj_rows, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
-    checkCudaErrors(cudaMalloc(&_dev_res.jtj_rows_csr, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
-    checkCudaErrors(cudaMalloc(&_dev_res.jtj_cols, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
+    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph, MAX_ED_CELLS * sizeof(struct_ed_node)));
+    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_step, MAX_ED_CELLS * sizeof(struct_ed_node)));
+    checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_meta, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
 
-    checkCudaErrors(cudaMalloc(&_dev_res.jtf, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMalloc(&_dev_res.h, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.jtf, JTJ_ROWS * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.h, JTJ_ROWS * sizeof(float)));
 
-    checkCudaErrors(cudaMalloc(&_dev_res.pcg_p, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMalloc(&_dev_res.pcg_omega, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMalloc(&_dev_res.pcg_Ax, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.pcg_p, JTJ_ROWS * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.pcg_omega, JTJ_ROWS * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.pcg_Ax, JTJ_ROWS * sizeof(float)));
+
+    checkCudaErrors(cudaMalloc(&_dev_res.jtj_vals, JTJ_NNZ * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.jtj_rows, JTJ_NNZ * sizeof(int)));
+    checkCudaErrors(cudaMalloc(&_dev_res.jtj_rows_csr, JTJ_NNZ * sizeof(int)));
+    checkCudaErrors(cudaMalloc(&_dev_res.jtj_cols, JTJ_NNZ * sizeof(int)));
 }
 
 __host__ void clean_ed_resources()
 {
-    checkCudaErrors(cudaMemset(_dev_res.sorted_vx_ptr, 0, 524288 * sizeof(struct_vertex)));
-    checkCudaErrors(cudaMemset(_dev_res.unsorted_vx_ptr, 0, 524288 * sizeof(struct_vertex)));
+    unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
+    unsigned long int JTJ_ROWS = MAX_ED_CELLS * ED_COMPONENT_COUNT;
+    unsigned long int JTJ_NNZ = JTJ_ROWS * ED_COMPONENT_COUNT;
 
-    checkCudaErrors(cudaMemset(_dev_res.ed_graph, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * sizeof(struct_ed_node)));
-    checkCudaErrors(cudaMemset(_dev_res.ed_graph_step, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * sizeof(struct_ed_node)));
-    checkCudaErrors(cudaMemset(_dev_res.ed_graph_meta, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * sizeof(struct_ed_meta_entry)));
+    checkCudaErrors(cudaMemset(_dev_res.sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMemset(_dev_res.unsorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMemset(_dev_res.warped_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
-    checkCudaErrors(cudaMemset(_dev_res.jtj_vals, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMemset(_dev_res.jtj_rows, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
-    checkCudaErrors(cudaMemset(_dev_res.jtj_cols, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * ED_COMPONENT_COUNT * sizeof(int)));
+    checkCudaErrors(cudaMemset(_dev_res.ed_graph, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
+    checkCudaErrors(cudaMemset(_dev_res.ed_graph_step, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
+    checkCudaErrors(cudaMemset(_dev_res.ed_graph_meta, 0, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
 
-    checkCudaErrors(cudaMemset(_dev_res.jtf, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMemset(_dev_res.h, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.jtf, 0, JTJ_ROWS * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.h, 0, JTJ_ROWS * sizeof(float)));
 
-    checkCudaErrors(cudaMemset(_dev_res.pcg_p, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMemset(_dev_res.pcg_omega, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
-    checkCudaErrors(cudaMemset(_dev_res.pcg_Ax, 0, _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells * ED_COMPONENT_COUNT * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.pcg_p, 0, JTJ_ROWS * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.pcg_omega, 0, JTJ_ROWS * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.pcg_Ax, 0, JTJ_ROWS * sizeof(float)));
+
+    checkCudaErrors(cudaMemset(_dev_res.jtj_vals, 0, JTJ_NNZ * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.jtj_rows, 0, JTJ_NNZ * sizeof(int)));
+    checkCudaErrors(cudaMemset(_dev_res.jtj_rows_csr, 0, JTJ_NNZ * sizeof(int)));
+    checkCudaErrors(cudaMemset(_dev_res.jtj_cols, 0, JTJ_NNZ * sizeof(int)));
 }
 
 __host__ void allocate_correspondence_resources()

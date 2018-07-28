@@ -155,7 +155,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
 extern "C" void deinit_cuda()
 {
-    unmap_calibration_volumes;
+    unmap_calibration_volumes();
 
     for(int i = 0; i < 4; i++)
     {
