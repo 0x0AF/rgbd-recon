@@ -21,11 +21,11 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define PIPELINE_DEBUG_TEXTURE_COLORS
 // #define PIPELINE_DEBUG_TEXTURE_DEPTHS
 // #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-#define PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+#define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
 // #define PIPELINE_DEBUG_REFERENCE_VOLUME
 // #define PIPELINE_DEBUG_REFERENCE_MESH
 // #define PIPELINE_DEBUG_ED_SAMPLING
-#define PIPELINE_DEBUG_SORTED_VERTICES
+// #define PIPELINE_DEBUG_SORTED_VERTICES
 // #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
 
 #define PIPELINE_TEXTURES_PREPROCESS
@@ -95,6 +95,7 @@ struct struct_measures
     float size_voxel{0.f};
     float size_ed_cell{0.f};
     float size_brick{0.f};
+    unsigned int size_depth_cell{0u};
 
     float sigma{0.f};
 
@@ -110,6 +111,8 @@ struct struct_measures
 
     glm::uvec2 color_res{0u};
     glm::uvec2 depth_res{0u};
+    glm::uvec2 depth_cell_res{0u};
+    unsigned int num_depth_cells{0u};
 
     glm::uvec3 data_volume_res{0u, 0u, 0u};
     glm::uvec3 data_volume_bricked_res{0u, 0u, 0u};
@@ -168,9 +171,17 @@ struct CUDA_ALIGN_8 struct_ed_meta_entry
 struct CUDA_ALIGN_8 struct_correspondence
 {
     glm::vec3 previous;
-    unsigned int pad1;
+    unsigned int layer;
     glm::vec3 current;
-    unsigned int pad2;
+    unsigned int cell_id;
+    glm::uvec2 previous_proj;
+    glm::uvec2 current_proj;
+};
+
+struct CUDA_ALIGN_8 struct_depth_cell_meta
+{
+    unsigned int cp_offset;
+    unsigned int cp_length;
 };
 
 #endif // RECON_PC_CUDA_STRUCTURES

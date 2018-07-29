@@ -98,9 +98,12 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _measures.sigma = _voxel_size * 0.5f;
     _measures.size_ed_cell = _ed_cell_size;
     _measures.size_brick = _brick_size;
+    _measures.size_depth_cell = 8u;
 
     _measures.color_res = nka.getColorResolution();
     _measures.depth_res = nka.getDepthResolution();
+    _measures.depth_cell_res = _measures.depth_res / _measures.size_depth_cell;
+    _measures.num_depth_cells = _measures.depth_res.x * _measures.depth_res.y;
 
     _measures.data_volume_res = _res_volume;
     _measures.data_volume_bricked_res = _res_bricks;
@@ -377,7 +380,7 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_debug_textures->setUniform("texture_2d_array", 8);
 #endif
 
-#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+#ifdef PIPELINE_DEBUG_CORRESPONDENCE_FIELD
     _program_pc_debug_correspondences->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_correspondences.vs"));
     _program_pc_debug_correspondences->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_correspondences.gs"));
     _program_pc_debug_correspondences->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_correspondences.fs"));
@@ -552,7 +555,7 @@ void ReconPerformanceCapture::draw()
     draw_debug_texture();
 #endif
 
-#ifdef PIPELINE_DEBUG_TEXTURE_CORRESPONDENCES
+#ifdef PIPELINE_DEBUG_CORRESPONDENCE_FIELD
     draw_debug_correspondences();
 #endif
 

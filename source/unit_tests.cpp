@@ -53,6 +53,7 @@ namespace
 const float ACCEPTED_FLOAT_TOLERANCE = 0.0000001f;
 struct_measures mock_measures;
 
+TEST(UtilTest, StructCPSize) { EXPECT_EQ(sizeof(struct_correspondence), 48); }
 TEST(UtilTest, StructEDMetaSize) { EXPECT_EQ(sizeof(struct_ed_meta_entry), 136); }
 TEST(UtilTest, StructEDSize) { EXPECT_EQ(sizeof(struct_ed_node), 40); }
 TEST(UtilTest, IdentifyBrickId)

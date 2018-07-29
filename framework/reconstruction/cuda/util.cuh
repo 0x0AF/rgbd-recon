@@ -162,6 +162,13 @@ CUDA_HOST_DEVICE unsigned int identify_ed_cell_id(const glm::vec3 position, stru
     return ed_cell_id(ed_cell_index3d, measures);
 }
 
+CUDA_HOST_DEVICE unsigned int identify_depth_cell_id(const glm::uvec2 pos, unsigned int layer, struct_measures &measures)
+{
+    glm::uvec2 depth_cell_index2d = pos / measures.size_depth_cell;
+
+    return layer * depth_cell_index2d.x * depth_cell_index2d.y + depth_cell_index2d.y * measures.depth_cell_res.x + depth_cell_index2d.x;
+}
+
 CUDA_HOST_DEVICE glm::vec3 qtransform(glm::quat &q, glm::vec3 &v) { return v + 2.f * glm::cross(glm::cross(v, glm::vec3(q.x, q.y, q.z)) + q.w * v, glm::vec3(q.x, q.y, q.z)); }
 
 /** Warp a position with a single ED node **/
@@ -201,7 +208,7 @@ __device__ float evaluate_vx_misalignment(struct_vertex &warped_vertex, struct_m
     return glm::abs(data.x);
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &warped_vertex, struct_projection &warped_projection, struct_device_resources &dev_res,  struct_measures &measures)
+__device__ float evaluate_vx_residual(struct_vertex &warped_vertex, struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
 {
     float residual = 0.f;
 
@@ -323,7 +330,8 @@ CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index, stru
     return step;
 }
 
-__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_projection &warped_projection, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res,  struct_measures &measures)
+__device__ float evaluate_vx_pd(struct_vertex &vertex, struct_projection &warped_projection, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res,
+                                struct_measures &measures)
 {
     struct_vertex warped_vx;
     memset(&warped_vx, 0, sizeof(struct_vertex));
@@ -597,8 +605,7 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
     return residual;
 }
 
-__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res,
-                                  struct_measures &measures)
+__device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res, struct_measures &measures)
 {
     struct_vertex warped_vx;
     memset(&warped_vx, 0, sizeof(struct_vertex));

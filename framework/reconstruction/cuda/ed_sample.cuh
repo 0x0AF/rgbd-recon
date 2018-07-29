@@ -92,7 +92,7 @@ __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, u
 
     __syncthreads();
 
-    struct_ed_meta_entry ed_meta = dev_res.ed_graph_meta[ed_position];
+    struct_ed_meta_entry ed_meta;
 
     ed_meta.brick_id = brick_id;
     ed_meta.ed_cell_id = ed_cell_id;

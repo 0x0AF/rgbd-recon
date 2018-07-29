@@ -77,8 +77,14 @@ struct struct_device_resources
     struct_ed_meta_entry *ed_graph_meta = nullptr;
     struct_vertex *sorted_vx_ptr = nullptr;
     struct_vertex *unsorted_vx_ptr = nullptr;
+
     struct_correspondence *sorted_correspondences = nullptr;
     struct_correspondence *unsorted_correspondences = nullptr;
+    unsigned int *depth_cell_counter = nullptr;
+    unsigned int *depth_cell_inv_index = nullptr;
+    struct_correspondence *vx_aligned_correspondences = nullptr;
+    struct_depth_cell_meta *depth_cell_meta = nullptr;
+
     struct_vertex *warped_sorted_vx_ptr = nullptr;
     struct_projection *warped_vx_projections = nullptr;
 
@@ -458,12 +464,24 @@ __host__ void allocate_correspondence_resources()
 {
     checkCudaErrors(cudaMalloc(&_dev_res.sorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
     checkCudaErrors(cudaMalloc(&_dev_res.unsorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
+    checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_counter, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
+    checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_meta, 4 * _host_res.measures.num_depth_cells * sizeof(struct_depth_cell_meta)));
+    checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_inv_index, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
+
+    // TODO: wasteful!
+    checkCudaErrors(cudaMalloc(&_dev_res.vx_aligned_correspondences, MAX_REFERENCE_VERTICES * sizeof(struct_correspondence)));
 }
 
 __host__ void clean_correspondence_resources()
 {
     checkCudaErrors(cudaMemset(_dev_res.sorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
     checkCudaErrors(cudaMemset(_dev_res.unsorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
+    checkCudaErrors(cudaMemset(_dev_res.depth_cell_counter, 0, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
+    checkCudaErrors(cudaMemset(_dev_res.depth_cell_meta, 0, 4 * _host_res.measures.num_depth_cells * sizeof(struct_depth_cell_meta)));
+    checkCudaErrors(cudaMemset(_dev_res.depth_cell_inv_index, 0, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
+
+    // TODO: wasteful!
+    checkCudaErrors(cudaMemset(_dev_res.vx_aligned_correspondences, 0, MAX_REFERENCE_VERTICES * sizeof(struct_correspondence)));
 }
 
 __host__ void free_correspondence_resources()
@@ -477,6 +495,24 @@ __host__ void free_correspondence_resources()
     if(_dev_res.unsorted_correspondences != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.unsorted_correspondences));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.depth_cell_counter != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.depth_cell_counter));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.depth_cell_inv_index != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.depth_cell_inv_index));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.vx_aligned_correspondences != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.vx_aligned_correspondences));
         checkCudaErrors(cudaDeviceSynchronize());
     }
 }

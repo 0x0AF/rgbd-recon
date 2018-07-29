@@ -12,9 +12,11 @@ layout(line_strip, max_vertices = 2) out;
 struct Correspondence
 {
     vec3 previous;
-    uint pad1;
+    uint layer;
     vec3 current;
-    uint pad2;
+    uint cell_id;
+    uvec2 previous_proj;
+    uvec2 current_proj;
 };
 
 layout(std430, binding = 10) restrict buffer CorrespondenceBuffer { Correspondence correspondences[]; };
@@ -24,6 +26,7 @@ uniform mat4 gl_ProjectionMatrix;
 uniform mat4 vol_to_world;
 
 in vec3 geo_Position[];
+
 out float pass_Length;
 out vec3 pass_Color;
 
