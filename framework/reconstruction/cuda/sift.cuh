@@ -9,16 +9,16 @@ SiftData *sift_front;
 SiftData *sift_back;
 CudaImage img;
 
-__global__ void kernel_extract_correspondences(int valid_matches, unsigned int *counter, int layer, SiftData current, SiftData previous, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_extract_correspondences(int extracted_features, int layer, SiftData current, SiftData previous, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    unsigned int correspondences_per_thread = (unsigned int)max(1u, valid_matches / (blockDim.x * gridDim.x));
+    unsigned int correspondences_per_thread = (unsigned int)max(1u, extracted_features / (blockDim.x * gridDim.x));
 
     for(unsigned int i = 0; i < correspondences_per_thread; i++)
     {
         unsigned int index = idx * correspondences_per_thread + i;
 
-        if(index >= valid_matches)
+        if(index >= extracted_features)
         {
             return;
         }
@@ -67,15 +67,13 @@ __global__ void kernel_extract_correspondences(int valid_matches, unsigned int *
             correspondence.layer = layer;
             correspondence.cell_id = identify_depth_cell_id(correspondence.previous_proj, layer, measures);
 
-            unsigned int alloc_position = atomicAdd(counter, 1u);
-            atomicAdd(&dev_res.depth_cell_counter[correspondence.cell_id], 1u);
-
-            memcpy(&dev_res.unsorted_correspondences[alloc_position], &correspondence, sizeof(struct_correspondence));
+            unsigned int in_cell_pos = atomicAdd(&dev_res.depth_cell_counter[correspondence.cell_id], 1u);
+            memcpy(&dev_res.unsorted_correspondences[index], &correspondence, sizeof(struct_correspondence));
         }
     }
 }
 
-__global__ void kernel_retrieve_depth_cells(unsigned int *depth_cell_index, unsigned int *cp_index, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_retrieve_cell_offsets(struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -92,36 +90,48 @@ __global__ void kernel_retrieve_depth_cells(unsigned int *depth_cell_index, unsi
         return;
     }
 
-    unsigned int cell_position = atomicAdd(depth_cell_index, 1u);
-    unsigned int cell_cp_offset = atomicAdd(cp_index, cp_count);
+    unsigned int offset = 0u;
 
-    struct_depth_cell_meta cp_meta;
+#pragma unroll
+    for(unsigned int i = 0; i < idx; i++)
+    {
+        offset += dev_res.depth_cell_counter[i];
+    }
 
-    cp_meta.cp_offset = cell_position;
-    cp_meta.cp_length = cell_cp_offset;
+    struct_depth_cell_meta meta;
+    meta.cp_offset = offset;
+    meta.cp_length = cp_count;
 
-    memcpy(&dev_res.depth_cell_meta[cell_position], &cp_meta, sizeof(struct_depth_cell_meta));
+    memcpy(&dev_res.depth_cell_meta[idx], &meta, sizeof(struct_depth_cell_meta));
 }
 
-/*__global__ void kernel_sort_correspondences(unsigned int counter, unsigned int offset, int layer, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_sort_correspondences(unsigned int extracted_features, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    unsigned int correspondences_per_thread = (unsigned int)max(1u, counter / (blockDim.x * gridDim.x));
+    unsigned int correspondences_per_thread = (unsigned int)max(1u, extracted_features / (blockDim.x * gridDim.x));
 
     for(unsigned int i = 0; i < correspondences_per_thread; i++)
     {
         unsigned int index = idx * correspondences_per_thread + i;
 
-        if(index >= counter)
+        if(index >= extracted_features)
         {
-            return;
+            continue;
         }
 
-        struct_correspondence correspondence = dev_res.unsorted_correspondences[offset + index];
+        struct_correspondence correspondence = dev_res.unsorted_correspondences[index];
 
+        if(correspondence.cell_id == 0)
+        {
+            continue;
+        }
+
+        unsigned int cell_offset = dev_res.depth_cell_meta[correspondence.cell_id].cp_offset;
         unsigned int position_in_cell = atomicSub(&dev_res.depth_cell_counter[correspondence.cell_id], 1u);
+
+        memcpy(&dev_res.sorted_correspondences[cell_offset + position_in_cell], &correspondence, sizeof(struct_correspondence));
     }
-}*/
+}
 
 extern "C" void estimate_correspondence_field()
 {
@@ -131,67 +141,46 @@ extern "C" void estimate_correspondence_field()
     int h = (int)_host_res.measures.depth_res.y;
     int p = iAlignUp(w, 128);
 
-    unsigned int *counter;
-    cudaMallocManaged(&counter, sizeof(unsigned int));
-    *counter = 0u;
+    unsigned int offset = 0u;
 
     for(int i = 0; i < 4; i++)
     {
         img.Allocate(w, h, p, false, _dev_res.kinect_intens + w * h * i, NULL);
 
         ExtractSift(sift_front[i], img, SIFT_OCTAVES, SIFT_BLUR, SIFT_THRESHOLD, SIFT_LOWEST_SCALE, SIFT_UPSCALE);
-        // printf("\nextracted: %i, layer[%i]\n", sift_front[i].numPts, i);
         MatchSiftData(sift_front[i], sift_back[i]);
+
+        // printf("\nextracted: %i, layer[%i]\n", sift_front[i].numPts, i);
 
         int block_size;
         int min_grid_size;
         cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_extract_correspondences, 0, 0);
         size_t grid_size = (sift_front[i].numPts + block_size - 1) / block_size;
-        kernel_extract_correspondences<<<grid_size, block_size>>>(sift_front[i].numPts, counter, i, sift_front[i], sift_back[i], _dev_res, _host_res.measures);
+        kernel_extract_correspondences<<<grid_size, block_size>>>(sift_front[i].numPts, i, sift_front[i], sift_back[i], _dev_res, _host_res.measures);
         getLastCudaError("kernel_extract_correspondences failed");
         cudaDeviceSynchronize();
+
+        offset += sift_front[i].numPts;
     }
 
-    checkCudaErrors(cudaMemcpy(&_host_res.valid_correspondences, counter, sizeof(unsigned int), cudaMemcpyDeviceToHost));
-
-    // printf("\nvalidated correspondences: %u\n", _host_res.valid_correspondences);
-
-    unsigned int *cell_counter, *cp_counter;
-    cudaMallocManaged(&cell_counter, sizeof(unsigned int));
-    cudaMallocManaged(&cp_counter, sizeof(unsigned int));
-    *cell_counter = 0u;
-    *cp_counter = 0u;
+    _host_res.valid_correspondences = offset;
+    // printf("\nvalid correspondences: %u\n", _host_res.valid_correspondences);
 
     int block_size;
     int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_retrieve_depth_cells, 0, 0);
-    size_t grid_size = (w * h + block_size - 1) / block_size;
-    kernel_retrieve_depth_cells<<<grid_size, block_size>>>(cell_counter, cp_counter, _dev_res, _host_res.measures);
-    getLastCudaError("kernel_extract_correspondences failed");
+    size_t grid_size;
+
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_retrieve_cell_offsets, 0, 0);
+    grid_size = (_host_res.measures.num_depth_cells + block_size - 1) / block_size;
+    kernel_retrieve_cell_offsets<<<grid_size, block_size>>>(_dev_res, _host_res.measures);
+    getLastCudaError("kernel_retrieve_cell_offsets failed");
     cudaDeviceSynchronize();
 
-    /*int block_size;
-    int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_sort_correspondences, 0, 0);
-    size_t grid_size = (*counter + block_size - 1) / block_size;
-    kernel_sort_correspondences<<<grid_size, block_size>>>(*counter, offset, i, _dev_res, _host_res.measures);
-    getLastCudaError("kernel_extract_correspondences failed");
-    cudaDeviceSynchronize();*/
-
-    if(counter != nullptr)
-    {
-        checkCudaErrors(cudaFree(counter));
-    }
-
-    if(cell_counter != nullptr)
-    {
-        checkCudaErrors(cudaFree(cell_counter));
-    }
-
-    if(cp_counter != nullptr)
-    {
-        checkCudaErrors(cudaFree(cp_counter));
-    }
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_retrieve_cell_offsets, 0, 0);
+    grid_size = (_host_res.valid_correspondences + block_size - 1) / block_size;
+    kernel_sort_correspondences<<<grid_size, block_size>>>(_host_res.valid_correspondences, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_sort_correspondences failed");
+    cudaDeviceSynchronize();
 
     SiftData *tmp = sift_front;
     sift_front = sift_back;
@@ -212,7 +201,7 @@ __global__ void kernel_push_debug_correspondences(struct_correspondence *cp_ptr,
             return;
         }
 
-        memcpy(&cp_ptr[index], &dev_res.unsorted_correspondences[index], sizeof(struct_correspondence));
+        memcpy(&cp_ptr[index], &dev_res.sorted_correspondences[index], sizeof(struct_correspondence));
     }
 }
 
@@ -234,7 +223,7 @@ extern "C" unsigned int push_debug_correspondences()
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_push_debug_correspondences, 0, 0);
     size_t grid_size = (_host_res.valid_correspondences + block_size - 1) / block_size;
     kernel_push_debug_correspondences<<<grid_size, block_size>>>(cp_ptr, _host_res.valid_correspondences, _dev_res, _host_res.measures);
-    getLastCudaError("render kernel failed");
+    getLastCudaError("kernel_push_debug_correspondences failed");
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_correspondences_debug));

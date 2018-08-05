@@ -139,6 +139,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     allocate_brick_resources();
     allocate_ed_resources();
+    allocate_pcg_resources();
     allocate_correspondence_resources();
 
     sift_front = (SiftData *)malloc(4 * sizeof(SiftData));
@@ -167,6 +168,7 @@ extern "C" void deinit_cuda()
     free(sift_front);
 
     free_correspondence_resources();
+    free_pcg_resources();
     free_ed_resources();
     free_brick_resources();
 

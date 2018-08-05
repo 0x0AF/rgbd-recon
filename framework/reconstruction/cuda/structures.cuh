@@ -3,6 +3,23 @@
 
 const unsigned ED_COMPONENT_COUNT = 10u;
 
+#ifdef __JETBRAINS_IDE__
+#define __host__
+#define __device__
+#define __shared__
+#define __constant__
+#define __global__
+
+#define __CUDACC__
+#include <device_functions.h>
+
+#include <__clang_cuda_builtin_vars.h>
+#include <__clang_cuda_cmath.h>
+#include <__clang_cuda_complex_builtins.h>
+#include <__clang_cuda_intrinsics.h>
+#include <__clang_cuda_math_forward_declares.h>
+#endif
+
 #ifdef __CUDACC__
 #define CUDA_HOST_DEVICE __device__ __host__
 #else
@@ -25,7 +42,7 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define PIPELINE_DEBUG_REFERENCE_VOLUME
 // #define PIPELINE_DEBUG_REFERENCE_MESH
 // #define PIPELINE_DEBUG_ED_SAMPLING
-// #define PIPELINE_DEBUG_SORTED_VERTICES
+#define PIPELINE_DEBUG_SORTED_VERTICES
 // #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
 
 #define PIPELINE_TEXTURES_PREPROCESS
@@ -47,11 +64,19 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define SIFT_LOWEST_SCALE 0.01f
 #define SIFT_UPSCALE false
 
+#define WEIGHT_DATA 1.0f
+#define WEIGHT_VISUAL_HULL 0.08f
+#define WEIGHT_ED_REGULARIZATION 0.02f
+#define WEIGHT_CORRESPONDENCE_FIELD 0.018f
+
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
 // #define EVALUATE_ED_REGULARIZATION
+// #define EVALUATE_CORRESPONDENCE_FIELD
 
-// #define ED_NODES_ROBUSTIFY
+// #define EVALUATE_ED_NODES_AS_VX
+
+#define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
 
 // #define DEBUG_JTJ
@@ -61,9 +86,9 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define DEBUG_JTF
 // #define DEBUG_H
 
-#define SOLVER_DIRECT_CHOL
+// #define SOLVER_DIRECT_CHOL
 // #define SOLVER_DIRECT_QR
-// #define SOLVER_PCG
+#define SOLVER_PCG
 
 struct struct_native_handles
 {

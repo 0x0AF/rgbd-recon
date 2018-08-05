@@ -81,8 +81,6 @@ struct struct_device_resources
     struct_correspondence *sorted_correspondences = nullptr;
     struct_correspondence *unsorted_correspondences = nullptr;
     unsigned int *depth_cell_counter = nullptr;
-    unsigned int *depth_cell_inv_index = nullptr;
-    struct_correspondence *vx_aligned_correspondences = nullptr;
     struct_depth_cell_meta *depth_cell_meta = nullptr;
 
     struct_vertex *warped_sorted_vx_ptr = nullptr;
@@ -344,7 +342,10 @@ __host__ void free_ed_resources()
         checkCudaErrors(cudaFree(_dev_res.ed_graph_meta));
         checkCudaErrors(cudaDeviceSynchronize());
     }
+}
 
+__host__ void free_pcg_resources()
+{
     if(_dev_res.jtf != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.jtf));
@@ -407,8 +408,6 @@ __host__ void clean_brick_resources()
 __host__ void allocate_ed_resources()
 {
     unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
-    unsigned long int JTJ_ROWS = MAX_ED_CELLS * ED_COMPONENT_COUNT;
-    unsigned long int JTJ_NNZ = JTJ_ROWS * ED_COMPONENT_COUNT;
 
     checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMalloc(&_dev_res.unsorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
@@ -418,6 +417,13 @@ __host__ void allocate_ed_resources()
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_step, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_meta, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
+}
+
+__host__ void allocate_pcg_resources()
+{
+    unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
+    unsigned long int JTJ_ROWS = MAX_ED_CELLS * ED_COMPONENT_COUNT;
+    unsigned long int JTJ_NNZ = JTJ_ROWS * ED_COMPONENT_COUNT;
 
     checkCudaErrors(cudaMalloc(&_dev_res.jtf, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.h, JTJ_ROWS * sizeof(float)));
@@ -435,8 +441,6 @@ __host__ void allocate_ed_resources()
 __host__ void clean_ed_resources()
 {
     unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
-    unsigned long int JTJ_ROWS = MAX_ED_CELLS * ED_COMPONENT_COUNT;
-    unsigned long int JTJ_NNZ = JTJ_ROWS * ED_COMPONENT_COUNT;
 
     checkCudaErrors(cudaMemset(_dev_res.sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMemset(_dev_res.unsorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
@@ -446,6 +450,13 @@ __host__ void clean_ed_resources()
     checkCudaErrors(cudaMemset(_dev_res.ed_graph, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMemset(_dev_res.ed_graph_step, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMemset(_dev_res.ed_graph_meta, 0, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
+}
+
+__host__ void clean_pcg_resources()
+{
+    unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
+    unsigned long int JTJ_ROWS = MAX_ED_CELLS * ED_COMPONENT_COUNT;
+    unsigned long int JTJ_NNZ = JTJ_ROWS * ED_COMPONENT_COUNT;
 
     checkCudaErrors(cudaMemset(_dev_res.jtf, 0, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.h, 0, JTJ_ROWS * sizeof(float)));
@@ -466,10 +477,6 @@ __host__ void allocate_correspondence_resources()
     checkCudaErrors(cudaMalloc(&_dev_res.unsorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
     checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_counter, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
     checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_meta, 4 * _host_res.measures.num_depth_cells * sizeof(struct_depth_cell_meta)));
-    checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_inv_index, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
-
-    // TODO: wasteful!
-    checkCudaErrors(cudaMalloc(&_dev_res.vx_aligned_correspondences, MAX_REFERENCE_VERTICES * sizeof(struct_correspondence)));
 }
 
 __host__ void clean_correspondence_resources()
@@ -478,10 +485,6 @@ __host__ void clean_correspondence_resources()
     checkCudaErrors(cudaMemset(_dev_res.unsorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
     checkCudaErrors(cudaMemset(_dev_res.depth_cell_counter, 0, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
     checkCudaErrors(cudaMemset(_dev_res.depth_cell_meta, 0, 4 * _host_res.measures.num_depth_cells * sizeof(struct_depth_cell_meta)));
-    checkCudaErrors(cudaMemset(_dev_res.depth_cell_inv_index, 0, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
-
-    // TODO: wasteful!
-    checkCudaErrors(cudaMemset(_dev_res.vx_aligned_correspondences, 0, MAX_REFERENCE_VERTICES * sizeof(struct_correspondence)));
 }
 
 __host__ void free_correspondence_resources()
@@ -504,15 +507,9 @@ __host__ void free_correspondence_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
-    if(_dev_res.depth_cell_inv_index != nullptr)
+    if(_dev_res.depth_cell_meta != nullptr)
     {
-        checkCudaErrors(cudaFree(_dev_res.depth_cell_inv_index));
-        checkCudaErrors(cudaDeviceSynchronize());
-    }
-
-    if(_dev_res.vx_aligned_correspondences != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.vx_aligned_correspondences));
+        checkCudaErrors(cudaFree(_dev_res.depth_cell_meta));
         checkCudaErrors(cudaDeviceSynchronize());
     }
 }

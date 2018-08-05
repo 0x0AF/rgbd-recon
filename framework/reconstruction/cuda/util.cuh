@@ -375,7 +375,7 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_projection &warped
 
     float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
 
-    // printf("\npartial_derivative: %f\n", partial_derivative);
+    printf("\npartial_derivative[%i]: %f\n", partial_derivative_index, partial_derivative);
 
     if(isnan(partial_derivative))
     {
@@ -640,6 +640,129 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node_
         vx_projection.projection[i].y = __float2int_rn(projection.y * h);
     }
     float residual_neg = evaluate_hull_residual(vx_projection, dev_res, measures);
+
+    // printf("\nresidual_pos: %f\n", residual_pos);
+
+    if(isnan(residual_pos))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual_pos is NaN!\n");
+#endif
+
+        residual_pos = 0.f;
+    }
+
+    if(isnan(residual_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual_neg is NaN!\n");
+#endif
+
+        residual_neg = 0.f;
+    }
+
+    float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
+
+    // printf("\nhull partial_derivative: %f\n", partial_derivative);
+
+    if(isnan(partial_derivative))
+    {
+#ifdef DEBUG_NANS
+        printf("\npartial_derivative is NaN!\n");
+#endif
+
+        partial_derivative = 0.f;
+    }
+
+    return partial_derivative;
+}
+
+__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
+{
+    float residual = 0.f;
+
+    for(int layer = 0; layer < 4; layer++)
+    {
+        unsigned int cell_id = identify_depth_cell_id(warped_projection.projection[layer], layer, measures);
+
+        if(cell_id > measures.num_depth_cells)
+        {
+            printf("\ncell_id out of depth_cells range: %u\n", cell_id);
+            continue;
+        }
+
+        struct_depth_cell_meta meta = dev_res.depth_cell_meta[cell_id];
+
+        if(meta.cp_length == 0)
+        {
+            continue;
+        }
+
+        unsigned int distance = 16u;
+        unsigned int argmin = 0u;
+
+#pragma unroll
+        for(unsigned int i = 0; i < meta.cp_length; i++)
+        {
+            glm::uvec2 diff = glm::abs(dev_res.sorted_correspondences[meta.cp_offset + i].previous_proj - warped_projection.projection[layer]);
+            unsigned int manhattan_distance = diff.x + diff.y;
+            if(manhattan_distance < distance)
+            {
+                argmin = i;
+            }
+        }
+
+        // printf ("\nargmin: %u\n", argmin);
+
+        glm::vec3 cp = dev_res.sorted_correspondences[meta.cp_offset + argmin].current;
+        float motion = glm::length(warped_vertex.position - cp);
+
+        if(motion > SIFT_FILTER_MAX_MOTION)
+        {
+            continue;
+        }
+
+        float residual_component = robustify(motion);
+
+        // printf("\nresidual_component: %f, cp: (%f,%f,%f), vx: (%f,%f,%f)\n", residual_component, cp.x, cp.y, cp.z, warped_vertex.position.x, warped_vertex.position.y, warped_vertex.position.z);
+
+        if(isnan(residual_component))
+        {
+#ifdef DEBUG_NANS
+            printf("\nresidual_component is NaN!\n");
+#endif
+
+            residual_component = 0.f;
+        }
+
+        residual += residual_component;
+    }
+
+    return residual;
+}
+
+__device__ float evaluate_cf_pd(struct_vertex &vertex, struct_projection &warped_projection, struct_ed_node ed_node_new, const int &partial_derivative_index, struct_device_resources &dev_res,
+                                struct_measures &measures)
+{
+    struct_vertex warped_vx;
+    memset(&warped_vx, 0, sizeof(struct_vertex));
+
+    float ds = derivative_step(partial_derivative_index, measures);
+    glm::vec3 dist{0.f};
+
+    float *mapped_ed_node = (float *)&ed_node_new;
+
+    mapped_ed_node[partial_derivative_index] += ds;
+    dist = vertex.position - ed_node_new.position;
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    warped_vx.normal = vertex.normal;
+    float residual_pos = evaluate_cf_residual(warped_vx, warped_projection, dev_res, measures);
+
+    mapped_ed_node[partial_derivative_index] -= 2.f * ds;
+    dist = vertex.position - ed_node_new.position;
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    warped_vx.normal = vertex.normal;
+    float residual_neg = evaluate_cf_residual(warped_vx, warped_projection, dev_res, measures);
 
     // printf("\nresidual_pos: %f\n", residual_pos);
 
