@@ -52,8 +52,8 @@ __global__ void kernel_warp(unsigned int active_ed_nodes_count, struct_device_re
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
-            vx_projection.projection[i].x = __float2uint_rn(projection.x * w);
-            vx_projection.projection[i].y = __float2uint_rn(projection.y * h);
+            vx_projection.projection[i].x = projection.x * w;
+            vx_projection.projection[i].y = projection.y * h;
         }
         memcpy(&dev_res.warped_vx_projections[address], &vx_projection, sizeof(struct_projection));
     }
@@ -168,8 +168,8 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
-            vx_projection.projection[i].x = __float2uint_rn(projection.x * w);
-            vx_projection.projection[i].y = __float2uint_rn(projection.y * h);
+            vx_projection.projection[i].x = projection.x * w;
+            vx_projection.projection[i].y = projection.y * h;
         }
 
         // printf("\ned_node + vertex match\n");
@@ -200,48 +200,6 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 
         atomicAdd(energy, vx_residual);
     }
-
-#ifdef EVALUATE_ED_NODES_AS_VX
-    struct_vertex implicit_vx;
-    memset(&implicit_vx, 0, sizeof(struct_vertex));
-    implicit_vx.position = glm::clamp(ed_node.position, glm::vec3(0.f), glm::vec3(1.f));
-    implicit_vx.normal = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + ed_entry.vx_length / 2].normal;
-
-    struct_projection implicit_vx_proj;
-    memset(&implicit_vx_proj, 0, sizeof(struct_projection));
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], implicit_vx.position);
-        implicit_vx_proj.projection[i].x = __float2uint_rn(projection.x * __uint2float_rn(measures.depth_res.x));
-        implicit_vx_proj.projection[i].y = __float2uint_rn(projection.y * __uint2float_rn(measures.depth_res.y));
-    }
-
-    float vx_residual = 0.f;
-#ifdef EVALUATE_DATA
-    vx_residual += WEIGHT_DATA * evaluate_vx_residual(implicit_vx, implicit_vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-    vx_residual += WEIGHT_VISUAL_HULL * evaluate_hull_residual(implicit_vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_residual(implicit_vx, implicit_vx_proj, dev_res, measures);
-#endif
-
-    // printf("\nvx_residual: %f\n", vx_residual);
-
-    if(isnan(vx_residual))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_residual is NaN!\n");
-#endif
-
-        vx_residual = 0.f;
-    }
-
-    atomicAdd(energy, vx_residual);
-#endif
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 }
@@ -311,52 +269,6 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
         atomicAdd(energy, vx_residual);
     }
-
-#ifdef EVALUATE_ED_NODES_AS_VX
-#ifndef EVALUATE_ED_REGULARIZATION
-    struct_ed_node ed_node = dev_res.ed_graph[idx];
-#endif
-
-    struct_vertex implicit_vx;
-    memset(&implicit_vx, 0, sizeof(struct_vertex));
-    implicit_vx.position = glm::clamp(ed_node.position, glm::vec3(0.f), glm::vec3(1.f));
-    implicit_vx.normal = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + ed_entry.vx_length / 2].normal;
-
-    struct_projection implicit_vx_proj;
-    memset(&implicit_vx_proj, 0, sizeof(struct_projection));
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], implicit_vx.position);
-        implicit_vx_proj.projection[i].x = __float2uint_rn(projection.x * __uint2float_rn(measures.depth_res.x));
-        implicit_vx_proj.projection[i].y = __float2uint_rn(projection.y * __uint2float_rn(measures.depth_res.y));
-    }
-
-    float vx_residual = 0.f;
-#ifdef EVALUATE_DATA
-    vx_residual += WEIGHT_DATA * evaluate_vx_residual(implicit_vx, implicit_vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-    vx_residual += WEIGHT_VISUAL_HULL * evaluate_hull_residual(implicit_vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_residual(implicit_vx, implicit_vx_proj, dev_res, measures);
-#endif
-
-    // printf("\nvx_residual: %f\n", vx_residual);
-
-    if(isnan(vx_residual))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_residual is NaN!\n");
-#endif
-
-        vx_residual = 0.f;
-    }
-
-    atomicAdd(energy, vx_residual);
-#endif
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 }
@@ -548,119 +460,6 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         __syncthreads();
     }
 
-#ifdef EVALUATE_ED_NODES_AS_VX
-    struct_vertex implicit_vx;
-    memset(&implicit_vx, 0, sizeof(struct_vertex));
-    implicit_vx.position = glm::clamp(ed_node.position, glm::vec3(0.f), glm::vec3(1.f));
-    implicit_vx.normal = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + ed_entry.vx_length / 2].normal;
-
-    struct_projection implicit_vx_proj;
-    memset(&implicit_vx_proj, 0, sizeof(struct_projection));
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], implicit_vx.position);
-        implicit_vx_proj.projection[i].x = __float2uint_rn(projection.x * __uint2float_rn(measures.depth_res.x));
-        implicit_vx_proj.projection[i].y = __float2uint_rn(projection.y * __uint2float_rn(measures.depth_res.y));
-    }
-
-    float vx_residual = 0.f;
-#ifdef EVALUATE_DATA
-    vx_residual += WEIGHT_DATA * evaluate_vx_residual(implicit_vx, implicit_vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-    vx_residual += WEIGHT_VISUAL_HULL * evaluate_hull_residual(implicit_vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_residual(implicit_vx, implicit_vx_proj, dev_res, measures);
-#endif
-
-    // printf("\nvx_residual: %f\n", vx_residual);
-
-    if(isnan(vx_residual))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_residual is NaN!\n");
-#endif
-
-        vx_residual = 0.f;
-    }
-
-    __shared__ float pds[ED_COMPONENT_COUNT];
-
-    pds[component] = 0.f;
-
-#ifdef EVALUATE_DATA
-    pds[component] += WEIGHT_DATA * evaluate_vx_pd(implicit_vx, implicit_vx_proj, ed_node_new, component, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-    pds[component] += WEIGHT_VISUAL_HULL * evaluate_hull_pd(implicit_vx, ed_node_new, component, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-    pds[component] += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_pd(implicit_vx, implicit_vx_proj, ed_node_new, component, dev_res, measures);
-#endif
-
-    if(isnan(pds[component]))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_pds[%u] is NaN!\n", component);
-#endif
-
-        pds[component] = 0.f;
-    }
-
-    __syncthreads();
-
-    //        if(component == 0)
-    //        {
-    //            printf("\npds: {%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f}\n", pds[0], pds[1], pds[2], pds[3], pds[4], pds[5], pds[6], pds[7], pds[8], pds[9]);
-    //        }
-#ifndef EVALUATE_ED_REGULARIZATION
-    float jtf_value = -pds[component] * vx_residual;
-#else
-    jtf_value = -pds[component] * vx_residual;
-#endif
-
-    if(isnan(jtf_value))
-    {
-#ifdef DEBUG_NANS
-        printf("\njtf_value[%u] is NaN!\n", component);
-#endif
-
-        jtf_value = 0.f;
-    }
-
-    atomicAdd(&shared_jtf_block[component], jtf_value);
-
-    for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
-    {
-        unsigned int jtj_pos = UMAD(component, ED_COMPONENT_COUNT, component_k);
-
-        float jtj_value = pds[component] * pds[component_k];
-
-        //            if(jtf_value == 0.f)
-        //            {
-        //                printf("\ncoords:(%u,%u), v(%.2f,%.2f,%.2f)\n", component, component_k, vx.position.x, vx.position.y, vx.position.z);
-        //            }
-
-        if(isnan(jtj_value))
-        {
-#ifdef DEBUG_NANS
-            printf("\njtj_value[%u] is NaN!\n", component);
-#endif
-
-            jtj_value = 0.f;
-        }
-
-        atomicAdd(&shared_jtj_coo_val_block[jtj_pos], jtj_value);
-    }
-
-    __syncthreads();
-#endif
-
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 
     unsigned int jtj_pos = UMAD(component, ED_COMPONENT_COUNT, component);
@@ -825,7 +624,7 @@ __host__ int solve_for_h()
 }
 #endif
 
-#ifdef SOLVER_PCG
+#ifdef SOLVER_CG
 __host__ int solve_for_h()
 {
     cusparseMatDescr_t descr = nullptr;
@@ -935,6 +734,14 @@ __host__ int solve_for_h()
 
     cusparseDestroyMatDescr(descr);
 
+    return -1;
+}
+#endif
+
+#ifdef SOLVER_PCG
+__host__ int solve_for_h()
+{
+    // TODO
     return -1;
 }
 #endif
@@ -1234,7 +1041,9 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
         iterations++;
     }
 
+#ifdef REJECT_MISALIGNED
     reject_misaligned_deformations();
+#endif
 
     unmap_tsdf_volumes();
 }

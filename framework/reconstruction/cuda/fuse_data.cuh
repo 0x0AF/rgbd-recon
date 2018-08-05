@@ -54,8 +54,7 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     //        printf("\n|dist|: %f\n", glm::length(dist));
     //    }
 
-    const float skinning_weight = 1.f; // TODO expf(glm::length(dist) * glm::length(dist) * 2 / (ED_CELL_VOXEL_DIM * ED_CELL_VOXEL_DIM));
-    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, skinning_weight, measures) / measures.size_voxel);
+    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, 1.f, measures) / measures.size_voxel);
 
     if(!in_data_volume(warped_position, measures))
     {

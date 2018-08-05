@@ -304,10 +304,15 @@ extern "C" void sample_ed_nodes()
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaMemcpy(&_host_res.active_ed_nodes_count, active_ed_nodes_count, sizeof(unsigned int), cudaMemcpyDeviceToHost));
-    printf("\nactive_ed_nodes_count: %u\n", _host_res.active_ed_nodes_count);
+    cudaDeviceSynchronize();
 
     checkCudaErrors(cudaMemcpy(&_host_res.active_ed_vx_count, active_ed_vx_count, sizeof(unsigned long long int), cudaMemcpyDeviceToHost));
+    cudaDeviceSynchronize();
+
+#ifdef VERBOSE
     printf("\nactive_ed_vx_count: %lu\n", _host_res.active_ed_vx_count);
+    printf("\nactive_ed_nodes_count: %u\n", _host_res.active_ed_nodes_count);
+#endif
 
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_sort_active_ed_vx, 0, 0);
     grid_size = (_host_res.active_ed_vx_count + block_size - 1) / block_size;

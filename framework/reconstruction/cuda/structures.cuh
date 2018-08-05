@@ -38,18 +38,18 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define PIPELINE_DEBUG_TEXTURE_COLORS
 // #define PIPELINE_DEBUG_TEXTURE_DEPTHS
 // #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-#define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
+// #define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
 // #define PIPELINE_DEBUG_REFERENCE_VOLUME
 // #define PIPELINE_DEBUG_REFERENCE_MESH
 // #define PIPELINE_DEBUG_ED_SAMPLING
-#define PIPELINE_DEBUG_SORTED_VERTICES
+// #define PIPELINE_DEBUG_SORTED_VERTICES
 // #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
 
 #define PIPELINE_TEXTURES_PREPROCESS
 #define PIPELINE_SAMPLE
 #define PIPELINE_CORRESPONDENCE
 #define PIPELINE_ALIGN
-// #define PIPELINE_FUSE
+#define PIPELINE_FUSE
 
 #define MAX_REFERENCE_VERTICES 262144
 
@@ -67,17 +67,17 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define WEIGHT_DATA 1.0f
 #define WEIGHT_VISUAL_HULL 0.08f
 #define WEIGHT_ED_REGULARIZATION 0.02f
-#define WEIGHT_CORRESPONDENCE_FIELD 0.018f
+#define WEIGHT_CORRESPONDENCE_FIELD 0.01f
 
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
-// #define EVALUATE_ED_REGULARIZATION
-// #define EVALUATE_CORRESPONDENCE_FIELD
-
-// #define EVALUATE_ED_NODES_AS_VX
+#define EVALUATE_ED_REGULARIZATION
+#define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
+
+// #define REJECT_MISALIGNED
 
 // #define DEBUG_JTJ
 // #define DEBUG_JTJ_COO
@@ -88,7 +88,8 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 
 // #define SOLVER_DIRECT_CHOL
 // #define SOLVER_DIRECT_QR
-#define SOLVER_PCG
+#define SOLVER_CG
+// #define SOLVER_PCG
 
 struct struct_native_handles
 {
@@ -160,7 +161,7 @@ struct CUDA_ALIGN_8 struct_vertex
 
 struct CUDA_ALIGN_8 struct_projection
 {
-    glm::uvec2 projection[4];
+    glm::vec2 projection[4];
 };
 
 struct CUDA_ALIGN_8 struct_ed_node_debug
@@ -199,8 +200,8 @@ struct CUDA_ALIGN_8 struct_correspondence
     unsigned int layer;
     glm::vec3 current;
     unsigned int cell_id;
-    glm::uvec2 previous_proj;
-    glm::uvec2 current_proj;
+    glm::vec2 previous_proj;
+    glm::vec2 current_proj;
 };
 
 struct CUDA_ALIGN_8 struct_depth_cell_meta

@@ -91,7 +91,11 @@ extern "C" void copy_reference()
     cudaDeviceSynchronize();
 
     checkCudaErrors(cudaMemcpy(&_host_res.active_bricks_count, active_bricks_count, sizeof(unsigned int), cudaMemcpyDeviceToHost));
+    cudaDeviceSynchronize();
+
+#ifdef VERBOSE
     printf("\nactive_bricks: %u\n", _host_res.active_bricks_count);
+#endif
 
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_copy_reference, 0, 0);
     unsigned active_brick_voxels = _host_res.active_bricks_count * _host_res.measures.brick_num_voxels;

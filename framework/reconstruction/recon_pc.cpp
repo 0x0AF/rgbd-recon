@@ -440,7 +440,7 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_SAMPLE
 
-    if(_frame_number.load() % 256 == 0)
+    if(_frame_number.load() % 64 == 0)
     {
         TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 

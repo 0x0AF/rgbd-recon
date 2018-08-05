@@ -32,19 +32,22 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
             struct_correspondence correspondence;
 
             int match = current.d_data[index].match;
-            glm::uvec2 curr(current.d_data[index].xpos, current.d_data[index].ypos);
-            glm::uvec2 prev(previous.d_data[match].xpos, previous.d_data[match].ypos);
+            correspondence.current_proj = glm::vec2(current.d_data[index].xpos, current.d_data[index].ypos);
+            correspondence.previous_proj = glm::vec2(previous.d_data[match].xpos, previous.d_data[match].ypos);
 
-            float2 depth_curr = sample_depths_ptr(dev_res.kinect_depths, curr, layer, measures);
-            float2 depth_prev = sample_depths_ptr(dev_res.kinect_depths_prev, prev, layer, measures);
+            glm::uvec2 curr_pixel(correspondence.current_proj);
+            glm::uvec2 prev_pixel(correspondence.previous_proj);
+
+            float2 depth_curr = sample_depths_ptr(dev_res.kinect_depths, curr_pixel, layer, measures);
+            float2 depth_prev = sample_depths_ptr(dev_res.kinect_depths_prev, prev_pixel, layer, measures);
 
             if((int)(depth_curr.x * 1000) == 0 || (int)(depth_prev.x * 1000) == 0 || glm::abs(depth_curr.x - depth_prev.x) > SIFT_FILTER_MAX_MOTION)
             {
                 continue;
             }
 
-            glm::vec3 norm_curr = glm::vec3(((float)curr.x) / measures.depth_res.x, ((float)curr.y) / measures.depth_res.y, depth_curr.x);
-            glm::vec3 norm_prev = glm::vec3(((float)prev.x) / measures.depth_res.x, ((float)prev.y) / measures.depth_res.y, depth_prev.x);
+            glm::vec3 norm_curr = glm::vec3(correspondence.current_proj.x / measures.depth_res.x, correspondence.current_proj.y / measures.depth_res.y, depth_curr.x);
+            glm::vec3 norm_prev = glm::vec3(correspondence.previous_proj.x / measures.depth_res.x, correspondence.previous_proj.y / measures.depth_res.y, depth_prev.x);
 
             // printf("\ndepth_curr: %f, depth_prev: %f\n", depth_curr.x, depth_prev.x);
 
@@ -62,8 +65,6 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
                 continue;
             }
 
-            correspondence.current_proj = curr;
-            correspondence.previous_proj = prev;
             correspondence.layer = layer;
             correspondence.cell_id = identify_depth_cell_id(correspondence.previous_proj, layer, measures);
 

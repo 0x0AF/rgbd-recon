@@ -231,7 +231,8 @@ __device__ float evaluate_vx_residual(struct_vertex &warped_vertex, struct_proje
             continue;
         }
 
-        float depth = sample_depths_ptr(dev_res.kinect_depths, warped_projection.projection[i], i, measures).x;
+        glm::uvec2 pixel = glm::uvec2(warped_projection.projection[i]);
+        float depth = sample_depths_ptr(dev_res.kinect_depths, pixel, i, measures).x;
 
         if(depth == 0)
         {
@@ -314,7 +315,7 @@ CUDA_HOST_DEVICE float derivative_step(const int &partial_derivative_index, stru
     case 7:
     case 8:
     case 9:
-        step = measures.size_voxel * 0.5f; // one voxel step
+        step = measures.size_voxel * 0.5f; // half-voxel step
         break;
     case 3:
     case 4:
@@ -375,7 +376,7 @@ __device__ float evaluate_vx_pd(struct_vertex &vertex, struct_projection &warped
 
     float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
 
-    printf("\npartial_derivative[%i]: %f\n", partial_derivative_index, partial_derivative);
+    // printf("\npartial_derivative[%i]: %f\n", partial_derivative_index, partial_derivative);
 
     if(isnan(partial_derivative))
     {
@@ -579,7 +580,8 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
             continue;
         }
 
-        float occupancy = sample_silhouettes_ptr(dev_res.kinect_silhouettes, warped_projection.projection[i], i, measures);
+        glm::uvec2 pixel = warped_projection.projection[i];
+        float occupancy = sample_silhouettes_ptr(dev_res.kinect_silhouettes, pixel, i, measures);
 
         // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, occupancy);
 
@@ -663,7 +665,7 @@ __device__ float evaluate_hull_pd(struct_vertex &vertex, struct_ed_node ed_node_
 
     float partial_derivative = residual_pos / (2.0f * ds) - residual_neg / (2.0f * ds);
 
-    // printf("\nhull partial_derivative: %f\n", partial_derivative);
+    // printf("\npartial_derivative[%i]: %f\n", partial_derivative_index, partial_derivative);
 
     if(isnan(partial_derivative))
     {
@@ -683,7 +685,8 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_proje
 
     for(int layer = 0; layer < 4; layer++)
     {
-        unsigned int cell_id = identify_depth_cell_id(warped_projection.projection[layer], layer, measures);
+        glm::uvec2 pixel = glm::uvec2(warped_projection.projection[layer]);
+        unsigned int cell_id = identify_depth_cell_id(pixel, layer, measures);
 
         if(cell_id > measures.num_depth_cells)
         {
@@ -698,17 +701,29 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_proje
             continue;
         }
 
-        unsigned int distance = 16u;
         unsigned int argmin = 0u;
+
+        float distance = 16.f;
+
+        /*#pragma unroll
+                for(unsigned int i = 0; i < meta.cp_length; i++)
+                {
+                    float delta = glm::length(dev_res.sorted_correspondences[meta.cp_offset + i].previous_proj - warped_projection.projection[layer]);
+                    if(delta < distance)
+                    {
+                        argmin = i;
+                        distance = delta;
+                    }
+                }*/
 
 #pragma unroll
         for(unsigned int i = 0; i < meta.cp_length; i++)
         {
-            glm::uvec2 diff = glm::abs(dev_res.sorted_correspondences[meta.cp_offset + i].previous_proj - warped_projection.projection[layer]);
-            unsigned int manhattan_distance = diff.x + diff.y;
-            if(manhattan_distance < distance)
+            float delta = glm::length(dev_res.sorted_correspondences[meta.cp_offset + i].previous - warped_vertex.position);
+            if(delta < distance)
             {
                 argmin = i;
+                distance = delta;
             }
         }
 
