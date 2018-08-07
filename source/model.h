@@ -144,6 +144,7 @@ class model
     const std::shared_ptr<kinect::CalibrationFiles> &get_calib_files() const;
     const std::vector<std::shared_ptr<kinect::Reconstruction>> &get_recons() const;
     const std::shared_ptr<kinect::ReconCalibs> &get_calibvis() const;
+    const std::shared_ptr<kinect::ReconPerformanceCapture> &get_recon_pc() const;
 
   private:
     IO io;

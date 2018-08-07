@@ -61,6 +61,8 @@ class ReconPerformanceCapture : public Reconstruction
     ReconPerformanceCapture(NetKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size, float ed_size);
     ~ReconPerformanceCapture();
 
+    void pause(bool pause);
+
     void draw() override;
     void drawF() override;
     void integrate_data_frame();
@@ -81,6 +83,8 @@ class ReconPerformanceCapture : public Reconstruction
 
     static int TRI_TABLE[4096];
     static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_SMOOTH_HULL, TIMER_CORRESPONDENCE, TIMER_NON_RIGID_ALIGNMENT, TIMER_FUSION;
+
+    Configuration _conf;
 
   private:
     NetKinectArray *_nka = nullptr;
@@ -109,12 +113,15 @@ class ReconPerformanceCapture : public Reconstruction
 
     globjects::Texture *_texture2darray_debug;
 
-    globjects::Buffer *_buffer_correspondences_debug,*_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug;
-    globjects::Program *_program_pc_debug_correspondences,*_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices, *_program_pc_debug_sorted_vertices_connections, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
+    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug;
+    globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices, *_program_pc_debug_sorted_vertices_connections,
+        *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
     std::vector<unsigned> _bricks_occupied;
+
+    bool _is_paused = false;
 
     float _limit;
     float _voxel_size;

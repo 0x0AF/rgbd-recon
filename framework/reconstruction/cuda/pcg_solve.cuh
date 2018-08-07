@@ -118,7 +118,7 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
     // printf("\nenergy: %f\n", energy);
 }
 
-__global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res,struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -135,7 +135,7 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     const float h = __uint2float_rn(measures.depth_res.y);
 
 #ifdef EVALUATE_ED_REGULARIZATION
-    float ed_residual = WEIGHT_ED_REGULARIZATION * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
     {
@@ -176,15 +176,15 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += WEIGHT_DATA * evaluate_vx_residual(warped_vx, vx_projection, dev_res, measures);
+        vx_residual += host_res.configuration.weight_data * evaluate_vx_residual(warped_vx, vx_projection, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += WEIGHT_VISUAL_HULL * evaluate_hull_residual(vx_projection, dev_res, measures);
+        vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_projection, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-        vx_residual += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_residual(warped_vx, vx_projection, dev_res, measures);
+        vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx_projection, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -204,7 +204,7 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 }
 
-__global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -219,7 +219,7 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 #ifdef EVALUATE_ED_REGULARIZATION
     struct_ed_node ed_node = dev_res.ed_graph[idx];
 
-    float ed_residual = WEIGHT_ED_REGULARIZATION * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
     {
@@ -245,15 +245,15 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += WEIGHT_DATA * evaluate_vx_residual(vx, vx_proj, dev_res, measures);
+        vx_residual += host_res.configuration.weight_data * evaluate_vx_residual(vx, vx_proj, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += WEIGHT_VISUAL_HULL * evaluate_hull_residual(vx_proj, dev_res, measures);
+        vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_proj, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-        vx_residual += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_residual(vx, vx_proj, dev_res, measures);
+        vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx, vx_proj, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -273,7 +273,7 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 }
 
-__global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsigned int active_ed_nodes_count, const float mu, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsigned int active_ed_nodes_count, const float mu, struct_device_resources dev_res, struct_host_resources host_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -298,7 +298,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 #ifdef EVALUATE_ED_REGULARIZATION
     __shared__ float ed_pds[ED_COMPONENT_COUNT];
 
-    float ed_residual = WEIGHT_ED_REGULARIZATION * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 
     if(isnan(ed_residual))
     {
@@ -309,7 +309,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         ed_residual = 0.f;
     }
 
-    ed_pds[component] = WEIGHT_ED_REGULARIZATION * evaluate_ed_pd(ed_node_new, ed_entry, component, dev_res, measures);
+    ed_pds[component] = host_res.configuration.weight_regularization * evaluate_ed_pd(ed_node_new, ed_entry, component, dev_res, measures);
 
     if(isnan(ed_pds[component]))
     {
@@ -367,15 +367,15 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         float vx_residual = 0.f;
 #ifdef EVALUATE_DATA
-        vx_residual += WEIGHT_DATA * evaluate_vx_residual(warped_vx, warped_vx_proj, dev_res, measures);
+        vx_residual += host_res.configuration.weight_data * evaluate_vx_residual(warped_vx, warped_vx_proj, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_residual += WEIGHT_VISUAL_HULL * evaluate_hull_residual(warped_vx_proj, dev_res, measures);
+        vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(warped_vx_proj, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-        vx_residual += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_residual(warped_vx, warped_vx_proj, dev_res, measures);
+        vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, warped_vx_proj, dev_res, measures);
 #endif
 
         // printf("\nvx_residual: %f\n", vx_residual);
@@ -394,15 +394,15 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         pds[component] = 0.f;
 
 #ifdef EVALUATE_DATA
-        pds[component] += WEIGHT_DATA * evaluate_vx_pd(vx, warped_vx_proj, ed_node_new, component, dev_res, measures);
+        pds[component] += host_res.configuration.weight_data * evaluate_vx_pd(vx, warped_vx_proj, ed_node_new, component, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        pds[component] += WEIGHT_VISUAL_HULL * evaluate_hull_pd(vx, ed_node_new, component, dev_res, measures);
+        pds[component] += host_res.configuration.weight_hull * evaluate_hull_pd(vx, ed_node_new, component, dev_res, measures);
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-        pds[component] += WEIGHT_CORRESPONDENCE_FIELD * evaluate_cf_pd(vx, warped_vx_proj, ed_node_new, component, dev_res, measures);
+        pds[component] += host_res.configuration.weight_correspondence * evaluate_cf_pd(vx, warped_vx_proj, ed_node_new, component, dev_res, measures);
 #endif
 
         if(isnan(pds[component]))
@@ -641,7 +641,7 @@ __host__ int solve_for_h()
 
     // printf("\nmxn: %ix%i, nnz_dev_mem: %u\n", N, N, csr_nnz);
 
-    const int max_iter = 11;
+    const int max_iter = _host_res.configuration.solver_cg_steps;
     const float tol = 1e-6f;
 
     float r0, r1, alpha, alpham1, beta;
@@ -681,6 +681,7 @@ __host__ int solve_for_h()
     }
 
     int k = 1;
+    float r1_last = 0.f;
 
     while(r1 > tol * tol && k <= max_iter)
     {
@@ -721,7 +722,17 @@ __host__ int solve_for_h()
         if(isnanf(sqrt(r1)))
         {
             fprintf(stderr, "\nnan in solution!\n");
+            return 0;
         }
+
+        float step = sqrt(r1) - r1_last;
+
+        if(step < 0.f || glm::abs(step) < (0.05f * sqrt(r1)))
+        {
+            break;
+        }
+
+        r1_last = sqrt(r1);
 
 #ifdef VERBOSE
         printf("\niteration = %3d, residual = %e\n", k, sqrt(r1));
@@ -870,7 +881,7 @@ __host__ void evaluate_jtj_jtf(const float mu)
 {
     size_t grid_size = _host_res.active_ed_nodes_count;
 
-    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_vx_count, _host_res.active_ed_nodes_count, mu, _dev_res, _host_res.measures);
+    kernel_jtj_jtf<<<grid_size, ED_COMPONENT_COUNT>>>(_host_res.active_ed_vx_count, _host_res.active_ed_nodes_count, mu, _dev_res, _host_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
@@ -889,7 +900,7 @@ __host__ void evaluate_misalignment_energy(float &misalignment_energy)
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_energy, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    kernel_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, _dev_res, _host_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
@@ -918,7 +929,7 @@ __host__ void evaluate_step_misalignment_energy(float &misalignment_energy, cons
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_step_energy, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_step_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    kernel_step_energy<<<grid_size, block_size>>>(device_misalignment_energy, _host_res.active_ed_nodes_count, _dev_res, _host_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
@@ -956,9 +967,9 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
 
     apply_warp();
 
-    const unsigned int max_iterations = 1u;
+    const unsigned int max_iterations = _host_res.configuration.solver_lma_steps;
     unsigned int iterations = 0u;
-    float mu = 1.f;
+    float mu = _host_res.configuration.solver_mu;
     float initial_misalignment_energy, solution_misalignment_energy;
     int singularity = 0;
 
@@ -1020,7 +1031,9 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
             cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
             cudaDeviceSynchronize();
 
-            mu -= 0.01f;
+            apply_warp();
+
+            mu -= _host_res.configuration.solver_mu_step;
             initial_misalignment_energy = solution_misalignment_energy;
 #ifdef VERBOSE
             printf("\nmu lowered: %f\n", mu);
@@ -1032,7 +1045,7 @@ extern "C" void pcg_solve(struct_native_handles &native_handles)
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 #endif
 
-            mu += 0.01f;
+            mu += _host_res.configuration.solver_mu_step;
 #ifdef VERBOSE
             printf("\nmu raised: %f\n", mu);
 #endif

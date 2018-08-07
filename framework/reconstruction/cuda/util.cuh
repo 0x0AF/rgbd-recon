@@ -732,7 +732,7 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_proje
         glm::vec3 cp = dev_res.sorted_correspondences[meta.cp_offset + argmin].current;
         float motion = glm::length(warped_vertex.position - cp);
 
-        if(motion > SIFT_FILTER_MAX_MOTION)
+        if(motion > 0.01f)
         {
             continue;
         }

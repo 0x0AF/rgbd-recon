@@ -102,14 +102,12 @@ __global__ void kernel_filter_cols(float *silhouettes_ptr, int layer, struct_mea
 
 __host__ void preprocess_hull()
 {
-    const int iterations = 20;
-
     cudaMemcpyToSymbol(c_Kernel, _host_res.kernel_gauss, KERNEL_LENGTH * sizeof(float));
 
     dim3 threads(8, 8);
     dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
 
-    for(int iteration = 0; iteration < iterations; iteration++)
+    for(int iteration = 0; iteration < _host_res.configuration.textures_silhouettes_iterations; iteration++)
     {
         for(int layer = 0; layer < 4; layer++)
         {

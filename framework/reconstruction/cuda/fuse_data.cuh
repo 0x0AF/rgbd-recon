@@ -15,199 +15,106 @@ __global__ void kernel_fuse_data(unsigned int active_ed_nodes_count, struct_devi
     struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
 
-    unsigned int brick_id = ed_entry.brick_id;
-    unsigned int ed_cell_id = ed_entry.ed_cell_id;
-    unsigned int edc_voxel_id = idx % measures.ed_cell_num_voxels;
+    unsigned int voxel_id = idx % measures.ed_cell_num_voxels;
 
-    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
-    glm::uvec3 position = ed_cell_3d(ed_cell_id, measures) * measures.ed_cell_dim_voxels;
-    glm::uvec3 ed_cell_index3d = ed_cell_voxel_3d(edc_voxel_id, measures);
-    glm::uvec3 world = brick + position + ed_cell_index3d;
+    glm::vec3 dist = glm::vec3(ed_cell_voxel_3d(voxel_id, measures) - glm::uvec3(1u)) * measures.size_voxel;
+    glm::vec3 world = glm::clamp(ed_node.position + dist, glm::vec3(0.f), glm::vec3(1.f));
+    glm::vec3 warped_position = glm::clamp(warp_position(dist, ed_node, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
 
-    //    if(position_id == 0)
-    //    {
-    //        printf("\nbrick %u: (%u,%u,%u)\n", brick_id, brick.x, brick.y, brick.z);
-    //    }
+    glm::uvec3 world_voxel = glm::uvec3(world * glm::vec3(measures.data_volume_res));
+    glm::uvec3 warped_position_voxel = glm::uvec3(warped_position * glm::vec3(measures.data_volume_res));
 
-    if(!in_data_volume(world, measures))
+    if(!in_data_volume(world_voxel, measures) || !in_data_volume(warped_position_voxel, measures))
     {
-        //        printf("\nout of volume: w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", world.x, world.y, world.z, brick.x, brick.y, brick.z, position.x, position.y, position.z);
-        return;
-    }
-
-    //    if(edc_voxel_id == 0)
-    //    {
-    //        printf("\ned node %u: (%f,%f,%f)\n", ed_node_offset, ed_node.position.x, ed_node.position.y, ed_node.position.z);
-    //    }
-
-    //    if(edc_voxel_id == 0)
-    //    {
-    //        printf("\ned node %u, position: (%u,%u,%u)\n", idx / ED_CELL_VOXELS, world.x, world.y, world.z);
-    //    }
-
-    // warped position
-
-    glm::vec3 dist = glm::vec3(world) * measures.size_voxel - ed_node.position;
-
-    //    if(edc_voxel_id == 0)
-    //    {
-    //        printf("\n|dist|: %f\n", glm::length(dist));
-    //    }
-
-    glm::uvec3 warped_position = glm::uvec3(warp_position(dist, ed_node, 1.f, measures) / measures.size_voxel);
-
-    if(!in_data_volume(warped_position, measures))
-    {
-        //        printf("\nwarped out of volume: (%u,%u,%u), w(%u,%u,%u) = b(%u,%u,%u) + p(%u,%u,%u)\n", warped_position.x, warped_position.y, warped_position.z, world.x, world.y, world.z, brick.x,
-        //        brick.y,
-        //               brick.z, position.x, position.y, position.z);
+        // printf("\nout of volume: world_voxel(%u,%u,%u), warped_voxel(%u,%u,%u)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y,
+        // warped_position_voxel.z);
         return;
     }
 
     if(ed_entry.rejected)
     {
         float2 data;
-        surf3Dread(&data, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-        surf3Dwrite(data, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+        surf3Dread(&data, _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
+        surf3Dwrite(data, _volume_tsdf_ref, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
         return;
     }
 
-    __shared__ float2 ed_cell_voxels[27];  // point of error
-    __shared__ float2 edc_predictions[27]; // point of error
+    __shared__ float2 voxels_reference[27];
+    surf3Dread(&voxels_reference[voxel_id], _volume_tsdf_ref, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
+    __syncthreads();
 
-    surf3Dread(&ed_cell_voxels[edc_voxel_id], _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z);
+    __shared__ glm::vec3 warped_gradient;
+
+    if(voxel_id == 0)
+    {
+        glm::vec3 gradient;
+
+        unsigned int x_pos = ed_cell_voxel_id(glm::uvec3(2, 1, 1), measures);
+        unsigned int x_neg = ed_cell_voxel_id(glm::uvec3(0, 1, 1), measures);
+        unsigned int y_pos = ed_cell_voxel_id(glm::uvec3(1, 2, 1), measures);
+        unsigned int y_neg = ed_cell_voxel_id(glm::uvec3(1, 0, 1), measures);
+        unsigned int z_pos = ed_cell_voxel_id(glm::uvec3(1, 1, 2), measures);
+        unsigned int z_neg = ed_cell_voxel_id(glm::uvec3(1, 1, 0), measures);
+
+        float two_voxels = 2.0f * measures.size_voxel;
+
+        gradient.x = voxels_reference[x_pos].x / two_voxels - voxels_reference[x_neg].x / two_voxels;
+        gradient.y = voxels_reference[y_pos].x / two_voxels - voxels_reference[y_neg].x / two_voxels;
+        gradient.z = voxels_reference[z_pos].x / two_voxels - voxels_reference[z_neg].x / two_voxels;
+
+        glm::vec3 gradient_vector = glm::normalize(gradient);
+        glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, 1.0f, measures);
+
+        warped_gradient = warped_gradient_vector * glm::length(gradient);
+
+        glm::bvec3 is_nan = glm::isnan(warped_gradient);
+
+        if(is_nan.x || is_nan.y || is_nan.z)
+        {
+#ifdef DEBUG_NANS
+            printf("\nNaN in gradient warp evaluation\n");
+            warped_gradient = glm::vec3(0.f);
+#endif
+        }
+    }
 
     __syncthreads();
 
-    //    if(edc_voxel_id == 0)
-    //    {
-    //        glm::vec3 diff = glm::vec3(warped_position) - glm::vec3(world);
-    //        printf("\ndiff %u: (%u,%u,%u)\n", glm::length(diff), warped_position.x, warped_position.y, warped_position.z);
-    //    }
-
-    // warped gradient
-
-    glm::vec3 gradient;
-
-    if(ed_cell_index3d.x != measures.ed_cell_dim_voxels)
-    {
-        unsigned int ed_cell_voxel_id_x = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(1, 0, 0), measures);
-        gradient.x = ed_cell_voxels[ed_cell_voxel_id_x].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
-    }
-    else
-    {
-        float2 voxel_x;
-        surf3Dread(&voxel_x, _volume_tsdf_ref, (world.x + 1) * sizeof(float2), world.y, world.z);
-
-        gradient.x = voxel_x.x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
-    }
-
-    if(ed_cell_index3d.y != measures.ed_cell_dim_voxels)
-    {
-        unsigned int ed_cell_voxel_id_y = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 1, 0), measures);
-        gradient.x = ed_cell_voxels[ed_cell_voxel_id_y].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
-    }
-    else
-    {
-        float2 voxel_y;
-        surf3Dread(&voxel_y, _volume_tsdf_ref, world.x * sizeof(float2), world.y + 1, world.z);
-
-        gradient.y = voxel_y.x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
-    }
-
-    if(ed_cell_index3d.z != measures.ed_cell_dim_voxels)
-    {
-        unsigned int ed_cell_voxel_id_z = ed_cell_voxel_id(ed_cell_index3d + glm::uvec3(0, 0, 1), measures);
-        gradient.z = ed_cell_voxels[ed_cell_voxel_id_z].x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
-    }
-    else
-    {
-        float2 voxel_z;
-        surf3Dread(&voxel_z, _volume_tsdf_ref, world.x * sizeof(float2), world.y, world.z + 1);
-
-        gradient.z = voxel_z.x / 2.0f - ed_cell_voxels[edc_voxel_id].x / 2.0f;
-    }
-
-    glm::vec3 gradient_vector = glm::normalize(gradient);
-    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, skinning_weight, measures);
-    glm::vec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
-
-    glm::bvec3 is_nan = glm::isnan(warped_gradient);
-
-    if(is_nan.x || is_nan.y || is_nan.z)
-    {
-#ifdef DEBUG_NANS
-        printf("\nNaN in gradient warp evaluation\n");
-        warped_gradient = glm::vec3(0.f);
-#endif
-    }
-
-    //    if(position_id == 0)
-    //    {
-    //        printf("\ngradient: (%f,%f,%f), warped gradient: (%f,%f,%f)\n", gradient.x, gradient.y, gradient.z, warped_gradient.x, warped_gradient.y, warped_gradient.z);
-    //    }
-
-    // reference frame SDF prediction
+    __shared__ float2 voxels_prediction[27];
 
     float2 prediction{0.f, 0.f};
-    prediction.x = ed_cell_voxels[edc_voxel_id].x + glm::dot(warped_gradient, glm::vec3(warped_position) - glm::vec3(world));
-    prediction.y = 1.0f;
+    prediction.x = voxels_reference[voxel_id].x + glm::dot(warped_gradient, warped_position - world);
+    prediction.y = 1.0f; // TODO: pull misalignment error here
 
-    edc_predictions[edc_voxel_id] = prediction;
-
-    __syncthreads();
-
-    for(unsigned int i = 0; i < measures.ed_cell_num_voxels; i++)
-    {
-        if(i == edc_voxel_id)
-        {
-            continue;
-        }
-        glm::uvec3 edc_voxel_3d = ed_cell_voxel_3d(edc_voxel_id, measures);
-        float dist = glm::length(glm::vec3(edc_voxel_3d));
-        float weight = expf(-dist * dist / 2.0f / (float)measures.ed_cell_dim_voxels / (float)measures.ed_cell_dim_voxels);
-        edc_predictions[i].x = edc_predictions[i].x * edc_predictions[i].y + prediction.x * weight / (edc_predictions[i].y + weight);
-        edc_predictions[i].y = edc_predictions[i].y + weight;
-    }
+    voxels_prediction[voxel_id] = prediction;
 
     __syncthreads();
-
-    //    if(position_id == 0)
-    //    {
-    //        printf("\nprediction: %f\n", prediction.x);
-    //    }
 
     // TODO: blending
 
     float2 data;
-    surf3Dread(&data, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    surf3Dread(&data, _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
 
     float2 fused;
 
-    fused.y = edc_predictions[edc_voxel_id].y + data.y;
+    fused.y = voxels_prediction[voxel_id].y + data.y;
 
     if(fused.y > 0.001f)
     {
-        fused.x = data.x * data.y / fused.y + edc_predictions[edc_voxel_id].x * edc_predictions[edc_voxel_id].y / fused.y;
+        fused.x = data.x * data.y / fused.y + voxels_prediction[voxel_id].x * voxels_prediction[voxel_id].y / fused.y;
     }
     else
     {
-        fused.x = data.y > edc_predictions[edc_voxel_id].y ? data.x : edc_predictions[edc_voxel_id].x;
-        fused.y = data.y > edc_predictions[edc_voxel_id].y ? data.y : edc_predictions[edc_voxel_id].y;
+        fused.x = data.y > voxels_prediction[voxel_id].y ? data.x : voxels_prediction[voxel_id].x;
+        fused.y = data.y > voxels_prediction[voxel_id].y ? data.y : voxels_prediction[voxel_id].y;
     }
 
     __syncthreads();
 
-    //    if(edc_voxel_id == 0)
-    //    {
-    //        printf("\nref: %f, prediction: %f, fused: %f\n", ed_cell_voxels[edc_voxel_id].x, prediction.x, fused.x);
-    //    }
-
-    // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // surf3Dwrite(float2{0.00f, 1.00f}, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
-    surf3Dwrite(ed_cell_voxels[edc_voxel_id], _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // surf3Dwrite(prediction, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
-    // surf3Dwrite(fused, _volume_tsdf_data, warped_position.x * sizeof(float2), warped_position.y, warped_position.z);
+    // surf3Dwrite(voxels_reference[voxel_id], _volume_tsdf_data, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
+    // surf3Dwrite(voxels_reference[voxel_id], _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
+    // surf3Dwrite(voxels_prediction[voxel_id], _volume_tsdf_data, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
+    surf3Dwrite(fused, _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
 }
 
 extern "C" void fuse_data()

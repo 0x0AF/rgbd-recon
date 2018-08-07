@@ -243,3 +243,4 @@ void model::update_framebuffer_size(unsigned int width, unsigned int height)
 }
 const std::vector<std::shared_ptr<kinect::Reconstruction>> &model::get_recons() const { return _recons; }
 const std::shared_ptr<kinect::ReconCalibs> &model::get_calibvis() const { return _calibvis; }
+const std::shared_ptr<kinect::ReconPerformanceCapture> &model::get_recon_pc() const { return _recon_pc; }

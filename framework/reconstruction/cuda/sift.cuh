@@ -9,7 +9,7 @@ SiftData *sift_front;
 SiftData *sift_back;
 CudaImage img;
 
-__global__ void kernel_extract_correspondences(int extracted_features, int layer, SiftData current, SiftData previous, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_extract_correspondences(int extracted_features, int layer, SiftData current, SiftData previous, struct_device_resources dev_res, struct_host_resources host_res,struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
     unsigned int correspondences_per_thread = (unsigned int)max(1u, extracted_features / (blockDim.x * gridDim.x));
@@ -23,7 +23,7 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
             return;
         }
 
-        if(current.d_data[index].score > SIFT_MINIMAL_SCORE)
+        if(current.d_data[index].score > host_res.configuration.textures_SIFT_min_score)
         {
             // printf("\ncorrespondence error: %f\n", current.d_data[index].match_error);
 
@@ -41,7 +41,7 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
             float2 depth_curr = sample_depths_ptr(dev_res.kinect_depths, curr_pixel, layer, measures);
             float2 depth_prev = sample_depths_ptr(dev_res.kinect_depths_prev, prev_pixel, layer, measures);
 
-            if((int)(depth_curr.x * 1000) == 0 || (int)(depth_prev.x * 1000) == 0 || glm::abs(depth_curr.x - depth_prev.x) > SIFT_FILTER_MAX_MOTION)
+            if((int)(depth_curr.x * 1000) == 0 || (int)(depth_prev.x * 1000) == 0 || glm::abs(depth_curr.x - depth_prev.x) > host_res.configuration.textures_SIFT_max_motion)
             {
                 continue;
             }
@@ -60,7 +60,7 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
             //            printf("\ncorrespondence: c(%f,%f,%f) === p(%f,%f,%f)\n", correspondence.current.x, correspondence.current.y, correspondence.current.z,
             //                   correspondence.previous.x, correspondence.previous.y, correspondence.previous.z);
 
-            if(glm::length(correspondence.current - correspondence.previous) > SIFT_FILTER_MAX_MOTION)
+            if(glm::length(correspondence.current - correspondence.previous) > host_res.configuration.textures_SIFT_max_motion)
             {
                 continue;
             }
@@ -148,7 +148,8 @@ extern "C" void estimate_correspondence_field()
     {
         img.Allocate(w, h, p, false, _dev_res.kinect_intens + w * h * i, NULL);
 
-        ExtractSift(sift_front[i], img, SIFT_OCTAVES, SIFT_BLUR, SIFT_THRESHOLD, SIFT_LOWEST_SCALE, SIFT_UPSCALE);
+        ExtractSift(sift_front[i], img, _host_res.configuration.textures_SIFT_octaves, _host_res.configuration.textures_SIFT_blur, _host_res.configuration.textures_SIFT_threshold,
+                    _host_res.configuration.textures_SIFT_lowest_scale, _host_res.configuration.textures_SIFT_upscale);
         MatchSiftData(sift_front[i], sift_back[i]);
 
         // printf("\nextracted: %i, layer[%i]\n", sift_front[i].numPts, i);
@@ -157,7 +158,7 @@ extern "C" void estimate_correspondence_field()
         int min_grid_size;
         cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_extract_correspondences, 0, 0);
         size_t grid_size = (sift_front[i].numPts + block_size - 1) / block_size;
-        kernel_extract_correspondences<<<grid_size, block_size>>>(sift_front[i].numPts, i, sift_front[i], sift_back[i], _dev_res, _host_res.measures);
+        kernel_extract_correspondences<<<grid_size, block_size>>>(sift_front[i].numPts, i, sift_front[i], sift_back[i], _dev_res, _host_res, _host_res.measures);
         getLastCudaError("kernel_extract_correspondences failed");
         cudaDeviceSynchronize();
 

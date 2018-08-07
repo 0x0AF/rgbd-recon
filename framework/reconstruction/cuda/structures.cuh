@@ -37,13 +37,13 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 
 // #define PIPELINE_DEBUG_TEXTURE_COLORS
 // #define PIPELINE_DEBUG_TEXTURE_DEPTHS
-// #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-// #define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
-// #define PIPELINE_DEBUG_REFERENCE_VOLUME
-// #define PIPELINE_DEBUG_REFERENCE_MESH
-// #define PIPELINE_DEBUG_ED_SAMPLING
-// #define PIPELINE_DEBUG_SORTED_VERTICES
-// #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
+#define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+#define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
+#define PIPELINE_DEBUG_REFERENCE_VOLUME
+#define PIPELINE_DEBUG_REFERENCE_MESH
+#define PIPELINE_DEBUG_ED_SAMPLING
+#define PIPELINE_DEBUG_SORTED_VERTICES
+#define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
 
 #define PIPELINE_TEXTURES_PREPROCESS
 #define PIPELINE_SAMPLE
@@ -54,20 +54,21 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define MAX_REFERENCE_VERTICES 262144
 
 #define SIFT_MAX_CORRESPONDENCES 2048
-#define SIFT_MINIMAL_SCORE 0.95f
-#define SIFT_FILTER_MAX_MOTION 0.1f
 #define SIFT_USE_COLOR
 
-#define SIFT_OCTAVES 5
-#define SIFT_BLUR 0.f
-#define SIFT_THRESHOLD 0.01f
-#define SIFT_LOWEST_SCALE 0.01f
-#define SIFT_UPSCALE false
+/// #define SIFT_MINIMAL_SCORE 0.95f
+/// #define SIFT_FILTER_MAX_MOTION 0.1f
 
-#define WEIGHT_DATA 1.0f
-#define WEIGHT_VISUAL_HULL 0.08f
-#define WEIGHT_ED_REGULARIZATION 0.02f
-#define WEIGHT_CORRESPONDENCE_FIELD 0.01f
+/// #define SIFT_OCTAVES 5
+/// #define SIFT_BLUR 0.f
+/// #define SIFT_THRESHOLD 0.01f
+/// #define SIFT_LOWEST_SCALE 0.01f
+/// #define SIFT_UPSCALE false
+
+/// #define WEIGHT_DATA 1.0f
+/// #define WEIGHT_VISUAL_HULL 0.08f
+/// #define WEIGHT_ED_REGULARIZATION 0.02f
+/// #define WEIGHT_CORRESPONDENCE_FIELD 0.01f
 
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
@@ -77,7 +78,7 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
 
-// #define REJECT_MISALIGNED
+#define REJECT_MISALIGNED
 
 // #define DEBUG_JTJ
 // #define DEBUG_JTJ_COO
@@ -90,6 +91,47 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define SOLVER_DIRECT_QR
 #define SOLVER_CG
 // #define SOLVER_PCG
+
+struct Configuration
+{
+    // bool verbose = false;
+    // bool debug_nan = false;
+
+    bool debug_wipe_data = false;
+
+    bool debug_texture_silhouettes = false;
+    bool debug_correspondence_field = false;
+    bool debug_reference_volume = false;
+    bool debug_reference_mesh = false;
+    bool debug_ed_sampling = false;
+    bool debug_sorted_vertices = false;
+    bool debug_sorted_vertices_connections = false;
+
+    bool pipeline_preprocess_textures = false;
+    bool pipeline_sample = false;
+    bool pipeline_correspondence = false;
+    bool pipeline_align = false;
+    bool pipeline_fuse = false;
+
+    int textures_silhouettes_iterations = 4;
+    int textures_SIFT_octaves = 5;
+    float textures_SIFT_blur = 0.2f;
+    float textures_SIFT_threshold = 0.025f;
+    float textures_SIFT_lowest_scale = 0.01f;
+    bool textures_SIFT_upscale = false;
+    float textures_SIFT_min_score = 0.95f;
+    float textures_SIFT_max_motion = 0.1f;
+
+    float weight_data = 1.0f;
+    float weight_hull = 0.08f;
+    float weight_correspondence = 0.02f;
+    float weight_regularization = 0.01f;
+
+    float solver_mu = 0.2f;
+    float solver_mu_step = 0.05f;
+    int solver_lma_steps = 4;
+    int solver_cg_steps = 4;
+};
 
 struct struct_native_handles
 {

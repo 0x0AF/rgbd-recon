@@ -127,6 +127,53 @@ void renderer::update_gui()
             _model->get_nka()->refineBoundary(_io->_refine);
         }
     }
+    if(ImGui::CollapsingHeader("Performance Capture", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Checkbox("Wipe Data Volume", &_model->get_recon_pc()->_conf.debug_wipe_data);
+
+        ImGui::Separator();
+
+        ImGui::Checkbox("Debug Texture Silhouettes", &_model->get_recon_pc()->_conf.debug_texture_silhouettes);
+        ImGui::Checkbox("Debug Correspondence Field", &_model->get_recon_pc()->_conf.debug_correspondence_field);
+        ImGui::Checkbox("Debug Reference Volume", &_model->get_recon_pc()->_conf.debug_reference_volume);
+        ImGui::Checkbox("Debug Reference Mesh", &_model->get_recon_pc()->_conf.debug_reference_mesh);
+        ImGui::Checkbox("Debug ED Sampling", &_model->get_recon_pc()->_conf.debug_ed_sampling);
+        ImGui::Checkbox("Debug Vertices", &_model->get_recon_pc()->_conf.debug_sorted_vertices);
+        ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
+
+        ImGui::Separator();
+
+        ImGui::Checkbox("Pipeline Preprocess Textures", &_model->get_recon_pc()->_conf.pipeline_preprocess_textures);
+        ImGui::Checkbox("Pipeline Sample", &_model->get_recon_pc()->_conf.pipeline_sample);
+        ImGui::Checkbox("Pipeline Correspondence", &_model->get_recon_pc()->_conf.pipeline_correspondence);
+        ImGui::Checkbox("Pipeline Align", &_model->get_recon_pc()->_conf.pipeline_align);
+        ImGui::Checkbox("Pipeline Fuse", &_model->get_recon_pc()->_conf.pipeline_fuse);
+
+        ImGui::Separator();
+
+        ImGui::SliderInt("Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
+        ImGui::SliderInt("SIFT Octaves", &_model->get_recon_pc()->_conf.textures_SIFT_octaves, 0, 8, "%.0f");
+        ImGui::SliderFloat("SIFT Blur", &_model->get_recon_pc()->_conf.textures_SIFT_blur, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("SIFT Threshold", &_model->get_recon_pc()->_conf.textures_SIFT_threshold, 0.001f, 0.04f, "%.5f");
+        ImGui::SliderFloat("SIFT Lowest Scale", &_model->get_recon_pc()->_conf.textures_SIFT_lowest_scale, 0.001f, 1.0f, "%.5f");
+        ImGui::Checkbox("SIFT Upscale", &_model->get_recon_pc()->_conf.textures_SIFT_upscale);
+        ImGui::SliderFloat("SIFT Min Score", &_model->get_recon_pc()->_conf.textures_SIFT_min_score, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("SIFT Max Motion", &_model->get_recon_pc()->_conf.textures_SIFT_max_motion, 0.001f, 1.0f, "%.5f");
+
+        ImGui::Separator();
+
+        ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.001f, 1.0f, "%.5f");
+
+        ImGui::Separator();
+
+        ImGui::SliderFloat("Mu", &_model->get_recon_pc()->_conf.solver_mu, 0.001f, 10.0f, "%.5f");
+        ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderInt("LMA Max Steps", &_model->get_recon_pc()->_conf.solver_lma_steps, 0, 100, "%.0f");
+        ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
+    }
     if(ImGui::CollapsingHeader("Settings"))
     {
         switch(_io->_recon_mode)

@@ -152,6 +152,7 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         break;
     case GLFW_KEY_P:
         _io->_play = !_io->_play;
+        _model->get_recon_pc()->pause(!_io->_play);
         break;
     case GLFW_KEY_1:
         _renderer->next_shading_mode();

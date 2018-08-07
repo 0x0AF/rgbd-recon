@@ -35,6 +35,7 @@ using namespace gl;
 #include <vector_types.h>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
+extern "C" void update_configuration(Configuration &configuration);
 extern "C" void copy_reference();
 extern "C" void sample_ed_nodes();
 extern "C" unsigned int push_debug_ed_nodes();
@@ -436,130 +437,181 @@ void ReconPerformanceCapture::draw()
 {
     _nka->getPBOMutex().lock();
 
-    integrate_data_frame();
+    update_configuration(_conf);
+
+    if(!_is_paused)
+    {
+        integrate_data_frame();
 
 #ifdef PIPELINE_SAMPLE
 
-    if(_frame_number.load() % 64 == 0)
-    {
-        TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
+        if(_conf.pipeline_sample)
+        {
+            if(_frame_number.load() % 64 == 0)
+            {
+                TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        float2 negative{-_limit, 0.f};
-        glClearTexImage(_volume_tsdf_ref, 0, GL_RG, GL_FLOAT, &negative);
-        glBindImageTexture(REF_IMAGE_UNIT, _volume_tsdf_ref, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+                float2 negative{0.f, 0.f};
+                glClearTexImage(_volume_tsdf_ref, 0, GL_RG, GL_FLOAT, &negative);
+                glBindImageTexture(REF_IMAGE_UNIT, _volume_tsdf_ref, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-        copy_reference();
-        extract_reference_mesh();
-        sample_ed_nodes();
+                copy_reference();
+                extract_reference_mesh();
+                sample_ed_nodes();
 
-        TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
+                TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
 
-        _frame_number.store(0);
-    }
+                _frame_number.store(0);
+            }
+        }
 
 #endif
 
 #ifdef PIPELINE_TEXTURES_PREPROCESS
 
-    if(_should_update_silhouettes)
-    {
-        TimerDatabase::instance().begin(TIMER_SMOOTH_HULL);
+        if(_conf.pipeline_preprocess_textures)
+        {
+            if(_should_update_silhouettes)
+            {
+                TimerDatabase::instance().begin(TIMER_SMOOTH_HULL);
 
-        preprocess_textures();
+                preprocess_textures();
 
 #ifdef PIPELINE_CORRESPONDENCE
 
-        TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
+                if(_conf.pipeline_correspondence)
+                {
+                    TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
 
-        estimate_correspondence_field();
+                    estimate_correspondence_field();
 
-        TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
+                    TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
+                }
 
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
-        glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
-        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+                if(_conf.debug_texture_silhouettes)
+                {
+                    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
+                    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+                    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+                }
 #endif
 
-        TimerDatabase::instance().end(TIMER_SMOOTH_HULL);
+                TimerDatabase::instance().end(TIMER_SMOOTH_HULL);
 
-        _should_update_silhouettes = false;
-    }
+                _should_update_silhouettes = false;
+            }
+        }
 #endif
 
 #ifdef PIPELINE_ALIGN
 
-    // TODO: estimate ICP rigid body fit
+        if(_conf.pipeline_align)
+        {
+            // TODO: estimate ICP rigid body fit
 
-    TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
+            TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
 
-    pcg_solve();
+            pcg_solve();
 
-    TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+            TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
+        }
 
 #endif
 
 #ifdef WIPE_DATA
 
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
-    float2 negative{-_limit, 0.f};
-    glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
-    glBindImageTexture(DATA_IMAGE_UNIT, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+        if(_conf.debug_wipe_data)
+        {
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            float2 negative{0.f, 0.f};
+            glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
+            glBindImageTexture(DATA_IMAGE_UNIT, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+        }
 
 #endif
 
 #ifdef PIPELINE_FUSE
 
-    TimerDatabase::instance().begin(TIMER_FUSION);
+        if(_conf.pipeline_fuse)
+        {
+            TimerDatabase::instance().begin(TIMER_FUSION);
 
-    fuse_data();
+            fuse_data();
 
-    TimerDatabase::instance().end(TIMER_FUSION);
+            TimerDatabase::instance().end(TIMER_FUSION);
+        }
 
 #endif
 
+        _frame_number.store(_frame_number.load() + 1);
+    }
+
 #ifdef PIPELINE_DEBUG_REFERENCE_VOLUME
-    draw_debug_reference_volume();
+    if(_conf.debug_reference_volume)
+    {
+        draw_debug_reference_volume();
+    }
 #endif
 
 #ifdef PIPELINE_DEBUG_REFERENCE_MESH
-    draw_debug_reference_mesh();
+    if(_conf.debug_reference_mesh)
+    {
+        draw_debug_reference_mesh();
+    }
 #endif
 
 #ifdef PIPELINE_DEBUG_ED_SAMPLING
-    draw_debug_ed_sampling();
+    if(_conf.debug_ed_sampling)
+    {
+        draw_debug_ed_sampling();
+    }
 #endif
 
 #ifdef PIPELINE_DEBUG_SORTED_VERTICES
-    draw_debug_sorted_vertices();
+    if(_conf.debug_sorted_vertices)
+    {
+        draw_debug_sorted_vertices();
+    }
 #endif
 
     draw_data();
 
 #ifdef PIPELINE_DEBUG_TEXTURE_COLORS
-    draw_debug_texture_colors();
+    if(_conf.debug_texture_colors)
+    {
+        draw_debug_texture_colors();
+    }
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_DEPTHS
-    draw_debug_texture_depths();
+    if(_conf.debug_texture_depths)
+    {
+        draw_debug_texture_depths();
+    }
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-    draw_debug_texture();
+    if(_conf.debug_texture_silhouettes)
+    {
+        draw_debug_texture();
+    }
 #endif
 
 #ifdef PIPELINE_DEBUG_CORRESPONDENCE_FIELD
-    draw_debug_correspondences();
+    if(_conf.debug_correspondence_field)
+    {
+        draw_debug_correspondences();
+    }
 #endif
-
-    _frame_number.store(_frame_number.load() + 1);
 
     _nka->getPBOMutex().unlock();
 }
@@ -580,17 +632,17 @@ void ReconPerformanceCapture::extract_reference_mesh()
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-    if(_use_bricks)
-    {
-        for(auto const &index : _bricks_occupied)
-        {
-            _sampler->sample(_bricks[index].indices);
-        }
-    }
-    else
-    {
-        _sampler->sample();
-    }
+    //    if(_use_bricks)
+    //    {
+    //        for(auto const &index : _bricks_occupied)
+    //        {
+    //            _sampler->sample(_bricks[index].indices);
+    //        }
+    //    }
+    //    else
+    //    {
+    _sampler->sample();
+    //    }
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
@@ -627,7 +679,7 @@ void ReconPerformanceCapture::draw_data()
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
     _program_pc_draw_data->setUniform("NormalMatrix", normal_matrix);
 
-    if(_use_bricks)
+    /*if(_use_bricks)
     {
         for(auto const &index : _bricks_occupied)
         {
@@ -635,9 +687,9 @@ void ReconPerformanceCapture::draw_data()
         }
     }
     else
-    {
-        _sampler->sample();
-    }
+    {*/
+    _sampler->sample();
+    /*}*/
 
     glBindTexture(GL_TEXTURE_3D, 0);
     Program::release();
@@ -752,13 +804,16 @@ void ReconPerformanceCapture::draw_debug_sorted_vertices()
     Program::release();
 
 #ifdef PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
-    _program_pc_debug_sorted_vertices_connections->use();
+    if(_conf.debug_sorted_vertices_connections)
+    {
+        _program_pc_debug_sorted_vertices_connections->use();
 
-    _vao_debug->bind();
-    _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
-    globjects::VertexArray::unbind();
+        _vao_debug->bind();
+        _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
+        globjects::VertexArray::unbind();
 
-    Program::release();
+        Program::release();
+    }
 #endif
 }
 void ReconPerformanceCapture::draw_debug_texture_colors()
@@ -874,12 +929,13 @@ void ReconPerformanceCapture::integrate_data_frame()
     _program_integration->use();
 
     // clearing costs 0,4 ms on titan, filling from pbo 9
-    float2 negative{-_limit, 0.f};
+    float2 negative{0.f, 0.f};
     glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
     glBindImageTexture(DATA_IMAGE_UNIT, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
-    if(_use_bricks)
+
+    /*if(_use_bricks)
     {
         for(auto const &index : _bricks_occupied)
         {
@@ -887,9 +943,10 @@ void ReconPerformanceCapture::integrate_data_frame()
         }
     }
     else
-    {
-        _sampler->sample();
-    }
+    {*/
+    _sampler->sample();
+    /*}*/
+
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
     Program::release();
@@ -989,4 +1046,5 @@ void ReconPerformanceCapture::divideBox()
     _buffer_occupied->setData(sizeof(unsigned) * bricks.size(), bricks.data(), GL_DYNAMIC_DRAW);
     std::cout << "brick res " << _res_bricks.x << ", " << _res_bricks.y << ", " << _res_bricks.z << " - " << _bricks.front().indices.size() << " voxels per brick" << std::endl;
 }
+void ReconPerformanceCapture::pause(bool pause) { _is_paused = pause; }
 } // namespace kinect

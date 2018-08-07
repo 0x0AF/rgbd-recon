@@ -103,6 +103,7 @@ struct_device_resources _dev_res;
 struct struct_host_resources
 {
     struct_measures measures;
+    Configuration configuration;
 
     unsigned int active_bricks_count = 0u;
     unsigned int active_ed_nodes_count = 0u;
@@ -513,5 +514,7 @@ __host__ void free_correspondence_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 }
+
+extern "C" void update_configuration(Configuration &configuration) { memcpy(&_host_res.configuration, &configuration, sizeof(Configuration)); }
 
 #endif // RECON_PC_CUDA_RESOURCES
