@@ -104,8 +104,6 @@ void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector
     _recon_pc->setTsdfLimit(io._tsdf_limit);
     //    _recon_pc->setVoxelSize(io._voxel_size);
     //    _recon_pc->setBrickSize(io._brick_size);
-    _recon_pc->setDrawBricks(io._draw_bricks);
-    _recon_pc->setUseBricks(io._bricking);
 //    _recon_integration->setTsdfLimit(io._tsdf_limit);
 //    _recon_integration->setVoxelSize(io._voxel_size);
 //    _recon_integration->setBrickSize(io._brick_size);

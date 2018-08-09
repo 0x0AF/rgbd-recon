@@ -129,7 +129,22 @@ void renderer::update_gui()
     }
     if(ImGui::CollapsingHeader("Performance Capture", ImGuiTreeNodeFlags_DefaultOpen))
     {
+        ImGui::SliderInt("Frame Reset", &_model->get_recon_pc()->_conf.reset_frame_count, 0, 100, "%.0f");
+
+        ImGui::Separator();
+
         ImGui::Checkbox("Wipe Data Volume", &_model->get_recon_pc()->_conf.debug_wipe_data);
+
+        ImGui::Columns(2, NULL, false);
+        ImGui::Checkbox("Volume Bricking", &_model->get_recon_pc()->_conf.use_bricks);
+        ImGui::NextColumn();
+        ImGui::Text("%.3f %% occupied", _model->get_recon_pc()->occupiedRatio() * 100.0f);
+        ImGui::Columns(1);
+
+        if(_io->_bricking)
+        {
+            ImGui::Checkbox("Draw occupied bricks", &_model->get_recon_pc()->_conf.draw_bricks);
+        }
 
         ImGui::Separator();
 
@@ -140,6 +155,9 @@ void renderer::update_gui()
         ImGui::Checkbox("Debug ED Sampling", &_model->get_recon_pc()->_conf.debug_ed_sampling);
         ImGui::Checkbox("Debug Vertices", &_model->get_recon_pc()->_conf.debug_sorted_vertices);
         ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
+        ImGui::Checkbox("Debug Gradient Field", &_model->get_recon_pc()->_conf.debug_gradient_field);
+        ImGui::Checkbox("Debug Warped Reference Volume [Value]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_value);
+        ImGui::Checkbox("Debug Warped Reference Volume [Surface]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_surface);
 
         ImGui::Separator();
 
@@ -213,33 +231,6 @@ void renderer::update_gui()
                 recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
                 recon_pc->updateOccupiedBricks();
                 recon_pc->integrate_data_frame();
-            }
-            if(_io->_bricking)
-            {
-                ImGui::Columns(2, NULL, false);
-                if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
-                {
-                    // recon_pc->setUseBricks(_io->_bricking);
-                }
-                ImGui::NextColumn();
-                ImGui::Text("%.3f %% occupied", recon_pc->occupiedRatio() * 100.0f);
-                ImGui::Columns(1);
-
-                if(_io->_bricking)
-                {
-                    if(ImGui::Checkbox("Draw occupied bricks", &_io->_draw_bricks))
-                    {
-                        recon_pc->setDrawBricks(_io->_draw_bricks);
-                    }
-                }
-            }
-            else
-            {
-                if(ImGui::Checkbox("Volume Bricking", &_io->_bricking))
-                {
-                    recon_pc->setUseBricks(_io->_bricking);
-                    recon_pc->integrate_data_frame();
-                }
             }
             ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
 

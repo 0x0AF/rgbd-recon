@@ -21,7 +21,9 @@ __global__ void kernel_mark_ed_nodes(unsigned long long int *active_vx, GLuint *
 
         if(!in_normal_space(vx.position))
         {
+#ifdef VERBOSE
             printf("\nspawned vertex out of normal space, vx.position: (%f,%f,%f)\n", vx.position.x, vx.position.y, vx.position.z);
+#endif
             continue;
         }
 
@@ -29,7 +31,9 @@ __global__ void kernel_mark_ed_nodes(unsigned long long int *active_vx, GLuint *
 
         if(brick_id >= measures.data_volume_num_bricks)
         {
+#ifdef VERBOSE
             printf("\nspawned vertex outside of volume bricks, brick id: %u / %u\n", brick_id, measures.data_volume_num_bricks);
+#endif
             continue;
         }
 
@@ -46,7 +50,9 @@ __global__ void kernel_mark_ed_nodes(unsigned long long int *active_vx, GLuint *
 
         if(ed_node_offset >= ed_nodes_count)
         {
+#ifdef VERBOSE
             printf("\ned_node_offset overshot: %u = %u * 27 + %u, ed_nodes_count: %u\n", ed_node_offset, brick_id, ed_cell_id, ed_nodes_count);
+#endif
             return;
         }
 
@@ -297,9 +303,7 @@ extern "C" void sample_ed_nodes()
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
-    block_size = _host_res.measures.brick_num_ed_cells;
-    grid_size = (ed_nodes_count + block_size - 1) / block_size;
-    kernel_retrieve_active_ed_nodes<<<grid_size, block_size>>>(active_ed_nodes_count, active_ed_vx_count, ed_nodes_count, ed_reference_counter, _dev_res, _host_res.measures);
+    kernel_retrieve_active_ed_nodes<<<_host_res.active_bricks_count, _host_res.measures.brick_num_ed_cells>>>(active_ed_nodes_count, active_ed_vx_count, ed_nodes_count, ed_reference_counter, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 

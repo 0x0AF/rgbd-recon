@@ -44,6 +44,8 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define PIPELINE_DEBUG_ED_SAMPLING
 #define PIPELINE_DEBUG_SORTED_VERTICES
 #define PIPELINE_DEBUG_SORTED_VERTICES_CONNECTIONS
+#define PIPELINE_DEBUG_GRADIENT_FIELD
+#define PIPELINE_DEBUG_WARPED_REFERENCE_VOLUME
 
 #define PIPELINE_TEXTURES_PREPROCESS
 #define PIPELINE_SAMPLE
@@ -97,7 +99,11 @@ struct Configuration
     // bool verbose = false;
     // bool debug_nan = false;
 
+    int reset_frame_count = 64;
+
     bool debug_wipe_data = false;
+    bool use_bricks = true;
+    bool draw_bricks = false;
 
     bool debug_texture_silhouettes = false;
     bool debug_correspondence_field = false;
@@ -106,6 +112,9 @@ struct Configuration
     bool debug_ed_sampling = false;
     bool debug_sorted_vertices = false;
     bool debug_sorted_vertices_connections = false;
+    bool debug_gradient_field = false;
+    bool debug_warped_reference_volume_value = false;
+    bool debug_warped_reference_volume_surface = false;
 
     bool pipeline_preprocess_textures = false;
     bool pipeline_sample = false;
@@ -146,13 +155,14 @@ struct struct_native_handles
 
     unsigned int volume_tsdf_data;
     unsigned int volume_tsdf_ref;
+    unsigned int volume_tsdf_ref_grad;
 
     unsigned int pbo_kinect_rgbs;
     unsigned int pbo_kinect_depths;
     unsigned int pbo_kinect_silhouettes;
 
     unsigned int pbo_kinect_silhouettes_debug;
-    unsigned int pbo_kinect_intens_debug;
+    unsigned int pbo_tsdf_ref_warped_debug;
 
     unsigned int pbo_cv_xyz_inv[4];
     unsigned int pbo_cv_xyz[4];

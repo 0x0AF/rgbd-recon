@@ -46,6 +46,11 @@ __device__ float sample_silhouettes_ptr(float *silhouettes_ptr, glm::uvec2 &pos,
     return silhouettes_ptr[pos.x + pos.y * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y];
 }
 
+__device__ float2 sample_ref_warped_ptr(float2 *ref_warped_ptr, glm::uvec3 &pos, struct_measures measures)
+{
+  return ref_warped_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
+}
+
 __device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
 
 __device__ float4 sample_cv_xyz_inv(cudaTextureObject_t &cv_xyz_inv_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_inv_tex, pos.x, pos.y, pos.z); }
@@ -77,6 +82,7 @@ CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 pos, struct_measures &measures) {
 CUDA_HOST_DEVICE glm::uvec3 norm_2_cv_xyz(glm::vec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::vec3(measures.cv_xyz_res)); }
 CUDA_HOST_DEVICE glm::uvec3 norm_2_cv_xyz_inv(glm::vec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::vec3(measures.cv_xyz_inv_res)); }
 CUDA_HOST_DEVICE glm::uvec3 norm_2_data(glm::vec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::vec3(measures.data_volume_res)); }
+CUDA_HOST_DEVICE glm::vec3 data_2_norm(glm::uvec3 pos, struct_measures &measures) { return glm::vec3(pos) / glm::vec3(measures.data_volume_res); }
 
 CUDA_HOST_DEVICE glm::uvec3 index_3d(unsigned int brick_id, struct_measures &measures)
 {
@@ -94,21 +100,26 @@ CUDA_HOST_DEVICE glm::uvec3 position_3d(unsigned int position_id, struct_measure
 {
     glm::uvec3 position = glm::uvec3(0u);
     position.z = position_id / (measures.brick_dim_voxels * measures.brick_dim_voxels);
-    position_id %= (measures.brick_dim_voxels * measures.brick_dim_voxels);
+    position_id %= measures.brick_dim_voxels * measures.brick_dim_voxels;
     position.y = position_id / measures.brick_dim_voxels;
-    position_id %= (measures.brick_dim_voxels);
+    position_id %= measures.brick_dim_voxels;
     position.x = position_id;
 
     return position;
+}
+
+CUDA_HOST_DEVICE unsigned int position_id(glm::uvec3 position_3d, struct_measures &measures)
+{
+    return position_3d.z * measures.brick_dim_voxels * measures.brick_dim_voxels + position_3d.y * measures.brick_dim_voxels + position_3d.x;
 }
 
 CUDA_HOST_DEVICE glm::uvec3 ed_cell_3d(unsigned int ed_cell_id, struct_measures &measures)
 {
     glm::uvec3 ed_cell_position = glm::uvec3(0u);
     ed_cell_position.z = ed_cell_id / (measures.brick_dim_ed_cells * measures.brick_dim_ed_cells);
-    ed_cell_id %= (measures.brick_dim_ed_cells * measures.brick_dim_ed_cells);
+    ed_cell_id %= measures.brick_dim_ed_cells * measures.brick_dim_ed_cells;
     ed_cell_position.y = ed_cell_id / measures.brick_dim_ed_cells;
-    ed_cell_id %= (measures.brick_dim_ed_cells);
+    ed_cell_id %= measures.brick_dim_ed_cells;
     ed_cell_position.x = ed_cell_id;
 
     return ed_cell_position;
@@ -123,9 +134,9 @@ CUDA_HOST_DEVICE glm::uvec3 ed_cell_voxel_3d(unsigned int ed_cell_voxel_id, stru
 {
     glm::uvec3 ed_cell_voxel_3d = glm::uvec3(0u);
     ed_cell_voxel_3d.z = ed_cell_voxel_id / (measures.ed_cell_dim_voxels * measures.ed_cell_dim_voxels);
-    ed_cell_voxel_id %= (measures.ed_cell_dim_voxels * measures.ed_cell_dim_voxels);
+    ed_cell_voxel_id %= measures.ed_cell_dim_voxels * measures.ed_cell_dim_voxels;
     ed_cell_voxel_3d.y = ed_cell_voxel_id / measures.ed_cell_dim_voxels;
-    ed_cell_voxel_id %= (measures.ed_cell_dim_voxels);
+    ed_cell_voxel_id %= measures.ed_cell_dim_voxels;
     ed_cell_voxel_3d.x = ed_cell_voxel_id;
 
     return ed_cell_voxel_3d;
@@ -138,12 +149,14 @@ CUDA_HOST_DEVICE unsigned int ed_cell_voxel_id(glm::uvec3 ed_cell_voxel_3d, stru
 
 CUDA_HOST_DEVICE unsigned int identify_brick_id(const glm::vec3 position, struct_measures &measures)
 {
+#ifdef VERBOSE
     if(!in_normal_space(position))
     {
         printf("\nsampled position out of volume: (%f,%f,%f)\n", position.x, position.y, position.z);
     }
+#endif
 
-    glm::uvec3 pos_voxel_space = glm::uvec3(position * glm::vec3(measures.data_volume_res));
+    glm::uvec3 pos_voxel_space = norm_2_data(position, measures);
     glm::uvec3 brick_index3d = pos_voxel_space / measures.brick_dim_voxels;
 
     return brick_index3d.z * measures.data_volume_bricked_res.x * measures.data_volume_bricked_res.y + brick_index3d.y * measures.data_volume_bricked_res.x + brick_index3d.x;
@@ -151,12 +164,14 @@ CUDA_HOST_DEVICE unsigned int identify_brick_id(const glm::vec3 position, struct
 
 CUDA_HOST_DEVICE unsigned int identify_ed_cell_id(const glm::vec3 position, struct_measures &measures)
 {
+#ifdef VERBOSE
     if(!in_normal_space(position))
     {
         printf("\nsampled position out of volume: (%f,%f,%f)\n", position.x, position.y, position.z);
     }
+#endif
 
-    glm::uvec3 pos_voxel_space = glm::uvec3(position * glm::vec3(measures.data_volume_res));
+    glm::uvec3 pos_voxel_space = norm_2_data(position, measures);
     glm::uvec3 ed_cell_index3d = (pos_voxel_space % measures.brick_dim_voxels) / measures.ed_cell_dim_voxels;
 
     return ed_cell_id(ed_cell_index3d, measures);

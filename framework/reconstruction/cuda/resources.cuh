@@ -37,12 +37,14 @@ struct struct_graphic_resources
     cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
 
     cudaGraphicsResource *pbo_kinect_silhouettes_debug{nullptr};
+    cudaGraphicsResource *pbo_tsdf_ref_warped_debug{nullptr};
 
     cudaGraphicsResource *pbo_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *pbo_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
 
     cudaGraphicsResource *volume_tsdf_data{nullptr};
     cudaGraphicsResource *volume_tsdf_ref{nullptr};
+    cudaGraphicsResource *volume_tsdf_ref_grad{nullptr};
 };
 
 struct_graphic_resources _cgr;
@@ -54,12 +56,15 @@ struct struct_device_resources
     float2 *kinect_depths = nullptr;
     float2 *kinect_depths_prev = nullptr;
     float *kinect_silhouettes = nullptr;
+    float2 *tsdf_ref_warped = nullptr;
 
     size_t mapped_bytes_kinect_arrays[5] = {0, 0, 0, 0, 0};
+    size_t mapped_bytes_ref_warped = 0;
     float4 *mapped_pbo_rgbs = nullptr;
     float2 *mapped_pbo_depths = nullptr;
     float1 *mapped_pbo_silhouettes = nullptr;
 
+    float2 *mapped_pbo_tsdf_ref_warped_debug = nullptr;
     float1 *mapped_pbo_silhouettes_debug = nullptr;
 
     float4 *mapped_pbo_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
@@ -122,6 +127,7 @@ cusolverSpHandle_t cusolver_handle = nullptr;
 
 surface<void, cudaSurfaceType3D> _volume_tsdf_data;
 surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
+surface<void, cudaSurfaceType3D> _volume_tsdf_ref_grad;
 
 __host__ void map_calibration_volumes()
 {
@@ -234,21 +240,28 @@ __host__ void map_tsdf_volumes()
 {
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref_grad, 0));
 
     cudaArray *volume_array_tsdf_data = nullptr;
     cudaArray *volume_array_tsdf_ref = nullptr;
+    cudaArray *volume_array_tsdf_ref_grad = nullptr;
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, _cgr.volume_tsdf_data, 0, 0));
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref, _cgr.volume_tsdf_ref, 0, 0));
+    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref_grad, _cgr.volume_tsdf_ref_grad, 0, 0));
 
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
+
+    cudaChannelFormatDesc rgba32_channel_desc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref_grad, volume_array_tsdf_ref_grad, &rgba32_channel_desc));
 }
 
 __host__ void unmap_tsdf_volumes()
 {
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref_grad, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
 }
 
 __host__ void map_kinect_arrays()

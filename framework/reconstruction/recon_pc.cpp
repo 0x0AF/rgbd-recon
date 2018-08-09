@@ -50,8 +50,10 @@ extern "C" void deinit_cuda();
 #define PASS_NORMALS
 #define WIPE_DATA
 
-#define DATA_IMAGE_UNIT 6
-#define REF_IMAGE_UNIT 7
+#define DATA_IMAGE_UNIT 4
+#define REF_IMAGE_UNIT 5
+#define REF_GRAD_IMAGE_UNIT 6
+#define REF_WARP_IMAGE_UNIT 7
 
 namespace kinect
 {
@@ -90,6 +92,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
     _native_handles.volume_tsdf_ref = _volume_tsdf_ref;
+    _native_handles.volume_tsdf_ref_grad = _volume_tsdf_ref_grad;
 
     _native_handles.pbo_kinect_rgbs = _nka->getColorHandle();
     _native_handles.pbo_kinect_depths = _nka->getDepthHandle();
@@ -121,12 +124,22 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _buffer_pbo_textures_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
+    _buffer_pbo_ref_warp_debug->setData(_res_volume.x * _res_volume.y * _res_volume.z * sizeof(float2), nullptr, GL_DYNAMIC_COPY);
+    _buffer_pbo_ref_warp_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
     glBindTextureUnit(8, _texture2darray_debug->id());
     glBindTextureUnit(32, _volume_tsdf_data);
     glBindTextureUnit(33, _volume_tsdf_ref);
+    glBindTextureUnit(34, _volume_tsdf_ref_grad);
+    glBindTextureUnit(35, _volume_tsdf_ref_warped);
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_textures_debug->id();
+#endif
+
+#ifdef PIPELINE_DEBUG_WARPED_REFERENCE_VOLUME
+    _native_handles.pbo_tsdf_ref_warped_debug = _buffer_pbo_ref_warp_debug->id();
 #endif
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
@@ -192,12 +205,14 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_ed_nodes_debug = new Buffer();
     _buffer_sorted_vertices_debug = new Buffer();
     _buffer_pbo_textures_debug = new Buffer();
+    _buffer_pbo_ref_warp_debug = new Buffer();
     _buffer_correspondences_debug = new Buffer();
 
     _vec_debug = std::vector<glm::vec3>(MAX_REFERENCE_VERTICES);
 
     _program_pc_debug_textures = new Program();
     _program_pc_debug_draw_ref = new Program();
+    _program_pc_debug_draw_ref_grad = new Program();
     _program_pc_debug_reference = new Program();
     _program_pc_debug_ed_sampling = new Program();
     _program_pc_debug_sorted_vertices = new Program();
@@ -205,6 +220,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_pc_debug_correspondences = new Program();
     _program_pc_draw_data = new Program();
     _program_pc_extract_reference = new Program();
+    _program_pc_debug_tsdf = new Program();
     _program_integration = new Program();
     _program_solid = new Program();
     _program_bricks = new Program();
@@ -233,13 +249,31 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
     glBindTexture(GL_TEXTURE_3D, 0);
 
+    glGenTextures(1, &_volume_tsdf_ref_grad);
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_grad);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RGBA, GL_FLOAT, nullptr);
+    glBindTexture(GL_TEXTURE_3D, 0);
+
+    glGenTextures(1, &_volume_tsdf_ref_warped);
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
+    glBindTexture(GL_TEXTURE_3D, 0);
+
     _mat_vol_to_world = glm::fmat4(1.0f);
     _limit = limit;
     _brick_size = 0.09f;
     _voxel_size = size;
     _ed_cell_size = ed_cell_size;
-    _use_bricks = true;
-    _draw_bricks = false;
     _ratio_occupied = 0.0f;
     _min_voxels_per_brick = 32;
 
@@ -322,6 +356,13 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_draw_data->setUniform("num_kinects", m_num_kinects);
     _program_pc_draw_data->setUniform("limit", _limit);
 
+    _program_pc_debug_draw_ref_grad->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"));
+    _program_pc_debug_draw_ref_grad->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_reference_gradient.gs"));
+    _program_pc_debug_draw_ref_grad->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference_gradient.fs"));
+    _program_pc_debug_draw_ref_grad->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_debug_draw_ref_grad->setUniform("size_voxel", _voxel_size);
+    _program_pc_debug_draw_ref_grad->setUniform("volume_grad", 34);
+
     _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"));
     _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_draw_data.gs"));
     _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference_volume.fs"));
@@ -392,6 +433,14 @@ void ReconPerformanceCapture::init_shaders()
 
     _program_solid->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
     _program_bricks->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/bricks.gs"));
+
+    _program_pc_debug_tsdf->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"));
+    _program_pc_debug_tsdf->attach(globjects::Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_tsdf.gs"));
+    _program_pc_debug_tsdf->attach(globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_tsdf.fs"));
+
+    _program_pc_debug_tsdf->setUniform("volume_tsdf", 35);
+    _program_pc_debug_tsdf->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_debug_tsdf->setUniform("limit", _limit);
 }
 ReconPerformanceCapture::~ReconPerformanceCapture()
 {
@@ -422,12 +471,14 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _texture2darray_debug->destroy();
     glDeleteTextures(1, &_volume_tsdf_data);
     glDeleteTextures(1, &_volume_tsdf_ref);
+    glDeleteTextures(1, &_volume_tsdf_ref_grad);
+    glDeleteTextures(1, &_volume_tsdf_ref_warped);
 }
 
 void ReconPerformanceCapture::drawF()
 {
     Reconstruction::drawF();
-    if(_draw_bricks)
+    if(_conf.draw_bricks)
     {
         drawOccupiedBricks();
     }
@@ -447,14 +498,20 @@ void ReconPerformanceCapture::draw()
 
         if(_conf.pipeline_sample)
         {
-            if(_frame_number.load() % 64 == 0)
+            if(_frame_number.load() % _conf.reset_frame_count == 0)
             {
                 TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
 
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                float2 negative{0.f, 0.f};
+                float2 negative{-_limit, 0.f};
                 glClearTexImage(_volume_tsdf_ref, 0, GL_RG, GL_FLOAT, &negative);
                 glBindImageTexture(REF_IMAGE_UNIT, _volume_tsdf_ref, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+                float4 empty{0.f, 0.f, 0.f, 0.f};
+                glClearTexImage(_volume_tsdf_ref_grad, 0, GL_RGBA, GL_FLOAT, &empty);
+                glBindImageTexture(REF_GRAD_IMAGE_UNIT, _volume_tsdf_ref_grad, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA32F);
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
                 copy_reference();
@@ -496,11 +553,15 @@ void ReconPerformanceCapture::draw()
 
                 if(_conf.debug_texture_silhouettes)
                 {
+                    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
                     glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
                     glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
                     glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
                     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
                     glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+                    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
                 }
 #endif
 
@@ -531,7 +592,7 @@ void ReconPerformanceCapture::draw()
         if(_conf.debug_wipe_data)
         {
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
-            float2 negative{0.f, 0.f};
+            float2 negative{-_limit, 0.f};
             glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
             glBindImageTexture(DATA_IMAGE_UNIT, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
@@ -613,6 +674,30 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 
+#ifdef PIPELINE_DEBUG_GRADIENT_FIELD
+    if(_conf.debug_gradient_field)
+    {
+        draw_debug_reference_gradient();
+    }
+#endif
+
+#ifdef PIPELINE_DEBUG_WARPED_REFERENCE_VOLUME
+    if(_conf.debug_warped_reference_volume_surface || _conf.debug_warped_reference_volume_value)
+    {
+        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_ref_warp_debug->id());
+        glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, _res_volume.x, _res_volume.y, _res_volume.z, GL_RG, GL_FLOAT, 0);
+        glBindTexture(GL_TEXTURE_3D, 0);
+        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+        draw_debug_reference_volume_warped();
+    }
+#endif
+
     _nka->getPBOMutex().unlock();
 }
 void ReconPerformanceCapture::setShouldUpdateSilhouettes(bool update) { _should_update_silhouettes = update; }
@@ -632,17 +717,17 @@ void ReconPerformanceCapture::extract_reference_mesh()
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-    //    if(_use_bricks)
-    //    {
-    //        for(auto const &index : _bricks_occupied)
-    //        {
-    //            _sampler->sample(_bricks[index].indices);
-    //        }
-    //    }
-    //    else
-    //    {
-    _sampler->sample();
-    //    }
+    if(_conf.use_bricks)
+    {
+        for(auto const &index : _bricks_occupied)
+        {
+            _sampler->sample(_bricks[index].indices);
+        }
+    }
+    else
+    {
+        _sampler->sample();
+    }
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
@@ -679,7 +764,7 @@ void ReconPerformanceCapture::draw_data()
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
     _program_pc_draw_data->setUniform("NormalMatrix", normal_matrix);
 
-    /*if(_use_bricks)
+    if(_conf.use_bricks)
     {
         for(auto const &index : _bricks_occupied)
         {
@@ -687,18 +772,84 @@ void ReconPerformanceCapture::draw_data()
         }
     }
     else
-    {*/
-    _sampler->sample();
-    /*}*/
+    {
+        _sampler->sample();
+    }
 
     glBindTexture(GL_TEXTURE_3D, 0);
     Program::release();
 
     TimerDatabase::instance().end(TIMER_DATA_MESH_DRAW);
 }
+void ReconPerformanceCapture::draw_debug_reference_volume_warped()
+{
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    if(_conf.debug_warped_reference_volume_value)
+    {
+        _program_pc_debug_tsdf->use();
+
+        if(_conf.use_bricks)
+        {
+            for(auto const &index : _bricks_occupied)
+            {
+                _sampler->sample(_bricks[index].indices);
+            }
+        }
+        else
+        {
+            _sampler->sample();
+        }
+
+        Program::release();
+    }
+
+    if(_conf.debug_warped_reference_volume_surface)
+    {
+        _program_pc_debug_draw_ref->use();
+        _program_pc_debug_draw_ref->setUniform("volume_tsdf", 35);
+
+        glm::uvec4 viewport_vals{getViewport()};
+        viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
+        gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
+        image_to_eye.invert();
+        _program_pc_debug_draw_ref->setUniform("img_to_eye_curr", image_to_eye);
+
+        gloost::Matrix modelview;
+        glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
+        glm::fmat4 model_view{modelview};
+        glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
+        _program_pc_debug_draw_ref->setUniform("NormalMatrix", normal_matrix);
+
+        if(_conf.use_bricks)
+        {
+            for(auto const &index : _bricks_occupied)
+            {
+                _sampler->sample(_bricks[index].indices);
+            }
+        }
+        else
+        {
+            _sampler->sample();
+        }
+
+        Program::release();
+    }
+
+    glBindTexture(GL_TEXTURE_3D, 0);
+}
 void ReconPerformanceCapture::draw_debug_reference_volume()
 {
     _program_pc_debug_draw_ref->use();
+    _program_pc_debug_draw_ref->setUniform("volume_tsdf", 33);
 
     glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref);
 
@@ -722,7 +873,58 @@ void ReconPerformanceCapture::draw_debug_reference_volume()
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
     _program_pc_debug_draw_ref->setUniform("NormalMatrix", normal_matrix);
 
-    _sampler->sample();
+    if(_conf.use_bricks)
+    {
+        for(auto const &index : _bricks_occupied)
+        {
+            _sampler->sample(_bricks[index].indices);
+        }
+    }
+    else
+    {
+        _sampler->sample();
+    }
+
+    glBindTexture(GL_TEXTURE_3D, 0);
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_reference_gradient()
+{
+    _program_pc_debug_draw_ref_grad->use();
+
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_grad);
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    glm::uvec4 viewport_vals{getViewport()};
+    viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
+    gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
+    image_to_eye.invert();
+    _program_pc_debug_draw_ref_grad->setUniform("img_to_eye_curr", image_to_eye);
+
+    gloost::Matrix modelview;
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
+    glm::fmat4 model_view{modelview};
+    glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
+    _program_pc_debug_draw_ref_grad->setUniform("NormalMatrix", normal_matrix);
+
+    if(_conf.use_bricks)
+    {
+        for(auto const &index : _bricks_occupied)
+        {
+            _sampler->sample(_bricks[index].indices);
+        }
+    }
+    else
+    {
+        _sampler->sample();
+    }
 
     glBindTexture(GL_TEXTURE_3D, 0);
     Program::release();
@@ -918,6 +1120,24 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
     glBindTexture(GL_TEXTURE_3D, 0);
 
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_grad);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RGBA, GL_FLOAT, nullptr);
+    glBindTexture(GL_TEXTURE_3D, 0);
+
+    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
+    glBindTexture(GL_TEXTURE_3D, 0);
+
     setBrickSize(_brick_size);
 }
 void ReconPerformanceCapture::setTsdfLimit(float limit) { _limit = limit; }
@@ -929,13 +1149,13 @@ void ReconPerformanceCapture::integrate_data_frame()
     _program_integration->use();
 
     // clearing costs 0,4 ms on titan, filling from pbo 9
-    float2 negative{0.f, 0.f};
+    float2 negative{-_limit, 0.f};
     glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
     glBindImageTexture(DATA_IMAGE_UNIT, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-    /*if(_use_bricks)
+    if(_conf.use_bricks)
     {
         for(auto const &index : _bricks_occupied)
         {
@@ -943,9 +1163,9 @@ void ReconPerformanceCapture::integrate_data_frame()
         }
     }
     else
-    {*/
-    _sampler->sample();
-    /*}*/
+    {
+        _sampler->sample();
+    }
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
@@ -954,8 +1174,6 @@ void ReconPerformanceCapture::integrate_data_frame()
 
     TimerDatabase::instance().end(TIMER_DATA_VOLUME_INTEGRATION);
 }
-void ReconPerformanceCapture::setUseBricks(bool active) { _use_bricks = active; }
-void ReconPerformanceCapture::setDrawBricks(bool active) { _draw_bricks = active; }
 void ReconPerformanceCapture::setBrickSize(float size)
 {
     _brick_size = _voxel_size * glm::round(size / _voxel_size);

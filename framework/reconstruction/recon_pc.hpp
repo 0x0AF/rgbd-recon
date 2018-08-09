@@ -70,8 +70,6 @@ class ReconPerformanceCapture : public Reconstruction
     float occupiedRatio() const;
     float getBrickSize() const;
 
-    void setDrawBricks(bool active);
-    void setUseBricks(bool active);
     void setMinVoxelsPerBrick(unsigned i);
     void setTsdfLimit(float limit);
 
@@ -103,9 +101,9 @@ class ReconPerformanceCapture : public Reconstruction
 
     glm::fmat4 _mat_vol_to_world;
 
-    globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks;
+    globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks, *_program_pc_debug_tsdf;
 
-    GLuint _volume_tsdf_data, _volume_tsdf_ref;
+    GLuint _volume_tsdf_data, _volume_tsdf_ref, _volume_tsdf_ref_grad, _volume_tsdf_ref_warped;
 
     globjects::VertexArray *_vao_debug, *_vao_fsquad_debug;
     globjects::Buffer *_buffer_debug, *_buffer_fsquad_debug;
@@ -113,9 +111,9 @@ class ReconPerformanceCapture : public Reconstruction
 
     globjects::Texture *_texture2darray_debug;
 
-    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug;
-    globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_sorted_vertices, *_program_pc_debug_sorted_vertices_connections,
-        *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
+    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug, *_buffer_pbo_ref_warp_debug;
+    globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_draw_ref_grad, *_program_pc_debug_sorted_vertices,
+        *_program_pc_debug_sorted_vertices_connections, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;
@@ -127,8 +125,6 @@ class ReconPerformanceCapture : public Reconstruction
     float _voxel_size;
     float _ed_cell_size;
     float _brick_size;
-    bool _use_bricks;
-    bool _draw_bricks;
     float _ratio_occupied;
     unsigned _min_voxels_per_brick;
 
@@ -142,6 +138,8 @@ class ReconPerformanceCapture : public Reconstruction
     void extract_reference_mesh();
     void draw_data();
     void draw_debug_reference_volume();
+    void draw_debug_reference_volume_warped();
+    void draw_debug_reference_gradient();
     void draw_debug_reference_mesh();
     void draw_debug_ed_sampling();
     void draw_debug_sorted_vertices();
