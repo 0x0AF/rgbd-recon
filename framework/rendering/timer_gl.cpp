@@ -1,30 +1,30 @@
-#include "timer_gpu.hpp"
+#include "timer_gl.hpp"
 
 #include <glbinding/gl/enum.h>
 using namespace gl;
 #include <globjects/Query.h>
 
-TimerGPU::TimerGPU()
+TimerGL::TimerGL()
  :m_query{new globjects::Query}
  ,m_start{0}
  ,m_end{0}
 {}
 
-void TimerGPU::begin() {
+void TimerGL::begin() {
   m_query->counter();
 }
 
-void TimerGPU::end() {
+void TimerGL::end() {
   // get result from start
   m_start = m_query->get64(GL_QUERY_RESULT);
   m_query->counter();
 }
 
-bool TimerGPU::outdated() const {
+bool TimerGL::outdated() const {
   return m_end < m_start;
 }
 
-std::uint64_t TimerGPU::duration() const {
+std::uint64_t TimerGL::duration() const {
   // get end time only if outdated
   if(outdated()) {
     m_end = m_query->waitAndGet64(GL_QUERY_RESULT);

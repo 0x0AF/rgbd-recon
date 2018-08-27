@@ -53,6 +53,7 @@ void renderer::init()
     //    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     //    glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
+    glEnable(GL_CULL_FACE);
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_POINT_SPRITE);
 
@@ -129,11 +130,9 @@ void renderer::update_gui()
     }
     if(ImGui::CollapsingHeader("Performance Capture", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::SliderInt("Frame Reset", &_model->get_recon_pc()->_conf.reset_frame_count, 0, 100, "%.0f");
+        ImGui::SliderInt("Frame Reset", &_model->get_recon_pc()->_conf.reset_frame_count, 1, 100, "%.0f");
 
         ImGui::Separator();
-
-        ImGui::Checkbox("Wipe Data Volume", &_model->get_recon_pc()->_conf.debug_wipe_data);
 
         ImGui::Columns(2, NULL, false);
         ImGui::Checkbox("Volume Bricking", &_model->get_recon_pc()->_conf.use_bricks);
@@ -156,7 +155,6 @@ void renderer::update_gui()
         ImGui::Checkbox("Debug Vertices", &_model->get_recon_pc()->_conf.debug_sorted_vertices);
         ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
         ImGui::Checkbox("Debug Gradient Field", &_model->get_recon_pc()->_conf.debug_gradient_field);
-        ImGui::Checkbox("Debug Warped Reference Volume [Value]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_value);
         ImGui::Checkbox("Debug Warped Reference Volume [Surface]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_surface);
 
         ImGui::Separator();
@@ -187,10 +185,14 @@ void renderer::update_gui()
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Mu", &_model->get_recon_pc()->_conf.solver_mu, 0.001f, 10.0f, "%.5f");
+        ImGui::SliderFloat("Mu", &_model->get_recon_pc()->_conf.solver_mu, -1.f, 1.f, "%.5f");
         ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.001f, 1.0f, "%.5f");
         ImGui::SliderInt("LMA Max Steps", &_model->get_recon_pc()->_conf.solver_lma_steps, 0, 100, "%.0f");
         ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
+
+        ImGui::Separator();
+
+        ImGui::SliderFloat("Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.1f, "%.5f");
     }
     if(ImGui::CollapsingHeader("Settings"))
     {
@@ -237,19 +239,26 @@ void renderer::update_gui()
             if(ImGui::CollapsingHeader("Processing Performance"))
             {
                 ImGui::SameLine();
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION) / 1000000.0f);
-                ImGui::Text("   Data volume integration");
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION) / 1000000.0f);
-                ImGui::Text("   Reference mesh extraction");
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT) / 1000000.0f);
-                ImGui::Text("   Non-rigid alignment");
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_MESH_DRAW) / 1000000.0f);
-                ImGui::Text("   Data mesh draw");
-
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("1preprocess") / 1000000.0f);
-                ImGui::Text("   Reconstruction");
-                ImGui::SameLine();
                 ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+
+                ImGui::Text("   Data volume integration");
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION) / 1000000.0f);
+                ImGui::Text("   Texture processing");
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_preprocess);
+                ImGui::Text("   SIFT extraction & filtering");
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_sift);
+                ImGui::Text("   Reference copy");
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_copy_reference);
+                ImGui::Text("   Reference mesh extraction");
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION) / 1000000.0f);
+                ImGui::Text("   ED graph sampling");
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_sample_ed);
+                ImGui::Text("   Non-rigid alignment");
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_nra);
+                ImGui::Text("   Fusion");
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_fuse);
+                ImGui::Text("   Data mesh draw");
+                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_MESH_DRAW) / 1000000.0f);
             }
         }
         break;
@@ -405,85 +414,39 @@ void renderer::update_model_matrix(bool load_ident)
 }
 void renderer::process_textures()
 {
-    switch(_io->_recon_mode)
-    {
-    case 0: // points
-    {
-    }
-    break;
-    case 1: // performance capture
-    {
-        std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
-        recon_pc->clearOccupiedBricks();
-    }
-    break;
-    case 2: // raymarched integration
-    {
-        std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-        recon_integration->clearOccupiedBricks();
-    }
-    break;
-    default:
-        break;
-    }
+    std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
+    recon_pc->clearOccupiedBricks();
 
     _model->get_nka()->processTextures();
 
-    switch(_io->_recon_mode)
-    {
-    case 0: // points
-    {
-    }
-    break;
-    case 1: // performance capture
-    {
-        std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
-        recon_pc->updateOccupiedBricks();
-    }
-    break;
-    case 2: // raymarched integration
-    {
-        std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-        recon_integration->updateOccupiedBricks();
-    }
-    break;
-    default:
-        break;
-    }
+    recon_pc->updateOccupiedBricks();
 }
 void renderer::draw3d()
 {
-    bool update_textures = false;
     if(_io->_play)
     {
-        update_textures = update_textures || _model->get_nka()->update();
-    }
+        _model->get_nka()->update(_frame_number);
 
-    if(update_textures)
-    {
+        if(_forward_motion)
+        {
+            _frame_number++;
+
+            if(_frame_number > 100)
+            {
+                _forward_motion = false;
+            }
+        }
+        else
+        {
+            _frame_number--;
+
+            if(_frame_number < 1)
+            {
+                _forward_motion = true;
+            }
+        }
+
         process_textures();
-
-        switch(_io->_recon_mode)
-        {
-        case 0: // points
-        {
-        }
-        break;
-        case 1: // performance capture
-        {
-            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
-            recon_pc->setShouldUpdateSilhouettes(update_textures);
-        }
-        break;
-        case 2: // raymarched integration
-        {
-            std::shared_ptr<kinect::ReconIntegration> recon_integration = std::dynamic_pointer_cast<kinect::ReconIntegration>(_model->get_recons().at(2));
-            recon_integration->integrate();
-        }
-        break;
-        default:
-            break;
-        }
     }
 
     glClearColor(_io->_clear_color[0], _io->_clear_color[1], _io->_clear_color[2], _io->_clear_color[3]);

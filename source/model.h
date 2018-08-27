@@ -37,7 +37,7 @@ using namespace gl;
 #include <Point3.h>
 #include <StereoCamera.h>
 
-#include <NetKinectArray.h>
+#include <LocalKinectArray.h>
 #include <calibration/CalibVolumes.hpp>
 #include <calibration/KinectCalibrationFile.h>
 #include <calibration/calibration_files.hpp>
@@ -73,7 +73,7 @@ class model
 
     struct IO
     {
-        std::string _server_socket = "127.0.0.1:7000";
+        std::string _record_name = "";
         std::vector<std::pair<int, int>> _gui_texture_settings{};
 
         float _clear_color[4] = {0.3, 0.0, 0.0, 0.3};
@@ -108,9 +108,9 @@ class model
         bool _draw_bricks = false;
         bool _watch_errors = true;
         int _num_kinect = 1;
-        float _voxel_size = 0.01f;
-        float _ed_cell_size = 0.03f;
-        float _brick_size = 0.09f;
+        float _voxel_size =  0.021875f; // 256: 0.00546875f; // 128: 0.0109375f;
+        float _ed_cell_size = _voxel_size * 3;
+        float _brick_size = _voxel_size * 9;
         float _tsdf_limit = 0.03f;
         float _zoom = 1.25f;
         double _time_prev = 0.0f;
@@ -124,7 +124,7 @@ class model
 
     static IO &get_io() { return get_instance().io; }
     void cmd(CMDParser &p);
-    void init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path);
+    void init(std::string& file_name, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path);
     void init_stereo_camera();
     void init_fbr(const char *client_socket);
     void init_config(std::vector<std::string> const &args);
@@ -139,7 +139,7 @@ class model
     const std::shared_ptr<gloost::StereoCamera> &get_stereo_camera() const;
     const std::shared_ptr<pmd::CameraNavigator> &get_navi() const;
     const std::shared_ptr<sys::FeedbackReceiver> &get_fbr() const;
-    const std::shared_ptr<kinect::NetKinectArray> &get_nka() const;
+    const std::shared_ptr<kinect::LocalKinectArray> &get_nka() const;
     const std::shared_ptr<kinect::CalibVolumes> &get_cv() const;
     const std::shared_ptr<kinect::CalibrationFiles> &get_calib_files() const;
     const std::vector<std::shared_ptr<kinect::Reconstruction>> &get_recons() const;
@@ -155,7 +155,7 @@ class model
     std::shared_ptr<pmd::CameraNavigator> _navi;
 
     std::shared_ptr<sys::FeedbackReceiver> _fbr;
-    std::shared_ptr<kinect::NetKinectArray> _nka;
+    std::shared_ptr<kinect::LocalKinectArray> _nka;
     std::shared_ptr<kinect::CalibVolumes> _cv;
     std::shared_ptr<kinect::CalibrationFiles> _calib_files;
 

@@ -1,7 +1,7 @@
 #ifndef RECON_PC_CUDA_STRUCTURES
 #define RECON_PC_CUDA_STRUCTURES
 
-const unsigned ED_COMPONENT_COUNT = 10u;
+const unsigned ED_COMPONENT_COUNT = 7u;
 
 #ifdef __JETBRAINS_IDE__
 #define __host__
@@ -32,6 +32,12 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 #define CUDA_ALIGN_8
 #endif
 
+#ifdef __CUDACC__
+#define CUDA_ALIGN_4 __align__(4)
+#else
+#define CUDA_ALIGN_4
+#endif
+
 // #define VERBOSE
 // #define DEBUG_NANS
 
@@ -55,7 +61,7 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 
 #define MAX_REFERENCE_VERTICES 262144
 
-#define SIFT_MAX_CORRESPONDENCES 2048
+#define SIFT_MAX_CORRESPONDENCES 4096
 #define SIFT_USE_COLOR
 
 /// #define SIFT_MINIMAL_SCORE 0.95f
@@ -74,8 +80,8 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
-#define EVALUATE_ED_REGULARIZATION
-#define EVALUATE_CORRESPONDENCE_FIELD
+// #define EVALUATE_ED_REGULARIZATION
+// #define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
@@ -89,10 +95,17 @@ const unsigned ED_COMPONENT_COUNT = 10u;
 // #define DEBUG_JTF
 // #define DEBUG_H
 
-// #define SOLVER_DIRECT_CHOL
+#define SOLVER_DIRECT_CHOL
 // #define SOLVER_DIRECT_QR
-#define SOLVER_CG
+// #define SOLVER_CG
 // #define SOLVER_PCG
+
+enum class IsoSurfaceVolume
+{
+    Data,
+    Reference,
+    WarpedReference
+};
 
 struct Configuration
 {
@@ -101,7 +114,6 @@ struct Configuration
 
     int reset_frame_count = 64;
 
-    bool debug_wipe_data = false;
     bool use_bricks = true;
     bool draw_bricks = false;
 
@@ -113,16 +125,15 @@ struct Configuration
     bool debug_sorted_vertices = false;
     bool debug_sorted_vertices_connections = false;
     bool debug_gradient_field = false;
-    bool debug_warped_reference_volume_value = false;
     bool debug_warped_reference_volume_surface = false;
 
-    bool pipeline_preprocess_textures = false;
-    bool pipeline_sample = false;
+    bool pipeline_preprocess_textures = true;
+    bool pipeline_sample = true;
     bool pipeline_correspondence = false;
-    bool pipeline_align = false;
-    bool pipeline_fuse = false;
+    bool pipeline_align = true;
+    bool pipeline_fuse = true;
 
-    int textures_silhouettes_iterations = 4;
+    int textures_silhouettes_iterations = 10;
     int textures_SIFT_octaves = 5;
     float textures_SIFT_blur = 0.2f;
     float textures_SIFT_threshold = 0.025f;
@@ -131,15 +142,24 @@ struct Configuration
     float textures_SIFT_min_score = 0.95f;
     float textures_SIFT_max_motion = 0.1f;
 
-    float weight_data = 1.0f;
-    float weight_hull = 0.08f;
-    float weight_correspondence = 0.02f;
-    float weight_regularization = 0.01f;
+    float weight_data = 1.f;
+    float weight_hull = 1.f;
+    float weight_correspondence = 1.f;
+    float weight_regularization = 1.f;
 
-    float solver_mu = 0.2f;
-    float solver_mu_step = 0.05f;
-    int solver_lma_steps = 4;
-    int solver_cg_steps = 4;
+    float solver_mu = 0.01f;
+    float solver_mu_step = 0.001f;
+    int solver_lma_steps = 2;
+    int solver_cg_steps = 12;
+
+    float rejection_threshold = 0.006f;
+
+    double time_copy_reference = 0.;
+    double time_sample_ed = 0.;
+    double time_preprocess = 0.;
+    double time_sift = 0.;
+    double time_nra = 0.;
+    double time_fuse = 0.;
 };
 
 struct struct_native_handles
@@ -147,14 +167,11 @@ struct struct_native_handles
     unsigned int buffer_bricks;
     unsigned int buffer_occupied;
 
-    unsigned int buffer_vertex_counter;
-    unsigned int buffer_reference_vertices;
     unsigned int buffer_ed_nodes_debug;
     unsigned int buffer_sorted_vertices_debug;
     unsigned int buffer_correspondences_debug;
 
     unsigned int volume_tsdf_data;
-    unsigned int volume_tsdf_ref;
     unsigned int volume_tsdf_ref_grad;
 
     unsigned int pbo_kinect_rgbs;
@@ -162,10 +179,12 @@ struct struct_native_handles
     unsigned int pbo_kinect_silhouettes;
 
     unsigned int pbo_kinect_silhouettes_debug;
-    unsigned int pbo_tsdf_ref_warped_debug;
 
     unsigned int pbo_cv_xyz_inv[4];
     unsigned int pbo_cv_xyz[4];
+
+    unsigned int posvbo;
+    unsigned int normalvbo;
 };
 
 struct struct_measures
@@ -201,6 +220,8 @@ struct struct_measures
     glm::fvec2 depth_limits[4];
     glm::fvec3 bbox_translation{0.f, 0.f, 0.f};
     glm::fvec3 bbox_dimensions{0.f, 0.f, 0.f};
+
+    glm::fmat4 mc_2_norm{1.f};
 };
 
 struct CUDA_ALIGN_8 struct_vertex
@@ -226,23 +247,24 @@ struct CUDA_ALIGN_8 struct_ed_node_debug
 
     unsigned int vx_offset;
     unsigned int vx_length;
-    unsigned int pad[2];
+    float misalignment_error;
+    unsigned int pad;
 };
 
 struct CUDA_ALIGN_8 struct_ed_node
 {
-    glm::vec3 position;
-    glm::quat affine;
     glm::vec3 translation;
+    glm::quat rotation;
 };
 
 struct CUDA_ALIGN_8 struct_ed_meta_entry
 {
+    glm::vec3 position;
     unsigned int brick_id;
     unsigned int ed_cell_id;
     unsigned long long int vx_offset;
     unsigned int vx_length;
-    bool rejected;
+    float misalignment_error;
     int neighbors[27];
 };
 

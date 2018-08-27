@@ -35,11 +35,11 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
             correspondence.current_proj = glm::vec2(current.d_data[index].xpos, current.d_data[index].ypos);
             correspondence.previous_proj = glm::vec2(previous.d_data[match].xpos, previous.d_data[match].ypos);
 
-            glm::uvec2 curr_pixel(correspondence.current_proj);
-            glm::uvec2 prev_pixel(correspondence.previous_proj);
+            glm::vec2 curr_pixel(correspondence.current_proj.x / measures.depth_res.x, correspondence.current_proj.y / measures.depth_res.y);
+            glm::vec2 prev_pixel(correspondence.previous_proj.x / measures.depth_res.x, correspondence.previous_proj.y / measures.depth_res.y);
 
-            float2 depth_curr = sample_depths_ptr(dev_res.kinect_depths, curr_pixel, layer, measures);
-            float2 depth_prev = sample_depths_ptr(dev_res.kinect_depths_prev, prev_pixel, layer, measures);
+            float2 depth_curr = sample_depth(dev_res.depth_tex[i], curr_pixel);
+            float2 depth_prev = sample_depth(dev_res.depth_tex_prev[i], prev_pixel);
 
             if((int)(depth_curr.x * 1000) == 0 || (int)(depth_prev.x * 1000) == 0 || glm::abs(depth_curr.x - depth_prev.x) > host_res.configuration.textures_SIFT_max_motion)
             {
@@ -134,8 +134,10 @@ __global__ void kernel_sort_correspondences(unsigned int extracted_features, str
     }
 }
 
-extern "C" void estimate_correspondence_field()
+extern "C" double estimate_correspondence_field()
 {
+    TimerGPU timer(0);
+
     clean_correspondence_resources();
 
     int w = (int)_host_res.measures.depth_res.x;
@@ -187,6 +189,9 @@ extern "C" void estimate_correspondence_field()
     SiftData *tmp = sift_front;
     sift_front = sift_back;
     sift_back = tmp;
+
+    checkCudaErrors(cudaThreadSynchronize());
+    return timer.read();
 }
 
 __global__ void kernel_push_debug_correspondences(struct_correspondence *cp_ptr, unsigned int valid_correspondences, struct_device_resources dev_res, struct_measures measures)

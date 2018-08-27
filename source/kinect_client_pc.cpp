@@ -30,7 +30,7 @@ using namespace gl;
 #include <Point3.h>
 #include <StereoCamera.h>
 
-#include <NetKinectArray.h>
+#include <LocalKinectArray.h>
 #include <calibration/CalibVolumes.hpp>
 #include <calibration/KinectCalibrationFile.h>
 #include <calibration/calibration_files.hpp>
@@ -75,6 +75,7 @@ void init(std::vector<std::string> const &args)
     std::cout << resource_path << std::endl;
     std::ifstream in(file_name);
     std::string token;
+    std::string record_name;
     while(in >> token)
     {
         if(token == "kinect")
@@ -102,7 +103,7 @@ void init(std::vector<std::string> const &args)
     }
     in.close();
 
-    _model->init(bbox_min, bbox_max, calib_filenames, resource_path);
+    _model->init(_io->_record_name, bbox_min, bbox_max, calib_filenames, resource_path);
 }
 
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
@@ -240,8 +241,7 @@ int main(int argc, char *argv[])
     p.addOpt("m", 1, "stereomode", "set stereo mode 0: none, 1: anaglyph, 2: side-by-side (default: 0)");
     p.addOpt("c", 4, "clearcolor", "set clear color (default: 0.0 0.0 0.0 0.0)");
 
-    p.addOpt("f", 1, "feedbacksocket", "set socket for feedback receiver (e.g. 127.0.0.1:9000)");
-    p.addOpt("p", 1, "serversocket", "set server socket for input stream : default " + _io->_server_socket);
+    p.addOpt("f", 1, "stream", "set stream file to play from");
 
     p.init(argc, argv);
 

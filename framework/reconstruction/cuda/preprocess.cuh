@@ -161,12 +161,17 @@ __host__ void preprocess_intensity()
     }
 }
 
-extern "C" void preprocess_textures()
+extern "C" double preprocess_textures()
 {
+    TimerGPU timer(0);
+
     map_kinect_arrays();
 
     preprocess_hull();
     preprocess_intensity();
 
     unmap_kinect_arrays();
+
+    checkCudaErrors(cudaThreadSynchronize());
+    return timer.read();
 }

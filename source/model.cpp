@@ -7,12 +7,6 @@
 
 void model::cmd(CMDParser &p)
 {
-    if(p.isOptSet("p"))
-    {
-        io._server_socket = p.getOptsString("p")[0];
-    }
-    std::cout << "using server socket for input stream: " << io._server_socket << std::endl;
-
     if(p.isOptSet("s"))
     {
         io._screenWidthReal = p.getOptsFloat("s")[0];
@@ -55,8 +49,7 @@ void model::cmd(CMDParser &p)
 
     if(p.isOptSet("f"))
     {
-        std::string client_socket = p.getOptsString("f")[0].c_str();
-        init_fbr(client_socket.c_str());
+        io._record_name = p.getOptsString("f")[0].c_str();
     }
 
     if((1 == io._stereo_mode) || (2 == io._stereo_mode))
@@ -67,7 +60,7 @@ void model::cmd(CMDParser &p)
     // load global variables
     init_config(p.getArgs());
 }
-void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path)
+void model::init(std::string& file_name, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path)
 {
     _bbox = std::make_shared<gloost::BoundingBox>();
     _camera = std::make_shared<gloost::PerspectiveCamera>(50.0, io._aspect, 0.1, 200.0);
@@ -78,7 +71,7 @@ void model::init(gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector
 
     _calib_files = std::make_shared<kinect::CalibrationFiles>(calib_filenames);
     _cv = std::make_shared<kinect::CalibVolumes>(calib_filenames, *_bbox);
-    _nka = std::make_shared<kinect::NetKinectArray>(io._server_socket, _calib_files.get(), _cv.get());
+    _nka = std::make_shared<kinect::LocalKinectArray>(file_name, _calib_files.get(), _cv.get(), true);
 
     // binds to unit 1 to 18
     _nka->setStartTextureUnit(1);
@@ -204,7 +197,7 @@ const std::shared_ptr<gloost::PerspectiveCamera> &model::get_camera() const { re
 const std::shared_ptr<gloost::StereoCamera> &model::get_stereo_camera() const { return _stereo_camera; }
 const std::shared_ptr<pmd::CameraNavigator> &model::get_navi() const { return _navi; }
 const std::shared_ptr<sys::FeedbackReceiver> &model::get_fbr() const { return _fbr; }
-const std::shared_ptr<kinect::NetKinectArray> &model::get_nka() const { return _nka; }
+const std::shared_ptr<kinect::LocalKinectArray> &model::get_nka() const { return _nka; }
 const std::shared_ptr<kinect::CalibVolumes> &model::get_cv() const { return _cv; }
 const std::shared_ptr<kinect::CalibrationFiles> &model::get_calib_files() const { return _calib_files; }
 void model::reload_reconstructions()

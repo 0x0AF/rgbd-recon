@@ -13,13 +13,13 @@ TimerDatabase& TimerDatabase::instance() {
 }
 
 void TimerDatabase::addTimer(std::string const& name) {
-  m_timers.emplace(name, TimerGPU{});
+  m_timers.emplace(name, TimerGL{});
   m_means.emplace(name, 0.0);
   m_nums.emplace(name, 0);
   m_extrema.emplace(name, std::make_pair(std::numeric_limits<double>::infinity(), 0));
 }
 
-TimerGPU& TimerDatabase::get(std::string const& name) {
+TimerGL& TimerDatabase::get(std::string const& name) {
   return m_timers.at(name);
 }
 

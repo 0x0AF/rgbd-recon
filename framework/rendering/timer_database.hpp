@@ -1,7 +1,7 @@
 #ifndef TIMER_DATABASE_HPP
 #define TIMER_DATABASE_HPP
 
-#include "timer_gpu.hpp"
+#include "timer_gl.hpp"
 
 #include <vector>
 #include <map>
@@ -26,10 +26,10 @@ class TimerDatabase {
   TimerDatabase(TimerDatabase const&) = delete;
   TimerDatabase& operator=(TimerDatabase const&) = delete;
 
-  TimerGPU& get(std::string const&);
+  TimerGL& get(std::string const&);
   double getNum(std::string const&) const;
 
-  std::map<std::string, TimerGPU> m_timers;
+  std::map<std::string, TimerGL> m_timers;
   std::map<std::string, std::size_t> m_nums;
   std::map<std::string, double> m_means;
   std::map<std::string, std::pair<double, double>> m_extrema;

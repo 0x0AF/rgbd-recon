@@ -11,6 +11,7 @@
 #include <cusolverSp.h>
 #include <cusolver_common.h>
 #include <cusparse_v2.h>
+#include <reconstruction/cuda/MC/marchingCubes_kernel.cuh>
 #include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/structures.cuh>
 
@@ -24,8 +25,6 @@
 
 struct struct_graphic_resources
 {
-    cudaGraphicsResource *buffer_reference_mesh_vertices{nullptr};
-    cudaGraphicsResource *buffer_vertex_counter{nullptr};
     cudaGraphicsResource *buffer_bricks{nullptr};
     cudaGraphicsResource *buffer_occupied{nullptr};
     cudaGraphicsResource *buffer_ed_nodes_debug{nullptr};
@@ -37,70 +36,134 @@ struct struct_graphic_resources
     cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
 
     cudaGraphicsResource *pbo_kinect_silhouettes_debug{nullptr};
-    cudaGraphicsResource *pbo_tsdf_ref_warped_debug{nullptr};
 
     cudaGraphicsResource *pbo_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *pbo_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
 
     cudaGraphicsResource *volume_tsdf_data{nullptr};
-    cudaGraphicsResource *volume_tsdf_ref{nullptr};
     cudaGraphicsResource *volume_tsdf_ref_grad{nullptr};
+
+    cudaGraphicsResource *posvbo{nullptr};
+    cudaGraphicsResource *normalvbo{nullptr};
 };
 
 struct_graphic_resources _cgr;
 
 struct struct_device_resources
 {
+    /// Lab space colors
     float4 *kinect_rgbs = nullptr;
-    float *kinect_intens = nullptr;
-    float2 *kinect_depths = nullptr;
-    float2 *kinect_depths_prev = nullptr;
-    float *kinect_silhouettes = nullptr;
-    float2 *tsdf_ref_warped = nullptr;
 
-    size_t mapped_bytes_kinect_arrays[5] = {0, 0, 0, 0, 0};
-    size_t mapped_bytes_ref_warped = 0;
+    /// Merged grayscale colors
+    float *kinect_intens = nullptr;
+
+    /// Current depth frames
+    float2 *kinect_depths = nullptr;
+
+    /// Previous depth frames
+    float2 *kinect_depths_prev = nullptr;
+
+    /// (Smooth) silhouettes
+    float *kinect_silhouettes = nullptr;
+
+    cudaTextureObject_t depth_tex[4] = {0, 0, 0, 0};
+    cudaTextureObject_t depth_tex_prev[4] = {0, 0, 0, 0};
+    cudaTextureObject_t silhouette_tex[4] = {0, 0, 0, 0};
+
+    /// Mapped pointers to GL resources
     float4 *mapped_pbo_rgbs = nullptr;
     float2 *mapped_pbo_depths = nullptr;
     float1 *mapped_pbo_silhouettes = nullptr;
-
-    float2 *mapped_pbo_tsdf_ref_warped_debug = nullptr;
     float1 *mapped_pbo_silhouettes_debug = nullptr;
-
     float4 *mapped_pbo_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     float4 *mapped_pbo_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
 
+    /// CUDA-side calibration volumes
     cudaArray *cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaArray *cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     cudaTextureObject_t cv_xyz_tex[4] = {0, 0, 0, 0};
     cudaTextureObject_t cv_xyz_inv_tex[4] = {0, 0, 0, 0};
 
+    /// Dense brick index
     unsigned int *bricks_dense_index = nullptr;
+
+    /// Inverted brick index
     unsigned int *bricks_inv_index = nullptr;
+
+    /// Embedded deformation graph
     struct_ed_node *ed_graph = nullptr;
-    struct_ed_node *ed_graph_step = nullptr;
+
+    /// Embedded deformation graph meta data
     struct_ed_meta_entry *ed_graph_meta = nullptr;
-    struct_vertex *sorted_vx_ptr = nullptr;
+
+    /// Embedded deformation graph step (for energy evaluation)
+    struct_ed_node *ed_graph_step = nullptr;
+
+    /// Unsorted vertex pointer
     struct_vertex *unsorted_vx_ptr = nullptr;
 
+    /// ED-sorted vertex pointer
+    struct_vertex *sorted_vx_ptr = nullptr;
+
+    /// ED-sorted vertex projections
+    struct_projection *sorted_vx_projections = nullptr;
+
+    /// Warped ED-sorted vertex pointer
+    struct_vertex *warped_sorted_vx_ptr = nullptr;
+
+    /// Warped ED-sorted vertex projections
+    struct_projection *warped_sorted_vx_projections = nullptr;
+
+#ifdef PIPELINE_CORRESPONDENCE
     struct_correspondence *sorted_correspondences = nullptr;
     struct_correspondence *unsorted_correspondences = nullptr;
     unsigned int *depth_cell_counter = nullptr;
     struct_depth_cell_meta *depth_cell_meta = nullptr;
+#endif
 
-    struct_vertex *warped_sorted_vx_ptr = nullptr;
-    struct_projection *warped_vx_projections = nullptr;
-
+    /// JTJ sparse pointers
     float *jtj_vals = nullptr;
     int *jtj_rows = nullptr;
     int *jtj_rows_csr = nullptr;
     int *jtj_cols = nullptr;
+
+    /// JTF
     float *jtf = nullptr;
+
+    /// Solver step
     float *h = nullptr;
 
+    /// PCG allocations
     float *pcg_p = nullptr;
     float *pcg_omega = nullptr;
     float *pcg_Ax = nullptr;
+
+    /// MC tables
+    uint *edge_table = nullptr;
+    uint *tri_table = nullptr;
+    uint *num_verts_table = nullptr;
+
+    /// MC allocations
+    uint *voxel_verts = nullptr;
+    uint *voxel_verts_scan = nullptr;
+    uint *voxel_occupied = nullptr;
+    uint *voxel_occupied_scan = nullptr;
+    uint *comp_voxel_array = nullptr;
+
+    /// TSDF volumes (R <- TSDF, G <- Weight)
+    float2 *tsdf_ref = nullptr;
+    float2 *tsdf_ref_warped = nullptr;
+
+    /// 8-bit TSDF volumes for surface extraction
+    uchar *out_tsdf_data = nullptr;
+    uchar *out_tsdf_ref = nullptr;
+    uchar *out_tsdf_warped_ref = nullptr;
+
+    /// MC outputs
+    float4 *pos = 0;
+    float4 *normal = 0;
+    float4 *mapped_pos = 0;
+    float4 *mapped_normal = 0;
 };
 
 struct_device_resources _dev_res;
@@ -116,6 +179,14 @@ struct struct_host_resources
 
     unsigned int valid_correspondences = 0u;
 
+    uint3 grid_size;
+    uint3 grid_size_shift;
+    uint3 grid_size_mask;
+    uint num_voxels;
+    float3 voxel_size;
+    uint active_voxels;
+    uint total_verts;
+
     float *kernel_gauss;
 };
 
@@ -126,7 +197,6 @@ cusparseHandle_t cusparse_handle = nullptr;
 cusolverSpHandle_t cusolver_handle = nullptr;
 
 surface<void, cudaSurfaceType3D> _volume_tsdf_data;
-surface<void, cudaSurfaceType3D> _volume_tsdf_ref;
 surface<void, cudaSurfaceType3D> _volume_tsdf_ref_grad;
 
 __host__ void map_calibration_volumes()
@@ -236,22 +306,91 @@ __host__ void unmap_calibration_volumes()
     checkCudaErrors(cudaGraphicsUnmapResources(4, _cgr.pbo_cv_xyz_inv, 0));
 }
 
+__host__ void map_kinect_textures()
+{
+    for(int i = 0; i < 4; i++)
+    {
+        struct cudaResourceDesc depth_descr;
+        memset(&depth_descr, 0, sizeof(depth_descr));
+        depth_descr.resType = cudaResourceTypePitch2D;
+        depth_descr.res.pitch2D.devPtr = _dev_res.kinect_depths + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        depth_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        depth_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        depth_descr.res.pitch2D.pitchInBytes = _host_res.measures.depth_res.x * sizeof(float2);
+        depth_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+
+        struct cudaTextureDesc depth_tex_descr;
+        memset(&depth_tex_descr, 0, sizeof(depth_tex_descr));
+        depth_tex_descr.addressMode[0] = cudaAddressModeClamp;
+        depth_tex_descr.addressMode[1] = cudaAddressModeClamp;
+        depth_tex_descr.filterMode = cudaFilterModeLinear;
+        depth_tex_descr.readMode = cudaReadModeElementType;
+        depth_tex_descr.normalizedCoords = 1;
+
+        cudaCreateTextureObject(&_dev_res.depth_tex[i], &depth_descr, &depth_tex_descr, NULL);
+
+        struct cudaResourceDesc depth_prev_descr;
+        memset(&depth_prev_descr, 0, sizeof(depth_prev_descr));
+        depth_prev_descr.resType = cudaResourceTypePitch2D;
+        depth_prev_descr.res.pitch2D.devPtr = _dev_res.kinect_depths_prev + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        depth_prev_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        depth_prev_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        depth_prev_descr.res.pitch2D.pitchInBytes = _host_res.measures.depth_res.x * sizeof(float2);
+        depth_prev_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+
+        struct cudaTextureDesc depth_prev_tex_descr;
+        memset(&depth_prev_tex_descr, 0, sizeof(depth_prev_tex_descr));
+        depth_prev_tex_descr.addressMode[0] = cudaAddressModeClamp;
+        depth_prev_tex_descr.addressMode[1] = cudaAddressModeClamp;
+        depth_prev_tex_descr.filterMode = cudaFilterModeLinear;
+        depth_prev_tex_descr.readMode = cudaReadModeElementType;
+        depth_prev_tex_descr.normalizedCoords = 1;
+
+        cudaCreateTextureObject(&_dev_res.depth_tex_prev[i], &depth_prev_descr, &depth_prev_tex_descr, NULL);
+
+        struct cudaResourceDesc silhouette_descr;
+        memset(&silhouette_descr, 0, sizeof(silhouette_descr));
+        silhouette_descr.resType = cudaResourceTypePitch2D;
+        silhouette_descr.res.pitch2D.devPtr = _dev_res.kinect_silhouettes + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float);
+        silhouette_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        silhouette_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        silhouette_descr.res.pitch2D.pitchInBytes = _host_res.measures.depth_res.x * sizeof(float);
+        silhouette_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
+
+        struct cudaTextureDesc silhouette_tex_descr;
+        memset(&silhouette_tex_descr, 0, sizeof(silhouette_tex_descr));
+        silhouette_tex_descr.addressMode[0] = cudaAddressModeClamp;
+        silhouette_tex_descr.addressMode[1] = cudaAddressModeClamp;
+        silhouette_tex_descr.filterMode = cudaFilterModeLinear;
+        silhouette_tex_descr.readMode = cudaReadModeElementType;
+        silhouette_tex_descr.normalizedCoords = 1;
+
+        cudaCreateTextureObject(&_dev_res.silhouette_tex[i], &silhouette_descr, &silhouette_tex_descr, NULL);
+    }
+}
+
+__host__ void unmap_kinect_textures()
+{
+    for(int i = 0; i < 4; i++)
+    {
+        cudaDestroyTextureObject(_dev_res.depth_tex[i]);
+        cudaDestroyTextureObject(_dev_res.depth_tex_prev[i]);
+        cudaDestroyTextureObject(_dev_res.silhouette_tex[i]);
+    }
+}
+
 __host__ void map_tsdf_volumes()
 {
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_data, 0));
-    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.volume_tsdf_ref_grad, 0));
 
     cudaArray *volume_array_tsdf_data = nullptr;
-    cudaArray *volume_array_tsdf_ref = nullptr;
     cudaArray *volume_array_tsdf_ref_grad = nullptr;
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_data, _cgr.volume_tsdf_data, 0, 0));
-    checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref, _cgr.volume_tsdf_ref, 0, 0));
     checkCudaErrors(cudaGraphicsSubResourceGetMappedArray(&volume_array_tsdf_ref_grad, _cgr.volume_tsdf_ref_grad, 0, 0));
 
     cudaChannelFormatDesc channel_desc = cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_data, volume_array_tsdf_data, &channel_desc));
-    checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref, volume_array_tsdf_ref, &channel_desc));
 
     cudaChannelFormatDesc rgba32_channel_desc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
     checkCudaErrors(cudaBindSurfaceToArray(&_volume_tsdf_ref_grad, volume_array_tsdf_ref_grad, &rgba32_channel_desc));
@@ -260,7 +399,6 @@ __host__ void map_tsdf_volumes()
 __host__ void unmap_tsdf_volumes()
 {
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref_grad, 0));
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_ref, 0));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.volume_tsdf_data, 0));
 }
 
@@ -270,31 +408,36 @@ __host__ void map_kinect_arrays()
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_depths, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes, 0));
 
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_rgbs, &_dev_res.mapped_bytes_kinect_arrays[0], _cgr.pbo_kinect_rgbs));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_rgbs[0], &_dev_res.mapped_pbo_rgbs[0], _dev_res.mapped_bytes_kinect_arrays[0], cudaMemcpyDeviceToDevice));
+    size_t dummy_size = 0;
+    size_t depth_size = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4;
+
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_rgbs, &dummy_size, _cgr.pbo_kinect_rgbs));
+    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_rgbs[0], &_dev_res.mapped_pbo_rgbs[0], depth_size * sizeof(float4), cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_depths, &_dev_res.mapped_bytes_kinect_arrays[1], _cgr.pbo_kinect_depths));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths_prev[0], &_dev_res.kinect_depths[0], _dev_res.mapped_bytes_kinect_arrays[1], cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths[0], &_dev_res.mapped_pbo_depths[0], _dev_res.mapped_bytes_kinect_arrays[1], cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_depths, &dummy_size, _cgr.pbo_kinect_depths));
+    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths_prev[0], &_dev_res.kinect_depths[0], depth_size * sizeof(float2), cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths[0], &_dev_res.mapped_pbo_depths[0], depth_size * sizeof(float2), cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes, &_dev_res.mapped_bytes_kinect_arrays[2], _cgr.pbo_kinect_silhouettes));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_silhouettes[0], &_dev_res.mapped_pbo_silhouettes[0], _dev_res.mapped_bytes_kinect_arrays[2], cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes, &dummy_size, _cgr.pbo_kinect_silhouettes));
+    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_silhouettes[0], &_dev_res.mapped_pbo_silhouettes[0], depth_size * sizeof(float1), cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes_debug, 0));
 
-    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes_debug, &_dev_res.mapped_bytes_kinect_arrays[3], _cgr.pbo_kinect_silhouettes_debug));
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes_debug, &dummy_size, _cgr.pbo_kinect_silhouettes_debug));
     checkCudaErrors(cudaDeviceSynchronize());
 #endif
 }
 
 __host__ void unmap_kinect_arrays()
 {
+    size_t depth_size = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4;
+
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-    checkCudaErrors(cudaMemcpy(&_dev_res.mapped_pbo_silhouettes_debug[0], &_dev_res.kinect_silhouettes[0], _dev_res.mapped_bytes_kinect_arrays[2], cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaMemcpy(&_dev_res.mapped_pbo_silhouettes_debug[0], &_dev_res.kinect_silhouettes[0], depth_size * sizeof(float1), cudaMemcpyDeviceToDevice));
     checkCudaErrors(cudaDeviceSynchronize());
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes_debug));
@@ -339,9 +482,15 @@ __host__ void free_ed_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
-    if(_dev_res.warped_vx_projections != nullptr)
+    if(_dev_res.sorted_vx_projections != nullptr)
     {
-        checkCudaErrors(cudaFree(_dev_res.warped_vx_projections));
+        checkCudaErrors(cudaFree(_dev_res.sorted_vx_projections));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.warped_sorted_vx_projections != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.warped_sorted_vx_projections));
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
@@ -423,10 +572,11 @@ __host__ void allocate_ed_resources()
 {
     unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
 
-    checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMalloc(&_dev_res.unsorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
-    checkCudaErrors(cudaMalloc(&_dev_res.warped_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
+    checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
+    checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_step, MAX_ED_CELLS * sizeof(struct_ed_node)));
@@ -456,10 +606,11 @@ __host__ void clean_ed_resources()
 {
     unsigned int MAX_ED_CELLS = _host_res.measures.data_volume_num_bricks * _host_res.measures.brick_num_ed_cells;
 
-    checkCudaErrors(cudaMemset(_dev_res.sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMemset(_dev_res.unsorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMemset(_dev_res.sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
-    checkCudaErrors(cudaMemset(_dev_res.warped_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
+    checkCudaErrors(cudaMemset(_dev_res.sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
+    checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
     checkCudaErrors(cudaMemset(_dev_res.ed_graph, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMemset(_dev_res.ed_graph_step, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));

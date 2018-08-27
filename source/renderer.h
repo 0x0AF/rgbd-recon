@@ -37,7 +37,7 @@ using namespace gl;
 #include <Point3.h>
 #include <StereoCamera.h>
 
-#include <NetKinectArray.h>
+#include <LocalKinectArray.h>
 #include <calibration/CalibVolumes.hpp>
 #include <calibration/KinectCalibrationFile.h>
 #include <calibration/calibration_files.hpp>
@@ -76,6 +76,9 @@ class renderer
     static void watch_gl_errors(bool activate);
 
   private:
+    int _frame_number;
+    bool _forward_motion;
+
     model *_model;
     model::IO *_io;
 

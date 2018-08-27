@@ -39,11 +39,6 @@ set_property(TARGET kinect_client_pc PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(kinect_client_pc PUBLIC framework glfw ${GLFW_LIBRARIES} imgui tinyply ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY} ${CUDA_CUBLAS_LIBRARIES} ${CUDA_LIBRARIES})
 install(TARGETS kinect_client_pc DESTINATION bin)
 
-add_executable(calib_inverter calib_inverter.cpp)
-
-target_link_libraries(calib_inverter PUBLIC framework)
-install(TARGETS calib_inverter DESTINATION bin)
-
 add_executable(unit_tests unit_tests.cpp)
 
 set_property(TARGET unit_tests PROPERTY CUDA_SEPARABLE_COMPILATION ON)

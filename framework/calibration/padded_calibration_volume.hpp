@@ -38,9 +38,10 @@ class PaddedCalibrationVolume : public CalibrationVolume<glm::fvec4>
             m_volume.at(i).b = data.b;
             m_volume.at(i).a = 0.f;
 
+            // printf("\nres: %li\n", res);
             // printf("\nm_volume.data()[%lu]: (%f,%f,%f,%f)\n", i, m_volume.data()[i].r, m_volume.data()[i].g, m_volume.data()[i].b, m_volume.data()[i].a);
 
-            assert(res == 4);
+            // assert(res == 4);
         }
 
         fclose(file_input);

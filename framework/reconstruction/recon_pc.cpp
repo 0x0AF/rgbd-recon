@@ -1,5 +1,4 @@
 #include "recon_pc.hpp"
-#include "recon_pc_tri_table.h"
 
 #include "CalibVolumes.hpp"
 #include "calibration_files.hpp"
@@ -34,26 +33,27 @@ using namespace gl;
 #include <globjects/Sync.h>
 #include <vector_types.h>
 
+extern "C" double copy_reference();
+extern "C" double perform_brick_indexing();
+extern "C" double sample_ed_nodes();
+extern "C" double preprocess_textures();
+extern "C" double estimate_correspondence_field();
+extern "C" double pcg_solve();
+extern "C" double fuse_data();
+
+extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
+
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
 extern "C" void update_configuration(Configuration &configuration);
-extern "C" void copy_reference();
-extern "C" void sample_ed_nodes();
+extern "C" void deinit_cuda();
 extern "C" unsigned int push_debug_ed_nodes();
 extern "C" unsigned long push_debug_sorted_vertices();
 extern "C" unsigned int push_debug_correspondences();
-extern "C" void preprocess_textures();
-extern "C" void estimate_correspondence_field();
-extern "C" void pcg_solve();
-extern "C" void fuse_data();
-extern "C" void deinit_cuda();
 
 #define PASS_NORMALS
-#define WIPE_DATA
 
 #define DATA_IMAGE_UNIT 4
-#define REF_IMAGE_UNIT 5
-#define REF_GRAD_IMAGE_UNIT 6
-#define REF_WARP_IMAGE_UNIT 7
+#define REF_GRAD_IMAGE_UNIT 5
 
 namespace kinect
 {
@@ -61,12 +61,9 @@ using namespace globjects;
 std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA_VOLUME_INTEGRATION";
 std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
 std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
-std::string ReconPerformanceCapture::TIMER_SMOOTH_HULL = "TIMER_SMOOTH_HULL";
-std::string ReconPerformanceCapture::TIMER_CORRESPONDENCE = "TIMER_CORRESPONDENCE";
-std::string ReconPerformanceCapture::TIMER_NON_RIGID_ALIGNMENT = "TIMER_NON_RIGID_ALIGNMENT";
-std::string ReconPerformanceCapture::TIMER_FUSION = "TIMER_FUSION";
 
-ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size, float ed_cell_size)
+ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size,
+                                                 float ed_cell_size)
     : Reconstruction(cfs, cv, bbox)
 {
     _nka = &nka;
@@ -78,20 +75,14 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     setVoxelSize(_voxel_size);
     setBrickSize(_brick_size);
 
-    printf("\nres volume (%u,%u,%u)\n", _res_volume.x, _res_volume.y, _res_volume.z);
-    printf("\nres bricks (%u,%u,%u)\n", _res_bricks.x, _res_bricks.y, _res_bricks.z);
-
     _native_handles.buffer_bricks = _buffer_bricks->id();
     _native_handles.buffer_occupied = _buffer_occupied->id();
 
-    _native_handles.buffer_vertex_counter = _buffer_vertex_counter->id();
-    _native_handles.buffer_reference_vertices = _buffer_reference_mesh_vertices->id();
     _native_handles.buffer_ed_nodes_debug = _buffer_ed_nodes_debug->id();
     _native_handles.buffer_sorted_vertices_debug = _buffer_sorted_vertices_debug->id();
     _native_handles.buffer_correspondences_debug = _buffer_correspondences_debug->id();
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
-    _native_handles.volume_tsdf_ref = _volume_tsdf_ref;
     _native_handles.volume_tsdf_ref_grad = _volume_tsdf_ref_grad;
 
     _native_handles.pbo_kinect_rgbs = _nka->getColorHandle();
@@ -124,22 +115,12 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
     _buffer_pbo_textures_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
-    _buffer_pbo_ref_warp_debug->setData(_res_volume.x * _res_volume.y * _res_volume.z * sizeof(float2), nullptr, GL_DYNAMIC_COPY);
-    _buffer_pbo_ref_warp_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
-    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
-
     glBindTextureUnit(8, _texture2darray_debug->id());
     glBindTextureUnit(32, _volume_tsdf_data);
-    glBindTextureUnit(33, _volume_tsdf_ref);
     glBindTextureUnit(34, _volume_tsdf_ref_grad);
-    glBindTextureUnit(35, _volume_tsdf_ref_warped);
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_textures_debug->id();
-#endif
-
-#ifdef PIPELINE_DEBUG_WARPED_REFERENCE_VOLUME
-    _native_handles.pbo_tsdf_ref_warped_debug = _buffer_pbo_ref_warp_debug->id();
 #endif
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
@@ -181,23 +162,24 @@ ReconPerformanceCapture::ReconPerformanceCapture(NetKinectArray &nka, Calibratio
 
     glFlush();
 
+    _native_handles.posvbo = _buffer_fast_mc_pos->id();
+    _native_handles.normalvbo = _buffer_fast_mc_normal->id();
+
+    printf("\nres volume (%u,%u,%u)\n", _res_volume.x, _res_volume.y, _res_volume.z);
+    printf("\nres bricks (%u,%u,%u)\n", _res_bricks.x, _res_bricks.y, _res_bricks.z);
+
+    _measures.mc_2_norm = glm::inverse(_mat_vol_to_world) * _mat_world_to_vol;
+
     init_cuda(_res_volume, _measures, _native_handles);
 
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
     TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
-    TimerDatabase::instance().addTimer(TIMER_SMOOTH_HULL);
-    TimerDatabase::instance().addTimer(TIMER_CORRESPONDENCE);
-    TimerDatabase::instance().addTimer(TIMER_NON_RIGID_ALIGNMENT);
-    TimerDatabase::instance().addTimer(TIMER_FUSION);
     TimerDatabase::instance().addTimer(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
 {
     _buffer_bricks = new Buffer();
     _buffer_occupied = new Buffer();
-    _tri_table_buffer = new Buffer();
-    _buffer_vertex_counter = new Buffer();
-    _buffer_reference_mesh_vertices = new Buffer();
     _buffer_debug = new Buffer();
     _vao_debug = new VertexArray();
     _buffer_fsquad_debug = new Buffer();
@@ -205,8 +187,11 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_ed_nodes_debug = new Buffer();
     _buffer_sorted_vertices_debug = new Buffer();
     _buffer_pbo_textures_debug = new Buffer();
-    _buffer_pbo_ref_warp_debug = new Buffer();
     _buffer_correspondences_debug = new Buffer();
+
+    _vao_fast_mc = new VertexArray();
+    _buffer_fast_mc_pos = new Buffer();
+    _buffer_fast_mc_normal = new Buffer();
 
     _vec_debug = std::vector<glm::vec3>(MAX_REFERENCE_VERTICES);
 
@@ -218,29 +203,19 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _program_pc_debug_sorted_vertices = new Program();
     _program_pc_debug_sorted_vertices_connections = new Program();
     _program_pc_debug_correspondences = new Program();
-    _program_pc_draw_data = new Program();
-    _program_pc_extract_reference = new Program();
     _program_pc_debug_tsdf = new Program();
     _program_integration = new Program();
     _program_solid = new Program();
     _program_bricks = new Program();
 
-    _res_volume = glm::uvec3(141, 140, 140);
-    _res_bricks = glm::uvec3(16, 16, 16);
+    _program_pc_fast_mc = new Program();
+
+    _res_volume = glm::uvec3(64, 64, 64);
+    _res_bricks = glm::uvec3(8, 8, 8);
     _sampler = new VolumeSampler(_res_volume);
 
     glGenTextures(1, &_volume_tsdf_data);
     glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-    glBindTexture(GL_TEXTURE_3D, 0);
-
-    glGenTextures(1, &_volume_tsdf_ref);
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
@@ -259,19 +234,9 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RGBA, GL_FLOAT, nullptr);
     glBindTexture(GL_TEXTURE_3D, 0);
 
-    glGenTextures(1, &_volume_tsdf_ref_warped);
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-    glBindTexture(GL_TEXTURE_3D, 0);
-
     _mat_vol_to_world = glm::fmat4(1.0f);
     _limit = limit;
-    _brick_size = 0.09f;
+    _brick_size = size * 9;
     _voxel_size = size;
     _ed_cell_size = ed_cell_size;
     _ratio_occupied = 0.0f;
@@ -288,16 +253,10 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _mat_vol_to_world = glm::scale(glm::fmat4{1.0f}, bbox_dimensions);
     _mat_vol_to_world = glm::translate(glm::fmat4{1.0f}, bbox_translation) * _mat_vol_to_world;
 
-    _tri_table_buffer->setData(sizeof(GLint) * 4096, TRI_TABLE, GL_STATIC_COPY);
-    _tri_table_buffer->bindRange(GL_SHADER_STORAGE_BUFFER, 5, 0, sizeof(GLint) * 4096);
-
-    _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
-    _buffer_vertex_counter->setData(sizeof(GLuint), nullptr, GL_STREAM_DRAW);
-    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
-    _buffer_vertex_counter->bindBase(GL_ATOMIC_COUNTER_BUFFER, 6);
-
-    _buffer_reference_mesh_vertices->setData(sizeof(struct_vertex) * MAX_REFERENCE_VERTICES, nullptr, GL_STREAM_COPY);
-    _buffer_reference_mesh_vertices->bindBase(GL_SHADER_STORAGE_BUFFER, 7);
+    _mat_world_to_vol = glm::fmat4{1.0f};
+    _mat_world_to_vol = glm::translate(_mat_world_to_vol, bbox_translation);
+    _mat_world_to_vol = glm::scale(_mat_world_to_vol, 1.f / bbox_dimensions);
+    _mat_world_to_vol = glm::translate(_mat_world_to_vol, glm::fvec3{1.f});
 
     _buffer_ed_nodes_debug->setData(sizeof(struct_ed_node_debug) * 16384, nullptr, GL_STREAM_COPY);
     _buffer_ed_nodes_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 8);
@@ -332,29 +291,27 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     binding->setBuffer(_buffer_fsquad_debug, 0, sizeof(float) * 2);
     binding->setFormat(2, GL_FLOAT, GL_FALSE, 0);
     _vao_fsquad_debug->enable(0);
+
+    _buffer_fast_mc_pos->bind(GL_ARRAY_BUFFER);
+    _buffer_fast_mc_pos->setData(MAX_REFERENCE_VERTICES * sizeof(float) * 4, nullptr, GL_DYNAMIC_DRAW);
+    Buffer::unbind(GL_ARRAY_BUFFER);
+
+    _buffer_fast_mc_normal->bind(GL_ARRAY_BUFFER);
+    _buffer_fast_mc_normal->setData(MAX_REFERENCE_VERTICES * sizeof(float) * 4, nullptr, GL_DYNAMIC_DRAW);
+    Buffer::unbind(GL_ARRAY_BUFFER);
+
+    _vao_fast_mc->enable(0);
+    _vao_fast_mc->binding(0)->setAttribute(0);
+    _vao_fast_mc->binding(0)->setBuffer(_buffer_fast_mc_pos, 0, sizeof(float) * 4);
+    _vao_fast_mc->binding(0)->setFormat(4, GL_FLOAT);
+    _vao_fast_mc->enable(1);
+    _vao_fast_mc->binding(1)->setAttribute(1);
+    _vao_fast_mc->binding(1)->setBuffer(_buffer_fast_mc_normal, 0, sizeof(float) * 4);
+    _vao_fast_mc->binding(1)->setFormat(4, GL_FLOAT);
 }
 void ReconPerformanceCapture::init_shaders()
 {
     NamedString::create("/mc.glsl", new File("glsl/inc_mc.glsl"));
-
-    _program_pc_draw_data->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_draw_data.gs"),
-#ifdef PASS_NORMALS
-                                  Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_vertex_normals.fs"));
-#else
-                                  Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_texture_blending.fs"));
-#endif
-    _program_pc_draw_data->setUniform("vol_to_world", _mat_vol_to_world);
-    _program_pc_draw_data->setUniform("size_voxel", _voxel_size);
-    _program_pc_draw_data->setUniform("volume_tsdf", 32);
-    _program_pc_draw_data->setUniform("kinect_colors", 1);
-    _program_pc_draw_data->setUniform("kinect_depths", 2);
-    _program_pc_draw_data->setUniform("kinect_qualities", 3);
-    _program_pc_draw_data->setUniform("kinect_normals", 4);
-    _program_pc_draw_data->setUniform("kinect_silhouettes", 5);
-    _program_pc_draw_data->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
-    _program_pc_draw_data->setUniform("cv_uv", m_cv->getUVVolumeUnits());
-    _program_pc_draw_data->setUniform("num_kinects", m_num_kinects);
-    _program_pc_draw_data->setUniform("limit", _limit);
 
     _program_pc_debug_draw_ref_grad->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"));
     _program_pc_debug_draw_ref_grad->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_reference_gradient.gs"));
@@ -363,22 +320,10 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_debug_draw_ref_grad->setUniform("size_voxel", _voxel_size);
     _program_pc_debug_draw_ref_grad->setUniform("volume_grad", 34);
 
-    _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"));
-    _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_draw_data.gs"));
-    _program_pc_debug_draw_ref->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference_volume.fs"));
-    _program_pc_debug_draw_ref->setUniform("vol_to_world", _mat_vol_to_world);
-    _program_pc_debug_draw_ref->setUniform("size_voxel", _voxel_size);
-    _program_pc_debug_draw_ref->setUniform("volume_tsdf", 33);
-
-    _program_pc_extract_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/bricks.vs"), Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_extract_reference.gs"));
-    _program_pc_extract_reference->setUniform("vol_to_world", _mat_vol_to_world);
-    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size);
-    _program_pc_extract_reference->setUniform("volume_tsdf", 32);
-
-    _program_pc_debug_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_reference.vs"));
-    _program_pc_debug_reference->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_reference.gs"));
+    _program_pc_debug_reference->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/fast_mc.vs"));
     _program_pc_debug_reference->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_reference.fs"));
     _program_pc_debug_reference->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_debug_reference->setUniform("world_to_vol", _mat_world_to_vol);
 
     _program_pc_debug_ed_sampling->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_ed_sampling.vs"));
     _program_pc_debug_ed_sampling->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_ed_sampling.gs"));
@@ -441,6 +386,25 @@ void ReconPerformanceCapture::init_shaders()
     _program_pc_debug_tsdf->setUniform("volume_tsdf", 35);
     _program_pc_debug_tsdf->setUniform("vol_to_world", _mat_vol_to_world);
     _program_pc_debug_tsdf->setUniform("limit", _limit);
+
+    _program_pc_fast_mc->attach(globjects::Shader::fromFile(GL_VERTEX_SHADER, "glsl/fast_mc.vs"));
+#ifdef PASS_NORMALS
+    _program_pc_fast_mc->attach(globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/fast_mc.fs"));
+#else
+    _program_pc_fast_mc->attach(globjects::Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_texture_blending.fs"));
+#endif
+
+    _program_pc_fast_mc->setUniform("world_to_vol", _mat_world_to_vol);
+    _program_pc_fast_mc->setUniform("vol_to_world", _mat_vol_to_world);
+    _program_pc_fast_mc->setUniform("kinect_colors", 1);
+    _program_pc_fast_mc->setUniform("kinect_depths", 2);
+    _program_pc_fast_mc->setUniform("kinect_qualities", 3);
+    _program_pc_fast_mc->setUniform("kinect_normals", 4);
+    _program_pc_fast_mc->setUniform("kinect_silhouettes", 5);
+    _program_pc_fast_mc->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());
+    _program_pc_fast_mc->setUniform("cv_uv", m_cv->getUVVolumeUnits());
+    _program_pc_fast_mc->setUniform("num_kinects", m_num_kinects);
+    _program_pc_fast_mc->setUniform("limit", _limit);
 }
 ReconPerformanceCapture::~ReconPerformanceCapture()
 {
@@ -452,12 +416,12 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
         _buffer_pbo_cv_xyz_inv[i]->destroy();
     }
 
-    _tri_table_buffer->destroy();
-
-    _buffer_reference_mesh_vertices->destroy();
-    _buffer_vertex_counter->destroy();
     _buffer_bricks->destroy();
     _buffer_occupied->destroy();
+
+    _buffer_fast_mc_pos->destroy();
+    _buffer_fast_mc_normal->destroy();
+    _vao_fast_mc->destroy();
 
     _vao_debug->destroy();
     _vao_fsquad_debug->destroy();
@@ -470,9 +434,7 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
 
     _texture2darray_debug->destroy();
     glDeleteTextures(1, &_volume_tsdf_data);
-    glDeleteTextures(1, &_volume_tsdf_ref);
     glDeleteTextures(1, &_volume_tsdf_ref_grad);
-    glDeleteTextures(1, &_volume_tsdf_ref_warped);
 }
 
 void ReconPerformanceCapture::drawF()
@@ -498,30 +460,20 @@ void ReconPerformanceCapture::draw()
 
         if(_conf.pipeline_sample)
         {
+            perform_brick_indexing();
+
             if(_frame_number.load() % _conf.reset_frame_count == 0)
             {
-                TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
-
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                float2 negative{-_limit, 0.f};
-                glClearTexImage(_volume_tsdf_ref, 0, GL_RG, GL_FLOAT, &negative);
-                glBindImageTexture(REF_IMAGE_UNIT, _volume_tsdf_ref, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                float4 empty{0.f, 0.f, 0.f, 0.f};
-                glClearTexImage(_volume_tsdf_ref_grad, 0, GL_RGBA, GL_FLOAT, &empty);
-                glBindImageTexture(REF_GRAD_IMAGE_UNIT, _volume_tsdf_ref_grad, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA32F);
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-                copy_reference();
-                extract_reference_mesh();
-                sample_ed_nodes();
-
-                TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
+                _conf.time_copy_reference = copy_reference();
 
                 _frame_number.store(0);
             }
+
+            TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
+            extract_reference_mesh();
+            TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
+
+            _conf.time_sample_ed = sample_ed_nodes();
         }
 
 #endif
@@ -530,45 +482,32 @@ void ReconPerformanceCapture::draw()
 
         if(_conf.pipeline_preprocess_textures)
         {
-            if(_should_update_silhouettes)
-            {
-                TimerDatabase::instance().begin(TIMER_SMOOTH_HULL);
-
-                preprocess_textures();
+            _conf.time_preprocess = preprocess_textures();
 
 #ifdef PIPELINE_CORRESPONDENCE
 
-                if(_conf.pipeline_correspondence)
-                {
-                    TimerDatabase::instance().begin(TIMER_CORRESPONDENCE);
-
-                    estimate_correspondence_field();
-
-                    TimerDatabase::instance().end(TIMER_CORRESPONDENCE);
-                }
+            if(_conf.pipeline_correspondence)
+            {
+                _conf.time_sift = estimate_correspondence_field();
+            }
 
 #endif
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
 
-                if(_conf.debug_texture_silhouettes)
-                {
-                    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+            if(_conf.debug_texture_silhouettes)
+            {
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
 
-                    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
-                    glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
-                    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
-                    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-                    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
+                glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
+                glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 
-                    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
-                }
-#endif
-
-                TimerDatabase::instance().end(TIMER_SMOOTH_HULL);
-
-                _should_update_silhouettes = false;
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
             }
+#endif
         }
 #endif
 
@@ -578,24 +517,7 @@ void ReconPerformanceCapture::draw()
         {
             // TODO: estimate ICP rigid body fit
 
-            TimerDatabase::instance().begin(TIMER_NON_RIGID_ALIGNMENT);
-
-            pcg_solve();
-
-            TimerDatabase::instance().end(TIMER_NON_RIGID_ALIGNMENT);
-        }
-
-#endif
-
-#ifdef WIPE_DATA
-
-        if(_conf.debug_wipe_data)
-        {
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
-            float2 negative{-_limit, 0.f};
-            glClearTexImage(_volume_tsdf_data, 0, GL_RG, GL_FLOAT, &negative);
-            glBindImageTexture(DATA_IMAGE_UNIT, _volume_tsdf_data, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RG32F);
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            _conf.time_nra = pcg_solve();
         }
 
 #endif
@@ -604,11 +526,13 @@ void ReconPerformanceCapture::draw()
 
         if(_conf.pipeline_fuse)
         {
-            TimerDatabase::instance().begin(TIMER_FUSION);
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            float4 empty{0.f, 0.f, 0.f, 0.f};
+            glClearTexImage(_volume_tsdf_ref_grad, 0, GL_RGBA, GL_FLOAT, &empty);
+            glBindImageTexture(REF_GRAD_IMAGE_UNIT, _volume_tsdf_ref_grad, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA32F);
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-            fuse_data();
-
-            TimerDatabase::instance().end(TIMER_FUSION);
+            _conf.time_fuse = fuse_data();
         }
 
 #endif
@@ -682,67 +606,20 @@ void ReconPerformanceCapture::draw()
 #endif
 
 #ifdef PIPELINE_DEBUG_WARPED_REFERENCE_VOLUME
-    if(_conf.debug_warped_reference_volume_surface || _conf.debug_warped_reference_volume_value)
+    if(_conf.debug_warped_reference_volume_surface)
     {
-        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
-
-        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_ref_warp_debug->id());
-        glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, _res_volume.x, _res_volume.y, _res_volume.z, GL_RG, GL_FLOAT, 0);
-        glBindTexture(GL_TEXTURE_3D, 0);
-        glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-
-        globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
-
         draw_debug_reference_volume_warped();
     }
 #endif
 
     _nka->getPBOMutex().unlock();
 }
-void ReconPerformanceCapture::setShouldUpdateSilhouettes(bool update) { _should_update_silhouettes = update; }
-void ReconPerformanceCapture::extract_reference_mesh()
-{
-    glEnable(GL_RASTERIZER_DISCARD);
-
-    _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
-    GLuint *vx_ptr = (GLuint *)_buffer_vertex_counter->mapRange(0, sizeof(GLuint), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
-    vx_ptr[0] = 0;
-    _buffer_vertex_counter->unmap();
-    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
-
-    _program_pc_extract_reference->use();
-
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
-
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-    if(_conf.use_bricks)
-    {
-        for(auto const &index : _bricks_occupied)
-        {
-            _sampler->sample(_bricks[index].indices);
-        }
-    }
-    else
-    {
-        _sampler->sample();
-    }
-
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-    glBindTexture(GL_TEXTURE_3D, 0);
-    Program::release();
-
-    glDisable(GL_RASTERIZER_DISCARD);
-}
+void ReconPerformanceCapture::extract_reference_mesh() { compute_isosurface(IsoSurfaceVolume::Reference); }
 void ReconPerformanceCapture::draw_data()
 {
     TimerDatabase::instance().begin(TIMER_DATA_MESH_DRAW);
 
-    _program_pc_draw_data->use();
-
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
+    _program_pc_fast_mc->use();
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -756,102 +633,27 @@ void ReconPerformanceCapture::draw_data()
     viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
     gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
     image_to_eye.invert();
-    _program_pc_draw_data->setUniform("img_to_eye_curr", image_to_eye);
+    _program_pc_fast_mc->setUniform("img_to_eye_curr", image_to_eye);
 
     gloost::Matrix modelview;
     glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
     glm::fmat4 model_view{modelview};
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
-    _program_pc_draw_data->setUniform("NormalMatrix", normal_matrix);
+    _program_pc_fast_mc->setUniform("NormalMatrix", normal_matrix);
 
-    if(_conf.use_bricks)
-    {
-        for(auto const &index : _bricks_occupied)
-        {
-            _sampler->sample(_bricks[index].indices);
-        }
-    }
-    else
-    {
-        _sampler->sample();
-    }
+    auto total_verts = (unsigned int)compute_isosurface(IsoSurfaceVolume::Data);
 
-    glBindTexture(GL_TEXTURE_3D, 0);
+    _vao_fast_mc->bind();
+    _vao_fast_mc->drawArrays(GL_TRIANGLES, 0, total_verts);
+    globjects::VertexArray::unbind();
+
     Program::release();
 
     TimerDatabase::instance().end(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::draw_debug_reference_volume_warped()
 {
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
-
-    gloost::Matrix projection_matrix;
-    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
-    gloost::Matrix viewport_translate;
-    viewport_translate.setIdentity();
-    viewport_translate.setTranslate(1.0, 1.0, 1.0);
-    gloost::Matrix viewport_scale;
-    viewport_scale.setIdentity();
-
-    if(_conf.debug_warped_reference_volume_value)
-    {
-        _program_pc_debug_tsdf->use();
-
-        if(_conf.use_bricks)
-        {
-            for(auto const &index : _bricks_occupied)
-            {
-                _sampler->sample(_bricks[index].indices);
-            }
-        }
-        else
-        {
-            _sampler->sample();
-        }
-
-        Program::release();
-    }
-
-    if(_conf.debug_warped_reference_volume_surface)
-    {
-        _program_pc_debug_draw_ref->use();
-        _program_pc_debug_draw_ref->setUniform("volume_tsdf", 35);
-
-        glm::uvec4 viewport_vals{getViewport()};
-        viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
-        gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
-        image_to_eye.invert();
-        _program_pc_debug_draw_ref->setUniform("img_to_eye_curr", image_to_eye);
-
-        gloost::Matrix modelview;
-        glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
-        glm::fmat4 model_view{modelview};
-        glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
-        _program_pc_debug_draw_ref->setUniform("NormalMatrix", normal_matrix);
-
-        if(_conf.use_bricks)
-        {
-            for(auto const &index : _bricks_occupied)
-            {
-                _sampler->sample(_bricks[index].indices);
-            }
-        }
-        else
-        {
-            _sampler->sample();
-        }
-
-        Program::release();
-    }
-
-    glBindTexture(GL_TEXTURE_3D, 0);
-}
-void ReconPerformanceCapture::draw_debug_reference_volume()
-{
-    _program_pc_debug_draw_ref->use();
-    _program_pc_debug_draw_ref->setUniform("volume_tsdf", 33);
-
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref);
+    _program_pc_fast_mc->use();
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -865,27 +667,52 @@ void ReconPerformanceCapture::draw_debug_reference_volume()
     viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
     gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
     image_to_eye.invert();
-    _program_pc_debug_draw_ref->setUniform("img_to_eye_curr", image_to_eye);
+    _program_pc_fast_mc->setUniform("img_to_eye_curr", image_to_eye);
 
     gloost::Matrix modelview;
     glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
     glm::fmat4 model_view{modelview};
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
-    _program_pc_debug_draw_ref->setUniform("NormalMatrix", normal_matrix);
+    _program_pc_fast_mc->setUniform("NormalMatrix", normal_matrix);
 
-    if(_conf.use_bricks)
-    {
-        for(auto const &index : _bricks_occupied)
-        {
-            _sampler->sample(_bricks[index].indices);
-        }
-    }
-    else
-    {
-        _sampler->sample();
-    }
+    auto total_verts = (unsigned int)compute_isosurface(IsoSurfaceVolume::WarpedReference);
 
-    glBindTexture(GL_TEXTURE_3D, 0);
+    _vao_fast_mc->bind();
+    _vao_fast_mc->drawArrays(GL_TRIANGLES, 0, total_verts);
+    globjects::VertexArray::unbind();
+
+    Program::release();
+}
+void ReconPerformanceCapture::draw_debug_reference_volume()
+{
+    _program_pc_fast_mc->use();
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    glm::uvec4 viewport_vals{getViewport()};
+    viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
+    gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
+    image_to_eye.invert();
+    _program_pc_fast_mc->setUniform("img_to_eye_curr", image_to_eye);
+
+    gloost::Matrix modelview;
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
+    glm::fmat4 model_view{modelview};
+    glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
+    _program_pc_fast_mc->setUniform("NormalMatrix", normal_matrix);
+
+    auto total_verts = (unsigned int)compute_isosurface(IsoSurfaceVolume::Reference);
+
+    _vao_fast_mc->bind();
+    _vao_fast_mc->drawArrays(GL_TRIANGLES, 0, total_verts);
+    globjects::VertexArray::unbind();
+
     Program::release();
 }
 void ReconPerformanceCapture::draw_debug_reference_gradient()
@@ -914,31 +741,13 @@ void ReconPerformanceCapture::draw_debug_reference_gradient()
     glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
     _program_pc_debug_draw_ref_grad->setUniform("NormalMatrix", normal_matrix);
 
-    if(_conf.use_bricks)
-    {
-        for(auto const &index : _bricks_occupied)
-        {
-            _sampler->sample(_bricks[index].indices);
-        }
-    }
-    else
-    {
-        _sampler->sample();
-    }
+    _sampler->sample();
 
     glBindTexture(GL_TEXTURE_3D, 0);
     Program::release();
 }
 void ReconPerformanceCapture::draw_debug_reference_mesh()
 {
-    _buffer_vertex_counter->bind(GL_ATOMIC_COUNTER_BUFFER);
-    GLuint *vx_ptr = (GLuint *)_buffer_vertex_counter->mapRange(0, sizeof(GLuint), GL_MAP_READ_BIT);
-    GLsizei vx_count = vx_ptr[0];
-    _buffer_vertex_counter->unmap();
-    Buffer::unbind(GL_ATOMIC_COUNTER_BUFFER);
-
-    // std::cout << vx_count << std::endl;
-
     _program_pc_debug_reference->use();
 
     gloost::Matrix projection_matrix;
@@ -949,8 +758,10 @@ void ReconPerformanceCapture::draw_debug_reference_mesh()
     gloost::Matrix viewport_scale;
     viewport_scale.setIdentity();
 
-    _vao_debug->bind();
-    _vao_debug->drawArrays(GL_POINTS, 0, vx_count);
+    // std::cout << vx_count << std::endl;
+
+    _vao_fast_mc->bind();
+    _vao_fast_mc->drawArrays(GL_POINTS, 0, MAX_REFERENCE_VERTICES);
     globjects::VertexArray::unbind();
 
     Program::release();
@@ -1091,27 +902,12 @@ void ReconPerformanceCapture::setVoxelSize(float size)
 
     _sampler->resize(_res_volume);
 
-    _program_pc_draw_data->setUniform("res_tsdf", _res_volume);
-    _program_pc_draw_data->setUniform("size_voxel", _voxel_size * 0.75f);
-
-    _program_pc_extract_reference->setUniform("res_tsdf", _res_volume);
-    _program_pc_extract_reference->setUniform("size_voxel", _voxel_size * 0.75f);
-
     _program_pc_debug_draw_ref->setUniform("res_tsdf", _res_volume);
     _program_pc_debug_draw_ref->setUniform("size_voxel", _voxel_size * 0.75f);
 
     _program_integration->setUniform("res_tsdf", _res_volume);
 
     glBindTexture(GL_TEXTURE_3D, _volume_tsdf_data);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
-    glBindTexture(GL_TEXTURE_3D, 0);
-
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
@@ -1127,15 +923,6 @@ void ReconPerformanceCapture::setVoxelSize(float size)
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RGBA, GL_FLOAT, nullptr);
-    glBindTexture(GL_TEXTURE_3D, 0);
-
-    glBindTexture(GL_TEXTURE_3D, _volume_tsdf_ref_warped);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP);
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_RG32F, _res_volume.x, _res_volume.y, _res_volume.z, 0, GL_RG, GL_FLOAT, nullptr);
     glBindTexture(GL_TEXTURE_3D, 0);
 
     setBrickSize(_brick_size);

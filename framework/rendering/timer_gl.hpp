@@ -8,9 +8,9 @@ namespace globjects {
 
 #include <cstdint>
 
-class TimerGPU {
+class TimerGL {
  public:
-  TimerGPU();
+  TimerGL();
   
   void begin();
   void end();

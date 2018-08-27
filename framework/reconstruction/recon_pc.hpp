@@ -6,7 +6,7 @@
 #include "view.hpp"
 #include "view_lod.hpp"
 #include "volume_sampler.hpp"
-#include <NetKinectArray.h>
+#include <LocalKinectArray.h>
 #include <TextureArray.h>
 
 #include <globjects/base/ref_ptr.h>
@@ -58,7 +58,7 @@ namespace kinect
 class ReconPerformanceCapture : public Reconstruction
 {
   public:
-    ReconPerformanceCapture(NetKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size, float ed_size);
+    ReconPerformanceCapture(LocalKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbo, float limit, float size, float ed_size);
     ~ReconPerformanceCapture();
 
     void pause(bool pause);
@@ -73,25 +73,22 @@ class ReconPerformanceCapture : public Reconstruction
     void setMinVoxelsPerBrick(unsigned i);
     void setTsdfLimit(float limit);
 
-    void setShouldUpdateSilhouettes(bool update);
-
     void clearOccupiedBricks() const;
     void updateOccupiedBricks();
     void drawOccupiedBricks() const;
 
     static int TRI_TABLE[4096];
-    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW, TIMER_SMOOTH_HULL, TIMER_CORRESPONDENCE, TIMER_NON_RIGID_ALIGNMENT, TIMER_FUSION;
+    static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_REFERENCE_MESH_EXTRACTION, TIMER_DATA_MESH_DRAW;
 
     Configuration _conf;
 
   private:
-    NetKinectArray *_nka = nullptr;
+    LocalKinectArray *_nka = nullptr;
 
     struct_native_handles _native_handles;
     struct_measures _measures;
 
-    globjects::Buffer *_tri_table_buffer, *_buffer_bricks, *_buffer_occupied;
-    globjects::Buffer *_buffer_vertex_counter, *_buffer_reference_mesh_vertices;
+    globjects::Buffer *_buffer_bricks, *_buffer_occupied;
 
     globjects::ref_ptr<globjects::Buffer> _buffer_pbo_cv_xyz[4], _buffer_pbo_cv_xyz_inv[4];
 
@@ -99,19 +96,19 @@ class ReconPerformanceCapture : public Reconstruction
 
     VolumeSampler *_sampler;
 
-    glm::fmat4 _mat_vol_to_world;
+    glm::fmat4 _mat_vol_to_world, _mat_world_to_vol;
 
-    globjects::Program *_program_pc_draw_data, *_program_pc_extract_reference, *_program_integration, *_program_solid, *_program_bricks, *_program_pc_debug_tsdf;
+    globjects::Program *_program_pc_fast_mc, *_program_integration, *_program_solid, *_program_bricks, *_program_pc_debug_tsdf;
 
-    GLuint _volume_tsdf_data, _volume_tsdf_ref, _volume_tsdf_ref_grad, _volume_tsdf_ref_warped;
+    GLuint _volume_tsdf_data, _volume_tsdf_ref_grad;
 
-    globjects::VertexArray *_vao_debug, *_vao_fsquad_debug;
-    globjects::Buffer *_buffer_debug, *_buffer_fsquad_debug;
+    globjects::VertexArray *_vao_fast_mc, *_vao_debug, *_vao_fsquad_debug;
+    globjects::Buffer *_buffer_fast_mc_pos, *_buffer_fast_mc_normal, *_buffer_debug, *_buffer_fsquad_debug;
     std::vector<glm::fvec3> _vec_debug;
 
     globjects::Texture *_texture2darray_debug;
 
-    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug, *_buffer_pbo_ref_warp_debug;
+    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug;
     globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_draw_ref, *_program_pc_debug_draw_ref_grad, *_program_pc_debug_sorted_vertices,
         *_program_pc_debug_sorted_vertices_connections, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
@@ -127,8 +124,6 @@ class ReconPerformanceCapture : public Reconstruction
     float _brick_size;
     float _ratio_occupied;
     unsigned _min_voxels_per_brick;
-
-    bool _should_update_silhouettes = true;
 
     std::atomic<uint64_t> _frame_number;
 

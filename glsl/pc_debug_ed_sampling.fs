@@ -3,18 +3,10 @@
 out vec4 out_Color;
 
 in vec3 pass_Position;
-in vec3 pass_Translation;
+in vec3 pass_Error;
 
-vec3 get_color_for_translation(float translation)
+void main()
 {
-    if(translation > 1.f)
-    {
-        return vec3(1.f, 0.f, 0.f);
-    }
-
-    vec3 color = vec3(0.3f, 1.f, 0.3f);
-    color = color * (0.5 + clamp(translation / 2.f, 0.f, 0.5f));
-    return color;
+    float error = clamp(pass_Error.x / 0.03f, 0.f, 1.f);
+    out_Color = vec4(error, 0.f, 1.f - error, 1.0f);
 }
-
-void main() { out_Color = vec4(get_color_for_translation(length(pass_Translation)), 1.0f); }

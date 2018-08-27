@@ -26,6 +26,7 @@ namespace sys{
 
     void setLooping(bool onoff);
     bool getLooping();
+    void gotoByte(size_t offset);
 		  
     unsigned read (void* buffer, unsigned numbytes);
     unsigned write(void* buffer, unsigned numbytes);

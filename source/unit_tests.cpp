@@ -168,95 +168,95 @@ TEST(UtilTest, EDCellVoxelID)
 //    float res_ed_node_rot = test_evaluate_ed_node_residual(ed_node, ed_entry, ed_neighborhood);
 //    EXPECT_NEAR(res_ed_node_rot, 0.0f, ACCEPTED_FLOAT_TOLERANCE);
 //}
-TEST(UtilTest, WarpPositionNoImpact)
-{
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat(glm::mat3());
-    ed_node.translation = glm::vec3(0.0f);
-
-    glm::vec3 position = glm::vec3(1.0f);
-    const float skinning_weight = 1.f;
-
-    glm::vec3 dist = position - ed_node.position;
-    glm::vec3 warped_position = test_warp_position(dist, ed_node, skinning_weight, mock_measures);
-
-    EXPECT_FLOAT_EQ(warped_position.x, position.x);
-    EXPECT_FLOAT_EQ(warped_position.y, position.y);
-    EXPECT_FLOAT_EQ(warped_position.z, position.z);
-}
-TEST(UtilTest, WarpPositionTranslation)
-{
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat(glm::mat3());
-    ed_node.translation = glm::vec3(1.0f);
-
-    glm::vec3 position = glm::vec3(1.0f);
-    const float skinning_weight = 1.f;
-
-    glm::vec3 dist = position - ed_node.position;
-    glm::vec3 warped_position = test_warp_position(dist, ed_node, skinning_weight, mock_measures);
-
-    EXPECT_FLOAT_EQ(warped_position.x, position.x + 1.0f);
-    EXPECT_FLOAT_EQ(warped_position.y, position.y + 1.0f);
-    EXPECT_FLOAT_EQ(warped_position.z, position.z + 1.0f);
-}
-TEST(UtilTest, WarpPositionRotation)
-{
-    glm::mat4 rotation(1.f);
-    rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat(rotation);
-    ed_node.translation = glm::vec3(0.0f);
-
-    glm::vec3 position = glm::vec3(0.f, 1.f, 0.f);
-    const float skinning_weight = 1.f;
-
-    glm::vec3 dist = position - ed_node.position;
-    glm::vec3 warped_position = test_warp_position(dist, ed_node, skinning_weight, mock_measures);
-
-    EXPECT_NEAR(warped_position.x, position.x, ACCEPTED_FLOAT_TOLERANCE);
-    EXPECT_NEAR(warped_position.y, position.z, ACCEPTED_FLOAT_TOLERANCE);
-    EXPECT_NEAR(warped_position.z, position.y, ACCEPTED_FLOAT_TOLERANCE);
-}
-TEST(UtilTest, WarpNormalNoImpact)
-{
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat(glm::mat3());
-    ed_node.translation = glm::vec3(0.0f);
-
-    glm::vec3 normal = glm::vec3(-0.015034f, 0.000000f, -0.015034f);
-    const float skinning_weight = 1.f;
-
-    glm::vec3 warped_normal = test_warp_normal(normal, ed_node, skinning_weight, mock_measures);
-
-    EXPECT_FLOAT_EQ(warped_normal.x, normal.x);
-    EXPECT_FLOAT_EQ(warped_normal.y, normal.y);
-    EXPECT_FLOAT_EQ(warped_normal.z, normal.z);
-}
-TEST(UtilTest, WarpNormalRotation)
-{
-    glm::mat4 rotation(1.f);
-    rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-    struct_ed_node ed_node;
-    ed_node.position = glm::vec3(0.0f);
-    ed_node.affine = glm::quat(rotation);
-    ed_node.translation = glm::vec3(0.0f);
-
-    glm::vec3 normal = glm::vec3(0.f, 1.f, 0.f);
-    const float skinning_weight = 1.f;
-
-    glm::vec3 warped_normal = test_warp_normal(normal, ed_node, skinning_weight, mock_measures);
-
-    EXPECT_NEAR(warped_normal.x, normal.x, ACCEPTED_FLOAT_TOLERANCE);
-    EXPECT_NEAR(warped_normal.y, normal.z, ACCEPTED_FLOAT_TOLERANCE);
-    EXPECT_NEAR(warped_normal.z, normal.y, ACCEPTED_FLOAT_TOLERANCE);
-}
+//TEST(UtilTest, WarpPositionNoImpact)
+//{
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.0f);
+//    ed_node.affine = glm::quat(glm::mat3());
+//    ed_node.translation = glm::vec3(0.0f);
+//
+//    glm::vec3 position = glm::vec3(1.0f);
+//    const float skinning_weight = 1.f;
+//
+//    glm::vec3 dist = position - ed_node.position;
+//    glm::vec3 warped_position = test_warp_position(dist, ed_node, skinning_weight, mock_measures);
+//
+//    EXPECT_FLOAT_EQ(warped_position.x, position.x);
+//    EXPECT_FLOAT_EQ(warped_position.y, position.y);
+//    EXPECT_FLOAT_EQ(warped_position.z, position.z);
+//}
+//TEST(UtilTest, WarpPositionTranslation)
+//{
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.0f);
+//    ed_node.affine = glm::quat(glm::mat3());
+//    ed_node.translation = glm::vec3(1.0f);
+//
+//    glm::vec3 position = glm::vec3(1.0f);
+//    const float skinning_weight = 1.f;
+//
+//    glm::vec3 dist = position - ed_node.position;
+//    glm::vec3 warped_position = test_warp_position(dist, ed_node, skinning_weight, mock_measures);
+//
+//    EXPECT_FLOAT_EQ(warped_position.x, position.x + 1.0f);
+//    EXPECT_FLOAT_EQ(warped_position.y, position.y + 1.0f);
+//    EXPECT_FLOAT_EQ(warped_position.z, position.z + 1.0f);
+//}
+//TEST(UtilTest, WarpPositionRotation)
+//{
+//    glm::mat4 rotation(1.f);
+//    rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+//
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.0f);
+//    ed_node.affine = glm::quat(rotation);
+//    ed_node.translation = glm::vec3(0.0f);
+//
+//    glm::vec3 position = glm::vec3(0.f, 1.f, 0.f);
+//    const float skinning_weight = 1.f;
+//
+//    glm::vec3 dist = position - ed_node.position;
+//    glm::vec3 warped_position = test_warp_position(dist, ed_node, skinning_weight, mock_measures);
+//
+//    EXPECT_NEAR(warped_position.x, position.x, ACCEPTED_FLOAT_TOLERANCE);
+//    EXPECT_NEAR(warped_position.y, position.z, ACCEPTED_FLOAT_TOLERANCE);
+//    EXPECT_NEAR(warped_position.z, position.y, ACCEPTED_FLOAT_TOLERANCE);
+//}
+//TEST(UtilTest, WarpNormalNoImpact)
+//{
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.0f);
+//    ed_node.affine = glm::quat(glm::mat3());
+//    ed_node.translation = glm::vec3(0.0f);
+//
+//    glm::vec3 normal = glm::vec3(-0.015034f, 0.000000f, -0.015034f);
+//    const float skinning_weight = 1.f;
+//
+//    glm::vec3 warped_normal = test_warp_normal(normal, ed_node, skinning_weight, mock_measures);
+//
+//    EXPECT_FLOAT_EQ(warped_normal.x, normal.x);
+//    EXPECT_FLOAT_EQ(warped_normal.y, normal.y);
+//    EXPECT_FLOAT_EQ(warped_normal.z, normal.z);
+//}
+//TEST(UtilTest, WarpNormalRotation)
+//{
+//    glm::mat4 rotation(1.f);
+//    rotation = glm::rotate(rotation, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+//
+//    struct_ed_node ed_node;
+//    ed_node.position = glm::vec3(0.0f);
+//    ed_node.affine = glm::quat(rotation);
+//    ed_node.translation = glm::vec3(0.0f);
+//
+//    glm::vec3 normal = glm::vec3(0.f, 1.f, 0.f);
+//    const float skinning_weight = 1.f;
+//
+//    glm::vec3 warped_normal = test_warp_normal(normal, ed_node, skinning_weight, mock_measures);
+//
+//    EXPECT_NEAR(warped_normal.x, normal.x, ACCEPTED_FLOAT_TOLERANCE);
+//    EXPECT_NEAR(warped_normal.y, normal.z, ACCEPTED_FLOAT_TOLERANCE);
+//    EXPECT_NEAR(warped_normal.z, normal.y, ACCEPTED_FLOAT_TOLERANCE);
+//}
 } // namespace
 
 GTEST_API_ int main(int argc, char **argv)
