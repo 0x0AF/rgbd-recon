@@ -149,8 +149,7 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
     if(!in_data_volume(world_voxel, measures))
     {
 #ifdef VERBOSE
-        printf("\nout of volume: world_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y,
-               warped_position_voxel.z);
+        printf("\nout of volume: world_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, world_voxel.x, world_voxel.y, world_voxel.z);
 #endif
         return;
     }

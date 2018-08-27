@@ -241,11 +241,13 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
     for(int i = 0; i < 4; i++)
     {
-        // printf("\nsampling depth maps: (%u,%u)\n", pixel.x, pixel.y);
+        // printf("\nsampling depth maps: (%f,%f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
 
         if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
         {
-            // printf("\nprojected out of depth map: (%u,%u)\n", pixel.x, pixel.y);
+#ifdef VERBOSE
+            printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+#endif
             continue;
         }
 
@@ -262,7 +264,9 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         if(!in_normal_space(coordinate))
         {
-            // printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+#ifdef VERBOSE
+            printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+#endif
             continue;
         }
 
@@ -566,7 +570,7 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
 
         float occupancy = sample_silhouette(dev_res.silhouette_tex[i], warped_projection.projection[i]).x;
 
-        // printf("\n (x,y): (%u,%u) = %f\n", pixel.x, pixel.y, occupancy);
+        // printf("\n (x,y): (%u,%u) = %f\n", warped_projection.projection[i].x, warped_projection.projection[i].y, occupancy);
 
         float residual_component = measures.data_volume_res.x * measures.size_voxel * (1.0f - occupancy);
 

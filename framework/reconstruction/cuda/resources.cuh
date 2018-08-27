@@ -312,12 +312,10 @@ __host__ void map_kinect_textures()
     {
         struct cudaResourceDesc depth_descr;
         memset(&depth_descr, 0, sizeof(depth_descr));
-        depth_descr.resType = cudaResourceTypePitch2D;
-        depth_descr.res.pitch2D.devPtr = _dev_res.kinect_depths + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        depth_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
-        depth_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
-        depth_descr.res.pitch2D.pitchInBytes = _host_res.measures.depth_res.x * sizeof(float2);
-        depth_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+        depth_descr.resType = cudaResourceTypeLinear;
+        depth_descr.res.linear.devPtr = _dev_res.kinect_depths + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        depth_descr.res.linear.sizeInBytes = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        depth_descr.res.linear.desc = cudaCreateChannelDesc<float2>();
 
         struct cudaTextureDesc depth_tex_descr;
         memset(&depth_tex_descr, 0, sizeof(depth_tex_descr));
@@ -331,12 +329,10 @@ __host__ void map_kinect_textures()
 
         struct cudaResourceDesc depth_prev_descr;
         memset(&depth_prev_descr, 0, sizeof(depth_prev_descr));
-        depth_prev_descr.resType = cudaResourceTypePitch2D;
-        depth_prev_descr.res.pitch2D.devPtr = _dev_res.kinect_depths_prev + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        depth_prev_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
-        depth_prev_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
-        depth_prev_descr.res.pitch2D.pitchInBytes = _host_res.measures.depth_res.x * sizeof(float2);
-        depth_prev_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+        depth_prev_descr.resType = cudaResourceTypeLinear;
+        depth_prev_descr.res.linear.devPtr = _dev_res.kinect_depths_prev + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        depth_prev_descr.res.linear.sizeInBytes = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        depth_prev_descr.res.linear.desc = cudaCreateChannelDesc<float2>();
 
         struct cudaTextureDesc depth_prev_tex_descr;
         memset(&depth_prev_tex_descr, 0, sizeof(depth_prev_tex_descr));
@@ -350,12 +346,10 @@ __host__ void map_kinect_textures()
 
         struct cudaResourceDesc silhouette_descr;
         memset(&silhouette_descr, 0, sizeof(silhouette_descr));
-        silhouette_descr.resType = cudaResourceTypePitch2D;
-        silhouette_descr.res.pitch2D.devPtr = _dev_res.kinect_silhouettes + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float);
-        silhouette_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
-        silhouette_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
-        silhouette_descr.res.pitch2D.pitchInBytes = _host_res.measures.depth_res.x * sizeof(float);
-        silhouette_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
+        silhouette_descr.resType = cudaResourceTypeLinear;
+        silhouette_descr.res.linear.devPtr = _dev_res.kinect_silhouettes + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float);
+        silhouette_descr.res.linear.sizeInBytes = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
+        silhouette_descr.res.linear.desc = cudaCreateChannelDesc<float>();
 
         struct cudaTextureDesc silhouette_tex_descr;
         memset(&silhouette_tex_descr, 0, sizeof(silhouette_tex_descr));

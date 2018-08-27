@@ -161,7 +161,82 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
 
     // printf("\nenergy: %f\n", energy);
 
-    memcpy(&dev_res.ed_graph_meta[idx], &ed_entry, sizeof (struct_ed_meta_entry));
+    memcpy(&dev_res.ed_graph_meta[idx], &ed_entry, sizeof(struct_ed_meta_entry));
+}
+
+__device__ float evaluate_vx_residual(struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res, struct_host_resources &host_res)
+{
+    float vx_residual = 0.f;
+
+#ifdef EVALUATE_DATA
+    vx_residual += host_res.configuration.weight_data * evaluate_data_residual(vx, vx_proj, dev_res, host_res.measures);
+#endif
+
+#ifdef EVALUATE_VISUAL_HULL
+    vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_proj, dev_res, host_res.measures);
+#endif
+
+#ifdef EVALUATE_CORRESPONDENCE_FIELD
+    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx, vx_proj, dev_res, host_res.measures);
+#endif
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(vx_residual))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        vx_residual = 0.f;
+    }
+
+    return vx_residual;
+}
+
+__global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+        return;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+#ifdef EVALUATE_ED_REGULARIZATION
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+
+    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+
+    if(isnan(ed_residual))
+    {
+#ifdef DEBUG_NANS
+        printf("\ned_residual is NaN!\n");
+#endif
+
+        ed_residual = 0.f;
+    }
+
+    atomicAdd(energy, ed_residual);
+#endif
+
+    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+
+#pragma unroll
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection vx_proj = dev_res.sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+
+        // printf("\ned_node + vertex match\n");
+
+        float vx_residual = evaluate_vx_residual(vx, vx_proj, dev_res, host_res);
+
+        atomicAdd(energy, vx_residual);
+    }
 }
 
 __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res, struct_measures measures)
@@ -217,133 +292,12 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = 0.f;
-#ifdef EVALUATE_DATA
-        vx_residual += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_projection, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-        vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_projection, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-        vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx_projection, dev_res, measures);
-#endif
-
-        // printf("\nvx_residual: %f\n", vx_residual);
-
-        if(isnan(vx_residual))
-        {
-#ifdef DEBUG_NANS
-            printf("\nvx_residual is NaN!\n");
-#endif
-
-            vx_residual = 0.f;
-        }
+        float vx_residual = evaluate_vx_residual(warped_vx, vx_projection, dev_res, host_res);
 
         atomicAdd(energy, vx_residual);
     }
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
-}
-
-__global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res, struct_measures measures)
-{
-    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
-
-    if(idx >= active_ed_nodes_count)
-    {
-        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
-        return;
-    }
-
-    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
-
-#ifdef EVALUATE_ED_REGULARIZATION
-    struct_ed_node ed_node = dev_res.ed_graph[idx];
-
-    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
-
-    if(isnan(ed_residual))
-    {
-#ifdef DEBUG_NANS
-        printf("\ned_residual is NaN!\n");
-#endif
-
-        ed_residual = 0.f;
-    }
-
-    atomicAdd(energy, ed_residual);
-#endif
-
-    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
-
-#pragma unroll
-    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
-    {
-        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
-        struct_projection vx_proj = dev_res.sorted_vx_projections[ed_entry.vx_offset + vx_idx];
-
-        // printf("\ned_node + vertex match\n");
-
-        float vx_residual = 0.f;
-#ifdef EVALUATE_DATA
-        vx_residual += host_res.configuration.weight_data * evaluate_data_residual(vx, vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-        vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_proj, dev_res, measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-        vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx, vx_proj, dev_res, measures);
-#endif
-
-        // printf("\nvx_residual: %f\n", vx_residual);
-
-        if(isnan(vx_residual))
-        {
-#ifdef DEBUG_NANS
-            printf("\nvx_residual is NaN!\n");
-#endif
-
-            vx_residual = 0.f;
-        }
-
-        atomicAdd(energy, vx_residual);
-    }
-
-    // printf("\njtf[%u]\n", ed_node_offset * 10u);
-}
-
-__device__ float evaluate_vx_residual(struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res, struct_host_resources &host_res)
-{
-    float vx_residual = 0.f;
-
-#ifdef EVALUATE_DATA
-    vx_residual += host_res.configuration.weight_data * evaluate_data_residual(vx, vx_proj, dev_res, host_res.measures);
-#endif
-
-#ifdef EVALUATE_VISUAL_HULL
-    vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_proj, dev_res, host_res.measures);
-#endif
-
-#ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx, vx_proj, dev_res, host_res.measures);
-#endif
-
-    // printf("\nvx_residual: %f\n", vx_residual);
-
-    if(isnan(vx_residual))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_residual is NaN!\n");
-#endif
-
-        vx_residual = 0.f;
-    }
-
-    return vx_residual;
 }
 
 __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res,
@@ -1136,7 +1090,6 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
     int singularity = 0;
 
     project_vertices();
-
     evaluate_misalignment_energy(initial_misalignment_energy);
 
     while(iterations < max_iterations)
@@ -1149,47 +1102,47 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
         convert_to_csr();
 
-#ifdef DEBUG_JTJ
+  #ifdef DEBUG_JTJ
 
         print_out_jtj();
 
-#endif
+  #endif
 
-#ifdef DEBUG_JTF
+  #ifdef DEBUG_JTF
 
         print_out_jtf();
 
-#endif
+  #endif
 
-#ifdef DEBUG_H
+  #ifdef DEBUG_H
 
         print_out_h();
 
-#endif
+  #endif
 
         singularity = solve_for_h();
         cudaDeviceSynchronize();
 
         if(singularity != -1)
         {
-#ifdef VERBOSE
+  #ifdef VERBOSE
             printf("\nsingularity encountered\n");
-#endif
+  #endif
 
             break;
         }
 
         evaluate_step_misalignment_energy(solution_misalignment_energy, mu);
 
-#ifdef VERBOSE
+  #ifdef VERBOSE
         printf("\ninitial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
-#endif
+  #endif
 
         if(solution_misalignment_energy < initial_misalignment_energy && (unsigned int)(solution_misalignment_energy * 1000) != 0u)
         {
-#ifdef VERBOSE
+  #ifdef VERBOSE
             printf("\naccepted step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
-#endif
+  #endif
 
             int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
             cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
@@ -1197,20 +1150,20 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
             mu -= _host_res.configuration.solver_mu_step;
             initial_misalignment_energy = solution_misalignment_energy;
-#ifdef VERBOSE
+  #ifdef VERBOSE
             printf("\nmu lowered: %f\n", mu);
-#endif
+  #endif
         }
         else
         {
-#ifdef VERBOSE
+  #ifdef VERBOSE
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
-#endif
+  #endif
 
             mu += _host_res.configuration.solver_mu_step;
-#ifdef VERBOSE
+  #ifdef VERBOSE
             printf("\nmu raised: %f\n", mu);
-#endif
+  #endif
         }
 
         iterations++;
