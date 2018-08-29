@@ -43,7 +43,7 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 
 // #define PIPELINE_DEBUG_TEXTURE_COLORS
 // #define PIPELINE_DEBUG_TEXTURE_DEPTHS
-#define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+// #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
 #define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
 #define PIPELINE_DEBUG_REFERENCE_VOLUME
 #define PIPELINE_DEBUG_REFERENCE_MESH
@@ -152,7 +152,7 @@ struct Configuration
     int solver_lma_steps = 2;
     int solver_cg_steps = 12;
 
-    float rejection_threshold = 0.006f;
+    float rejection_threshold = 0.01f;
 
     double time_copy_reference = 0.;
     double time_sample_ed = 0.;

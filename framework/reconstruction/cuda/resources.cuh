@@ -51,21 +51,26 @@ struct_graphic_resources _cgr;
 
 struct struct_device_resources
 {
-    /// Lab space colors
-    float4 *kinect_rgbs = nullptr;
-
     /// Merged grayscale colors
-    float *kinect_intens = nullptr;
+    float *kinect_intens[4] = {nullptr, nullptr, nullptr, nullptr};
 
     /// Current depth frames
-    float2 *kinect_depths = nullptr;
+    float *kinect_depths[4] = {nullptr, nullptr, nullptr, nullptr};
 
     /// Previous depth frames
-    float2 *kinect_depths_prev = nullptr;
+    float *kinect_depths_prev[4] = {nullptr, nullptr, nullptr, nullptr};
 
     /// (Smooth) silhouettes
-    float *kinect_silhouettes = nullptr;
+    float *kinect_silhouettes[4] = {nullptr, nullptr, nullptr, nullptr};
 
+    /// Pitch sizes
+    size_t pitch_kinect_intens = 0;
+    size_t pitch_kinect_depths = 0;
+    size_t pitch_kinect_depths_prev = 0;
+    size_t pitch_kinect_silhouettes = 0;
+
+    /// Textures for interpolated sampling of depths and silhouettes
+    cudaTextureObject_t intens_tex[4] = {0, 0, 0, 0};
     cudaTextureObject_t depth_tex[4] = {0, 0, 0, 0};
     cudaTextureObject_t depth_tex_prev[4] = {0, 0, 0, 0};
     cudaTextureObject_t silhouette_tex[4] = {0, 0, 0, 0};
@@ -308,58 +313,48 @@ __host__ void unmap_calibration_volumes()
 
 __host__ void map_kinect_textures()
 {
+    struct cudaTextureDesc kinect_tex_32;
+    memset(&kinect_tex_32, 0, sizeof(kinect_tex_32));
+    kinect_tex_32.addressMode[0] = cudaAddressModeClamp;
+    kinect_tex_32.addressMode[1] = cudaAddressModeClamp;
+    kinect_tex_32.filterMode = cudaFilterModeLinear;
+    kinect_tex_32.readMode = cudaReadModeElementType;
+    kinect_tex_32.normalizedCoords = 1;
+
     for(int i = 0; i < 4; i++)
     {
         struct cudaResourceDesc depth_descr;
         memset(&depth_descr, 0, sizeof(depth_descr));
-        depth_descr.resType = cudaResourceTypeLinear;
-        depth_descr.res.linear.devPtr = _dev_res.kinect_depths + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        depth_descr.res.linear.sizeInBytes = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        depth_descr.res.linear.desc = cudaCreateChannelDesc<float2>();
+        depth_descr.resType = cudaResourceTypePitch2D;
+        depth_descr.res.pitch2D.devPtr = _dev_res.kinect_depths[i];
+        depth_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        depth_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        depth_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_kinect_depths;
+        depth_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
 
-        struct cudaTextureDesc depth_tex_descr;
-        memset(&depth_tex_descr, 0, sizeof(depth_tex_descr));
-        depth_tex_descr.addressMode[0] = cudaAddressModeClamp;
-        depth_tex_descr.addressMode[1] = cudaAddressModeClamp;
-        depth_tex_descr.filterMode = cudaFilterModeLinear;
-        depth_tex_descr.readMode = cudaReadModeElementType;
-        depth_tex_descr.normalizedCoords = 1;
-
-        cudaCreateTextureObject(&_dev_res.depth_tex[i], &depth_descr, &depth_tex_descr, NULL);
+        cudaCreateTextureObject(&_dev_res.depth_tex[i], &depth_descr, &kinect_tex_32, NULL);
 
         struct cudaResourceDesc depth_prev_descr;
         memset(&depth_prev_descr, 0, sizeof(depth_prev_descr));
-        depth_prev_descr.resType = cudaResourceTypeLinear;
-        depth_prev_descr.res.linear.devPtr = _dev_res.kinect_depths_prev + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        depth_prev_descr.res.linear.sizeInBytes = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        depth_prev_descr.res.linear.desc = cudaCreateChannelDesc<float2>();
+        depth_prev_descr.resType = cudaResourceTypePitch2D;
+        depth_prev_descr.res.pitch2D.devPtr = _dev_res.kinect_depths_prev[i];
+        depth_prev_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        depth_prev_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        depth_prev_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_kinect_depths_prev;
+        depth_prev_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
 
-        struct cudaTextureDesc depth_prev_tex_descr;
-        memset(&depth_prev_tex_descr, 0, sizeof(depth_prev_tex_descr));
-        depth_prev_tex_descr.addressMode[0] = cudaAddressModeClamp;
-        depth_prev_tex_descr.addressMode[1] = cudaAddressModeClamp;
-        depth_prev_tex_descr.filterMode = cudaFilterModeLinear;
-        depth_prev_tex_descr.readMode = cudaReadModeElementType;
-        depth_prev_tex_descr.normalizedCoords = 1;
-
-        cudaCreateTextureObject(&_dev_res.depth_tex_prev[i], &depth_prev_descr, &depth_prev_tex_descr, NULL);
+        cudaCreateTextureObject(&_dev_res.depth_tex_prev[i], &depth_prev_descr, &kinect_tex_32, NULL);
 
         struct cudaResourceDesc silhouette_descr;
         memset(&silhouette_descr, 0, sizeof(silhouette_descr));
-        silhouette_descr.resType = cudaResourceTypeLinear;
-        silhouette_descr.res.linear.devPtr = _dev_res.kinect_silhouettes + i * _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float);
-        silhouette_descr.res.linear.sizeInBytes = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float2);
-        silhouette_descr.res.linear.desc = cudaCreateChannelDesc<float>();
+        silhouette_descr.resType = cudaResourceTypePitch2D;
+        silhouette_descr.res.pitch2D.devPtr = _dev_res.kinect_silhouettes[i];
+        silhouette_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        silhouette_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        silhouette_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_kinect_silhouettes;
+        silhouette_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
 
-        struct cudaTextureDesc silhouette_tex_descr;
-        memset(&silhouette_tex_descr, 0, sizeof(silhouette_tex_descr));
-        silhouette_tex_descr.addressMode[0] = cudaAddressModeClamp;
-        silhouette_tex_descr.addressMode[1] = cudaAddressModeClamp;
-        silhouette_tex_descr.filterMode = cudaFilterModeLinear;
-        silhouette_tex_descr.readMode = cudaReadModeElementType;
-        silhouette_tex_descr.normalizedCoords = 1;
-
-        cudaCreateTextureObject(&_dev_res.silhouette_tex[i], &silhouette_descr, &silhouette_tex_descr, NULL);
+        cudaCreateTextureObject(&_dev_res.silhouette_tex[i], &silhouette_descr, &kinect_tex_32, NULL);
     }
 }
 
@@ -403,36 +398,39 @@ __host__ void map_kinect_arrays()
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes, 0));
 
     size_t dummy_size = 0;
-    size_t depth_size = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4;
-
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_rgbs, &dummy_size, _cgr.pbo_kinect_rgbs));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_rgbs[0], &_dev_res.mapped_pbo_rgbs[0], depth_size * sizeof(float4), cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaDeviceSynchronize());
-
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_depths, &dummy_size, _cgr.pbo_kinect_depths));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths_prev[0], &_dev_res.kinect_depths[0], depth_size * sizeof(float2), cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_depths[0], &_dev_res.mapped_pbo_depths[0], depth_size * sizeof(float2), cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaDeviceSynchronize());
-
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes, &dummy_size, _cgr.pbo_kinect_silhouettes));
-    checkCudaErrors(cudaMemcpy(&_dev_res.kinect_silhouettes[0], &_dev_res.mapped_pbo_silhouettes[0], depth_size * sizeof(float1), cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaDeviceSynchronize());
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes_debug, 0));
 
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes_debug, &dummy_size, _cgr.pbo_kinect_silhouettes_debug));
     checkCudaErrors(cudaDeviceSynchronize());
+
+    size_t depth_size = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y;
+
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMemcpy2D(&_dev_res.kinect_silhouettes[i][0], _dev_res.pitch_kinect_silhouettes, &_dev_res.mapped_pbo_silhouettes[i * depth_size],
+                                     _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyDeviceToDevice));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
 #endif
 }
 
 __host__ void unmap_kinect_arrays()
 {
-    size_t depth_size = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4;
-
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-    checkCudaErrors(cudaMemcpy(&_dev_res.mapped_pbo_silhouettes_debug[0], &_dev_res.kinect_silhouettes[0], depth_size * sizeof(float1), cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaDeviceSynchronize());
+
+    size_t depth_size = _host_res.measures.depth_res.x * _host_res.measures.depth_res.y;
+
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMemcpy2D(&_dev_res.mapped_pbo_silhouettes_debug[i * depth_size], _host_res.measures.depth_res.x * sizeof(float), &_dev_res.kinect_silhouettes[i][0],
+                                     _dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyDeviceToDevice));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes_debug));
 #endif

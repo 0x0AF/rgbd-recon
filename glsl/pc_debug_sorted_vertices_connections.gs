@@ -18,7 +18,8 @@ struct EDNode
 
     uint vx_offset;
     uint vx_length;
-    uint pad[2];
+    float misalignment_error;
+    uint pad;
 };
 
 layout(std430, binding = 8) restrict buffer EDNodeBuffer { EDNode ed_nodes[]; };
@@ -40,29 +41,32 @@ uniform mat4 vol_to_world;
 in vec3 geo_Position[];
 
 out vec3 pass_Position;
-out float pass_BrickIdColor;
-out float pass_EDCellIdColor;
-out float pass_IsED;
+out vec3 pass_Error;
 
 void main()
 {
     EDNode ed_node = ed_nodes[uint(geo_Position[0].x * 1000000.f)];
 
     pass_Position = ed_node.position;
-    pass_BrickIdColor = 0.1f + 0.9f * (ed_node.brick_id % 256) / 256.0f;
-    pass_EDCellIdColor = 0.1f + 0.9f * (ed_node.ed_cell_id % 27) / 27.0f;
-    pass_IsED = 1.f;
+    pass_Error = vec3(ed_node.misalignment_error, 0.f, 0.f);
+
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
+
+    EmitVertex();
+
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position + ed_node.translation * 100.f, 1.0);
+
+    EmitVertex();
+    EndPrimitive();
 
     for(uint i = 0; i < ed_node.vx_length; i++)
     {
         Vertex vertex = vertices[ed_node.vx_offset + i];
 
         pass_Position = vertex.position;
-        pass_BrickIdColor = (vertex.brick_id % 256) / 256.0f;
-        pass_EDCellIdColor = (vertex.ed_cell_id % 27) / 27.0f;
-        pass_IsED = -1.f;
+        pass_Error = vec3(ed_node.misalignment_error, 0.f, 0.f);
 
-        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
+        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(vertex.position - ed_node.translation * 100.f, 1.0);
 
         EmitVertex();
 

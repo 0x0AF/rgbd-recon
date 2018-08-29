@@ -89,11 +89,17 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     memcpy(&_host_res.measures, &measures, sizeof(struct_measures));
 
-    checkCudaErrors(cudaMalloc(&_dev_res.kinect_rgbs, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float4)));
-    checkCudaErrors(cudaMalloc(&_dev_res.kinect_intens, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float1)));
-    checkCudaErrors(cudaMalloc(&_dev_res.kinect_depths, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float2)));
-    checkCudaErrors(cudaMalloc(&_dev_res.kinect_depths_prev, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float2)));
-    checkCudaErrors(cudaMalloc(&_dev_res.kinect_silhouettes, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * 4 * sizeof(float1)));
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_intens[i], &_dev_res.pitch_kinect_intens, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths[i], &_dev_res.pitch_kinect_depths, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
+        checkCudaErrors(
+            cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
+        checkCudaErrors(
+            cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
+    }
+
+    // printf("\npitch: %lu\n", _dev_res.pitch_kinect_depths);
 
     checkCudaErrors(cudaMalloc(&_dev_res.tsdf_ref, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(float2)));
     checkCudaErrors(cudaMalloc(&_dev_res.tsdf_ref_warped, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(float2)));
@@ -217,11 +223,6 @@ extern "C" void deinit_cuda()
     {
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_cv_xyz_inv[i]));
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_cv_xyz[i]));
-    }
-
-    if(_dev_res.kinect_rgbs != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.kinect_rgbs));
     }
 
     if(_dev_res.kinect_intens != nullptr)

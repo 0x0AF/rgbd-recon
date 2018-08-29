@@ -38,8 +38,8 @@ __global__ void kernel_extract_correspondences(int extracted_features, int layer
             glm::vec2 curr_pixel(correspondence.current_proj.x / measures.depth_res.x, correspondence.current_proj.y / measures.depth_res.y);
             glm::vec2 prev_pixel(correspondence.previous_proj.x / measures.depth_res.x, correspondence.previous_proj.y / measures.depth_res.y);
 
-            float2 depth_curr = sample_depth(dev_res.depth_tex[i], curr_pixel);
-            float2 depth_prev = sample_depth(dev_res.depth_tex_prev[i], prev_pixel);
+            float1 depth_curr = sample_depth(dev_res.depth_tex[i], curr_pixel);
+            float1 depth_prev = sample_depth(dev_res.depth_tex_prev[i], prev_pixel);
 
             if((int)(depth_curr.x * 1000) == 0 || (int)(depth_prev.x * 1000) == 0 || glm::abs(depth_curr.x - depth_prev.x) > host_res.configuration.textures_SIFT_max_motion)
             {
@@ -148,7 +148,7 @@ extern "C" double estimate_correspondence_field()
 
     for(int i = 0; i < 4; i++)
     {
-        img.Allocate(w, h, p, false, _dev_res.kinect_intens + w * h * i, NULL);
+        img.Allocate(w, h, p, false, _dev_res.kinect_intens[i] + w * h * i, NULL);
 
         ExtractSift(sift_front[i], img, _host_res.configuration.textures_SIFT_octaves, _host_res.configuration.textures_SIFT_blur, _host_res.configuration.textures_SIFT_threshold,
                     _host_res.configuration.textures_SIFT_lowest_scale, _host_res.configuration.textures_SIFT_upscale);

@@ -178,10 +178,10 @@ void renderer::update_gui()
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.001f, 1.0f, "%.5f");
-        ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.001f, 1.0f, "%.5f");
-        ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.001f, 1.0f, "%.5f");
-        ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.f, 1.0f, "%.5f");
 
         ImGui::Separator();
 

@@ -421,7 +421,7 @@ extern "C" unsigned long push_debug_sorted_vertices()
     size_t vx_bytes;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_sorted_vertices_debug));
 
-    checkCudaErrors(cudaMemcpy(&vx_ptr[0], &_dev_res.warped_sorted_vx_ptr[0], _host_res.total_verts * sizeof(struct_vertex), cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaMemcpy(&vx_ptr[0], &_dev_res.warped_sorted_vx_ptr[0], _host_res.active_ed_vx_count * sizeof(struct_vertex), cudaMemcpyDeviceToDevice));
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_sorted_vertices_debug));
 

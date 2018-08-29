@@ -337,9 +337,8 @@ void ReconPerformanceCapture::init_shaders()
 
     _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_reference.vs"));
     _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_GEOMETRY_SHADER, "glsl/pc_debug_sorted_vertices_connections.gs"));
-    _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/solid.fs"));
+    _program_pc_debug_sorted_vertices_connections->attach(Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_sorted_vertices.fs"));
     _program_pc_debug_sorted_vertices_connections->setUniform("vol_to_world", _mat_vol_to_world);
-    _program_pc_debug_sorted_vertices_connections->setUniform("Color", glm::fvec3{1.0f, 0.0f, 0.0f});
 
     _program_integration->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/tsdf_integration.vs"));
     _program_integration->setUniform("cv_xyz_inv", m_cv->getXYZVolumeUnitsInv());

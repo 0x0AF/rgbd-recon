@@ -33,10 +33,10 @@ inline void __checkMsg(const char *errorMessage, const char *file, const int lin
     }
 }
 
-__device__ float4 sample_colors_ptr(float4 *colors_ptr, glm::uvec2 &pos, int layer, struct_measures measures)
+/*__device__ float4 sample_colors_ptr(float4 *colors_ptr, glm::uvec2 &pos, int layer, struct_measures measures)
 {
     return colors_ptr[pos.x + pos.y * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y];
-}
+}*/
 /*__device__ float2 sample_depths_ptr(float2 *depths_ptr, glm::uvec2 &pos, int layer, struct_measures measures)
 {
     return depths_ptr[pos.x + pos.y * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y];
@@ -46,13 +46,25 @@ __device__ float sample_silhouettes_ptr(float *silhouettes_ptr, glm::uvec2 &pos,
     return silhouettes_ptr[pos.x + pos.y * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y];
 }*/
 
+template <class data_type>
+CUDA_HOST_DEVICE data_type sample_pitched_ptr(data_type *pitched_ptr, size_t pitch, unsigned int x, unsigned int y)
+{
+    return pitched_ptr[x + y * pitch / sizeof(data_type)];
+}
+
+template <class data_type>
+CUDA_HOST_DEVICE void write_pitched_ptr(data_type value, data_type *pitched_ptr, size_t pitch, unsigned int x, unsigned int y)
+{
+    pitched_ptr[x + y * pitch / sizeof(data_type)] = value;
+}
+
 __device__ float2 sample_ref_warped_ptr(float2 *ref_warped_ptr, glm::uvec3 &pos, struct_measures measures)
 {
     return ref_warped_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
 }
 
 __device__ float1 sample_silhouette(cudaTextureObject_t &silhouette_tex, glm::vec2 &pos) { return tex2D<float1>(silhouette_tex, pos.x, pos.y); }
-__device__ float2 sample_depth(cudaTextureObject_t &depth_tex, glm::vec2 &pos) { return tex2D<float2>(depth_tex, pos.x, pos.y); }
+__device__ float1 sample_depth(cudaTextureObject_t &depth_tex, glm::vec2 &pos) { return tex2D<float1>(depth_tex, pos.x, pos.y); }
 __device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
 __device__ float4 sample_cv_xyz_inv(cudaTextureObject_t &cv_xyz_inv_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_inv_tex, pos.x, pos.y, pos.z); }
 
@@ -253,6 +265,8 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         float depth = sample_depth(dev_res.depth_tex[i], warped_projection.projection[i]).x;
 
+        // printf("\ndepth (%f,%f) = %f\n", warped_projection.projection[i].x, warped_projection.projection[i].y, depth);
+
         if(depth == 0)
         {
             continue;
@@ -305,7 +319,8 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         float residual_component = glm::abs(glm::dot(warped_vertex.normal, diff));
 
-        // printf("\nresidual_component: %f, warped_normal: (%f,%f,%f), diff: (%f,%f,%f)\n", residual_component, warped_normal.x, warped_normal.y, warped_normal.z, diff.x, diff.y, diff.z);
+        // printf("\nresidual_component: %f, warped_normal: (%f,%f,%f), diff: (%f,%f,%f)\n", residual_component, warped_vertex.normal.x, warped_vertex.normal.y, warped_vertex.normal.z, diff.x, diff.y,
+        // diff.z);
 
         if(isnan(residual_component))
         {
@@ -570,7 +585,7 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
 
         float occupancy = sample_silhouette(dev_res.silhouette_tex[i], warped_projection.projection[i]).x;
 
-        // printf("\n (x,y): (%u,%u) = %f\n", warped_projection.projection[i].x, warped_projection.projection[i].y, occupancy);
+        // printf("\n (x,y): (%f,%f) = %f\n", warped_projection.projection[i].x, warped_projection.projection[i].y, occupancy);
 
         float residual_component = measures.data_volume_res.x * measures.size_voxel * (1.0f - occupancy);
 

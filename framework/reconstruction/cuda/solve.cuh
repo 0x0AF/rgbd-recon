@@ -1102,47 +1102,47 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
         convert_to_csr();
 
-  #ifdef DEBUG_JTJ
+#ifdef DEBUG_JTJ
 
         print_out_jtj();
 
-  #endif
+#endif
 
-  #ifdef DEBUG_JTF
+#ifdef DEBUG_JTF
 
         print_out_jtf();
 
-  #endif
+#endif
 
-  #ifdef DEBUG_H
+#ifdef DEBUG_H
 
         print_out_h();
 
-  #endif
+#endif
 
         singularity = solve_for_h();
         cudaDeviceSynchronize();
 
         if(singularity != -1)
         {
-  #ifdef VERBOSE
+#ifdef VERBOSE
             printf("\nsingularity encountered\n");
-  #endif
+#endif
 
             break;
         }
 
         evaluate_step_misalignment_energy(solution_misalignment_energy, mu);
 
-  #ifdef VERBOSE
+#ifdef VERBOSE
         printf("\ninitial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
-  #endif
+#endif
 
         if(solution_misalignment_energy < initial_misalignment_energy && (unsigned int)(solution_misalignment_energy * 1000) != 0u)
         {
-  #ifdef VERBOSE
+#ifdef VERBOSE
             printf("\naccepted step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
-  #endif
+#endif
 
             int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
             cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
@@ -1150,20 +1150,20 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
             mu -= _host_res.configuration.solver_mu_step;
             initial_misalignment_energy = solution_misalignment_energy;
-  #ifdef VERBOSE
+#ifdef VERBOSE
             printf("\nmu lowered: %f\n", mu);
-  #endif
+#endif
         }
         else
         {
-  #ifdef VERBOSE
+#ifdef VERBOSE
             printf("\nrejected step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
-  #endif
+#endif
 
             mu += _host_res.configuration.solver_mu_step;
-  #ifdef VERBOSE
+#ifdef VERBOSE
             printf("\nmu raised: %f\n", mu);
-  #endif
+#endif
         }
 
         iterations++;

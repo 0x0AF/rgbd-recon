@@ -38,7 +38,7 @@ __device__ float convolutionColumn<-1>(float *silhouettes_ptr, int offset, int s
     return 0;
 }
 
-__global__ void kernel_filter_rows(float *silhouettes_ptr, int layer, struct_measures measures)
+__global__ void kernel_filter_rows(struct_device_resources dev_res, int layer, struct_measures measures)
 {
     const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
     const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
@@ -53,23 +53,23 @@ __global__ void kernel_filter_rows(float *silhouettes_ptr, int layer, struct_mea
         return;
     }
 
-    const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
+    const int offset = ix + iy * dev_res.pitch_kinect_silhouettes / sizeof(float);
 
-    float initial_value = silhouettes_ptr[offset];
+    float initial_value = sample_pitched_ptr(dev_res.kinect_silhouettes[layer], dev_res.pitch_kinect_silhouettes, ix, iy);
 
     if(((int)(initial_value * 10)) == 10)
     {
         return;
     }
 
-    float sum = convolutionRow<2 * KERNEL_RADIUS>(silhouettes_ptr, offset);
+    float sum = convolutionRow<2 * KERNEL_RADIUS>(dev_res.kinect_silhouettes[layer], offset);
 
     __syncthreads();
 
-    silhouettes_ptr[offset] = sum;
+    write_pitched_ptr(sum, dev_res.kinect_silhouettes[layer], dev_res.pitch_kinect_silhouettes, ix, iy);
 }
 
-__global__ void kernel_filter_cols(float *silhouettes_ptr, int layer, struct_measures measures)
+__global__ void kernel_filter_cols(struct_device_resources dev_res, int layer, struct_measures measures)
 {
     const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
     const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
@@ -84,20 +84,20 @@ __global__ void kernel_filter_cols(float *silhouettes_ptr, int layer, struct_mea
         return;
     }
 
-    const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
+    const int offset = ix + iy * dev_res.pitch_kinect_silhouettes / sizeof(float);
 
-    float initial_value = silhouettes_ptr[offset];
+    float initial_value = sample_pitched_ptr(dev_res.kinect_silhouettes[layer], dev_res.pitch_kinect_silhouettes, ix, iy);
 
     if(((int)(initial_value * 10)) == 10)
     {
         return;
     }
 
-    float sum = convolutionColumn<2 * KERNEL_RADIUS>(silhouettes_ptr, offset, measures.depth_res.x);
+    float sum = convolutionColumn<2 * KERNEL_RADIUS>(dev_res.kinect_silhouettes[layer], offset, dev_res.pitch_kinect_silhouettes / sizeof(float));
 
     __syncthreads();
 
-    silhouettes_ptr[offset] = sum;
+    write_pitched_ptr(sum, dev_res.kinect_silhouettes[layer], dev_res.pitch_kinect_silhouettes, ix, iy);
 }
 
 __host__ void preprocess_hull()
@@ -111,10 +111,10 @@ __host__ void preprocess_hull()
     {
         for(int layer = 0; layer < 4; layer++)
         {
-            kernel_filter_rows<<<blocks, threads>>>(_dev_res.kinect_silhouettes, layer, _host_res.measures);
+            kernel_filter_rows<<<blocks, threads>>>(_dev_res, layer, _host_res.measures);
             getLastCudaError("kernel_filter_rows execution failed\n");
 
-            kernel_filter_cols<<<blocks, threads>>>(_dev_res.kinect_silhouettes, layer, _host_res.measures);
+            kernel_filter_cols<<<blocks, threads>>>(_dev_res, layer, _host_res.measures);
             getLastCudaError("kernel_filter_cols execution failed\n");
         }
     }
@@ -138,14 +138,16 @@ __global__ void kernel_flatten_rgbs(struct_device_resources dev_res, int layer, 
     const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
 
 #ifdef SIFT_USE_COLOR
-    float4 color = dev_res.kinect_rgbs[offset];
+    float4 color = dev_res.mapped_pbo_rgbs[offset];
 
     // printf ("\ncolor: (%f,%f,%f,%f)\n",color.x,color.y,color.z, color.w);
 
     /// Following statement maps to two-instruction equivalent of 5.0f * color.x + color.y + 2.5f * color.z
-    dev_res.kinect_intens[offset] = __fmaf_rn(2.5f, color.z, __fmaf_rn(5.f, color.x, color.y));
+    float intensity = __fmaf_rn(2.5f, color.z, __fmaf_rn(5.f, color.x, color.y));
+
+    write_pitched_ptr(intensity, dev_res.kinect_intens[layer], dev_res.pitch_kinect_intens, ix, iy);
 #else
-    dev_res.kinect_intens[offset] = dev_res.kinect_depths[offset].x;
+    dev_res.kinect_intens[offset] = dev_res.kinect_depths[offset];
 #endif
 }
 
@@ -161,12 +163,60 @@ __host__ void preprocess_intensity()
     }
 }
 
+__global__ void kernel_copy_depth(struct_device_resources dev_res, int layer, struct_measures measures)
+{
+    const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
+    const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
+
+    if(ix >= measures.depth_res.x || iy >= measures.depth_res.y)
+    {
+        return;
+    }
+
+    if(iy < 0 || ix < 0)
+    {
+        return;
+    }
+
+    const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
+
+    float depth_prev = sample_pitched_ptr(dev_res.kinect_depths[layer], dev_res.pitch_kinect_depths, ix, iy);
+    write_pitched_ptr(depth_prev, dev_res.kinect_depths_prev[layer], dev_res.pitch_kinect_depths_prev, ix, iy);
+
+    float depth = dev_res.mapped_pbo_depths[offset].x;
+
+    if(isnan(depth))
+    {
+        depth = 0.f;
+    }
+
+    if(isinf(depth))
+    {
+        depth = 0.f;
+    }
+
+    write_pitched_ptr(depth, dev_res.kinect_depths[layer], dev_res.pitch_kinect_depths, ix, iy);
+}
+
+__host__ void preprocess_depth()
+{
+    dim3 threads(8, 8);
+    dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
+
+    for(int layer = 0; layer < 4; layer++)
+    {
+        kernel_copy_depth<<<blocks, threads>>>(_dev_res, layer, _host_res.measures);
+        getLastCudaError("kernel_filter_rows execution failed\n");
+    }
+}
+
 extern "C" double preprocess_textures()
 {
     TimerGPU timer(0);
 
     map_kinect_arrays();
 
+    preprocess_depth();
     preprocess_hull();
     preprocess_intensity();
 
