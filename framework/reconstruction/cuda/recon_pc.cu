@@ -23,8 +23,8 @@
 #include <reconstruction/cuda/ed_sample.cuh>
 #include <reconstruction/cuda/fuse_data.cuh>
 #include <reconstruction/cuda/mc.cuh>
+#include <reconstruction/cuda/opticflow.cuh>
 #include <reconstruction/cuda/preprocess.cuh>
-#include <reconstruction/cuda/sift.cuh>
 #include <reconstruction/cuda/solve.cuh>
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles)
@@ -75,6 +75,10 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes_debug, native_handles.pbo_kinect_silhouettes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 #endif
 
+#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
+  checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow_debug, native_handles.pbo_opticflow_debug, cudaGraphicsRegisterFlagsWriteDiscard));
+#endif
+
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_cv_xyz_inv[i], native_handles.pbo_cv_xyz_inv[i], cudaGraphicsRegisterFlagsReadOnly));
@@ -91,13 +95,32 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_intens[i], &_dev_res.pitch_kinect_intens, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
-        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths[i], &_dev_res.pitch_kinect_depths, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
-        checkCudaErrors(
-            cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
-        checkCudaErrors(
-            cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y * sizeof(float)));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_intens[i], &_dev_res.pitch_kinect_intens, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_intens_prev[i], &_dev_res.pitch_kinect_intens, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths[i], &_dev_res.pitch_kinect_depths, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, _host_res.measures.depth_res.x * sizeof(float2), _host_res.measures.depth_res.y));
     }
+
+    checkCudaErrors(cudaMalloc(&_dev_res.cloud_noise, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float)));
+
+    float *cloud_noise = (float *)malloc(_host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
+    char *cloud_data_ptr = cloud_data;
+
+    for(int i = 0; i < _host_res.measures.depth_res.x * _host_res.measures.depth_res.y; i++)
+    {
+        int pixel = (((cloud_data_ptr[0] - 33) << 2) | ((cloud_data_ptr[1] - 33) >> 4));
+        cloud_noise[i] = ((float)pixel) / 256.f;
+
+        // printf("\npixel: %i\n", pixel);
+
+        cloud_data_ptr += 4;
+    }
+
+    cudaMemcpy(&_dev_res.cloud_noise[0], &cloud_noise[0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float), cudaMemcpyHostToDevice);
+
+    free(cloud_noise);
 
     // printf("\npitch: %lu\n", _dev_res.pitch_kinect_depths);
 
@@ -161,14 +184,14 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     allocate_pcg_resources();
     allocate_correspondence_resources();
 
-    sift_front = (SiftData *)malloc(4 * sizeof(SiftData));
+    /*sift_front = (SiftData *)malloc(4 * sizeof(SiftData));
     sift_back = (SiftData *)malloc(4 * sizeof(SiftData));
 
     for(int i = 0; i < 4; i++)
     {
         InitSiftData(sift_front[i], SIFT_MAX_CORRESPONDENCES, true, true);
         InitSiftData(sift_back[i], SIFT_MAX_CORRESPONDENCES, true, true);
-    }
+    }*/
 
     map_calibration_volumes();
 
@@ -179,14 +202,14 @@ extern "C" void deinit_cuda()
 {
     unmap_calibration_volumes();
 
-    for(int i = 0; i < 4; i++)
+    /*for(int i = 0; i < 4; i++)
     {
         FreeSiftData(sift_front[i]);
         FreeSiftData(sift_back[i]);
     }
 
     free(sift_back);
-    free(sift_front);
+    free(sift_front);*/
 
     free_correspondence_resources();
     free_pcg_resources();
@@ -217,6 +240,10 @@ extern "C" void deinit_cuda()
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes_debug));
+#endif
+
+#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
+  checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow_debug));
 #endif
 
     for(unsigned int i = 0; i < 4; i++)

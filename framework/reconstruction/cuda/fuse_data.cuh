@@ -149,7 +149,7 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
     if(!in_data_volume(world_voxel, measures))
     {
 #ifdef VERBOSE
-        printf("\nout of volume: world_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, world_voxel.x, world_voxel.y, world_voxel.z);
+        printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
 #endif
         return;
     }
@@ -161,12 +161,20 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
     glm::vec3 warped_position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
     glm::uvec3 warped_position_voxel = norm_2_data(warped_position, measures);
 
+    if(!in_data_volume(warped_position_voxel, measures))
+    {
+#ifdef VERBOSE
+        printf("\nout of volume: warped_position_voxel(%i,%i,%i)\n", warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
+#endif
+        return;
+    }
+
     /// Refresh misaligned voxel
 
     if(ed_entry.misalignment_error > host_res.configuration.rejection_threshold)
     {
         float2 data;
-        surf3Dread(&data, _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
+        surf3Dread(&data, _volume_tsdf_data, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
 
         unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
         dev_res.tsdf_ref[offset] = data;
@@ -178,15 +186,6 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
     {
         printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
     }*/
-
-    if(!in_data_volume(warped_position_voxel, measures))
-    {
-#ifdef VERBOSE
-        printf("\nout of volume: world_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y,
-               warped_position_voxel.z);
-#endif
-        return;
-    }
 
     /// Retrieve SDF value
 

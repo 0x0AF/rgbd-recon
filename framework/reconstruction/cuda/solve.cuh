@@ -177,7 +177,7 @@ __device__ float evaluate_vx_residual(struct_vertex &vx, struct_projection &vx_p
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx, vx_proj, dev_res, host_res.measures);
+    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx_proj, vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -339,7 +339,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, warped_vx_proj, dev_res, host_res.measures);
+    vx_res_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx_proj, warped_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -369,7 +369,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, warped_vx_proj, dev_res, host_res.measures);
+    vx_res_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx_proj, warped_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -556,7 +556,11 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 
     unsigned int jtj_pos = UMAD(component, ED_COMPONENT_COUNT, component);
+#ifdef JTJ_HESSIAN_DIAG
+    atomicAdd(&shared_jtj_coo_val_block[jtj_pos], mu * shared_jtj_coo_val_block[jtj_pos]);
+#else
     atomicAdd(&shared_jtj_coo_val_block[jtj_pos], mu);
+#endif
 
     __syncthreads();
 

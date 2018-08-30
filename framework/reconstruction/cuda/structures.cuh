@@ -38,12 +38,11 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define CUDA_ALIGN_4
 #endif
 
-// #define VERBOSE
+#define VERBOSE
 // #define DEBUG_NANS
 
-// #define PIPELINE_DEBUG_TEXTURE_COLORS
-// #define PIPELINE_DEBUG_TEXTURE_DEPTHS
-// #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+#define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+#define PIPELINE_DEBUG_OPTICAL_FLOW
 #define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
 #define PIPELINE_DEBUG_REFERENCE_VOLUME
 #define PIPELINE_DEBUG_REFERENCE_MESH
@@ -62,7 +61,6 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define MAX_REFERENCE_VERTICES 262144
 
 #define SIFT_MAX_CORRESPONDENCES 4096
-#define SIFT_USE_COLOR
 
 /// #define SIFT_MINIMAL_SCORE 0.95f
 /// #define SIFT_FILTER_MAX_MOTION 0.1f
@@ -81,10 +79,11 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
 // #define EVALUATE_ED_REGULARIZATION
-// #define EVALUATE_CORRESPONDENCE_FIELD
+#define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
+// #define JTJ_HESSIAN_DIAG
 
 #define REJECT_MISALIGNED
 
@@ -118,6 +117,7 @@ struct Configuration
     bool draw_bricks = false;
 
     bool debug_texture_silhouettes = false;
+    bool debug_optical_flow = false;
     bool debug_correspondence_field = false;
     bool debug_reference_volume = false;
     bool debug_reference_mesh = false;
@@ -129,7 +129,7 @@ struct Configuration
 
     bool pipeline_preprocess_textures = true;
     bool pipeline_sample = true;
-    bool pipeline_correspondence = false;
+    bool pipeline_correspondence = true;
     bool pipeline_align = true;
     bool pipeline_fuse = true;
 
@@ -142,14 +142,19 @@ struct Configuration
     float textures_SIFT_min_score = 0.95f;
     float textures_SIFT_max_motion = 0.1f;
 
+    float opticflow_scaling_factor = 0.05;    // 0.95;
+    int opticflow_num_inner_iterations = 5;   // 5;
+    int opticflow_num_outer_iterations = 150; // 150;
+    int opticflow_num_solver_iterations = 10; // 10;
+
     float weight_data = 1.f;
-    float weight_hull = 1.f;
+    float weight_hull =1.f;
     float weight_correspondence = 1.f;
     float weight_regularization = 1.f;
 
-    float solver_mu = 0.01f;
-    float solver_mu_step = 0.001f;
-    int solver_lma_steps = 2;
+    float solver_mu = 0.001f;
+    float solver_mu_step = 0.025f;
+    int solver_lma_steps = 1;
     int solver_cg_steps = 12;
 
     float rejection_threshold = 0.01f;
@@ -157,7 +162,7 @@ struct Configuration
     double time_copy_reference = 0.;
     double time_sample_ed = 0.;
     double time_preprocess = 0.;
-    double time_sift = 0.;
+    double time_correspondence = 0.;
     double time_nra = 0.;
     double time_fuse = 0.;
 };
@@ -179,6 +184,7 @@ struct struct_native_handles
     unsigned int pbo_kinect_silhouettes;
 
     unsigned int pbo_kinect_silhouettes_debug;
+    unsigned int pbo_opticflow_debug;
 
     unsigned int pbo_cv_xyz_inv[4];
     unsigned int pbo_cv_xyz[4];

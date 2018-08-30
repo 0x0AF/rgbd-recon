@@ -63,6 +63,7 @@ __device__ float2 sample_ref_warped_ptr(float2 *ref_warped_ptr, glm::uvec3 &pos,
     return ref_warped_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
 }
 
+__device__ float2 sample_opticflow(cudaTextureObject_t &opticflow_tex, glm::vec2 &pos) { return tex2D<float2>(opticflow_tex, pos.x, pos.y); }
 __device__ float1 sample_silhouette(cudaTextureObject_t &silhouette_tex, glm::vec2 &pos) { return tex2D<float1>(silhouette_tex, pos.x, pos.y); }
 __device__ float1 sample_depth(cudaTextureObject_t &depth_tex, glm::vec2 &pos) { return tex2D<float1>(depth_tex, pos.x, pos.y); }
 __device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
@@ -609,67 +610,21 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
     return residual;
 }
 
-__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_cf_residual(struct_projection &projection, struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
 {
     float residual = 0.f;
 
     for(int layer = 0; layer < 4; layer++)
     {
-        glm::uvec2 pixel = glm::uvec2(warped_projection.projection[layer]);
-        unsigned int cell_id = identify_depth_cell_id(pixel, layer, measures);
+        float2 flow = sample_opticflow(dev_res.optical_flow_tex[layer], projection.projection[layer]);
 
-        if(cell_id > measures.num_depth_cells)
-        {
-            printf("\ncell_id out of depth_cells range: %u\n", cell_id);
-            continue;
-        }
+        // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);
 
-        struct_depth_cell_meta meta = dev_res.depth_cell_meta[cell_id];
+        glm::vec2 new_projection = projection.projection[layer] + glm::vec2(flow.x / ((float)measures.depth_res.x), flow.y / ((float)measures.depth_res.y));
 
-        if(meta.cp_length == 0)
-        {
-            continue;
-        }
+        float residual_component = glm::length(warped_projection.projection[layer] - new_projection);
 
-        unsigned int argmin = 0u;
-
-        float distance = 16.f;
-
-        /*#pragma unroll
-                for(unsigned int i = 0; i < meta.cp_length; i++)
-                {
-                    float delta = glm::length(dev_res.sorted_correspondences[meta.cp_offset + i].previous_proj - warped_projection.projection[layer]);
-                    if(delta < distance)
-                    {
-                        argmin = i;
-                        distance = delta;
-                    }
-                }*/
-
-#pragma unroll
-        for(unsigned int i = 0; i < meta.cp_length; i++)
-        {
-            float delta = glm::length(dev_res.sorted_correspondences[meta.cp_offset + i].previous - warped_vertex.position);
-            if(delta < distance)
-            {
-                argmin = i;
-                distance = delta;
-            }
-        }
-
-        // printf ("\nargmin: %u\n", argmin);
-
-        glm::vec3 cp = dev_res.sorted_correspondences[meta.cp_offset + argmin].current;
-        float motion = glm::length(warped_vertex.position - cp);
-
-        if(motion > 0.01f)
-        {
-            continue;
-        }
-
-        float residual_component = robustify(motion);
-
-        // printf("\nresidual_component: %f, cp: (%f,%f,%f), vx: (%f,%f,%f)\n", residual_component, cp.x, cp.y, cp.z, warped_vertex.position.x, warped_vertex.position.y, warped_vertex.position.z);
+        // printf("\nresidual_component: %f\n", residual_component);
 
         if(isnan(residual_component))
         {

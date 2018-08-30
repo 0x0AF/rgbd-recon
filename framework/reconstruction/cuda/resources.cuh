@@ -12,6 +12,7 @@
 #include <cusolver_common.h>
 #include <cusparse_v2.h>
 #include <reconstruction/cuda/MC/marchingCubes_kernel.cuh>
+#include <reconstruction/cuda/clouds.h>
 #include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/structures.cuh>
 
@@ -36,6 +37,7 @@ struct struct_graphic_resources
     cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
 
     cudaGraphicsResource *pbo_kinect_silhouettes_debug{nullptr};
+    cudaGraphicsResource *pbo_opticflow_debug{nullptr};
 
     cudaGraphicsResource *pbo_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *pbo_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
@@ -54,6 +56,9 @@ struct struct_device_resources
     /// Merged grayscale colors
     float *kinect_intens[4] = {nullptr, nullptr, nullptr, nullptr};
 
+    /// Merged grayscale colors (previous frame)
+    float *kinect_intens_prev[4] = {nullptr, nullptr, nullptr, nullptr};
+
     /// Current depth frames
     float *kinect_depths[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -63,23 +68,32 @@ struct struct_device_resources
     /// (Smooth) silhouettes
     float *kinect_silhouettes[4] = {nullptr, nullptr, nullptr, nullptr};
 
+    /// Difference clouds 512 x 424
+    float *cloud_noise = nullptr;
+
+    /// Optical flow
+    float2 *optical_flow[4] = {nullptr, nullptr, nullptr, nullptr};
+
     /// Pitch sizes
     size_t pitch_kinect_intens = 0;
     size_t pitch_kinect_depths = 0;
     size_t pitch_kinect_depths_prev = 0;
     size_t pitch_kinect_silhouettes = 0;
+    size_t pitch_optical_flow = 0;
 
     /// Textures for interpolated sampling of depths and silhouettes
     cudaTextureObject_t intens_tex[4] = {0, 0, 0, 0};
     cudaTextureObject_t depth_tex[4] = {0, 0, 0, 0};
     cudaTextureObject_t depth_tex_prev[4] = {0, 0, 0, 0};
     cudaTextureObject_t silhouette_tex[4] = {0, 0, 0, 0};
+    cudaTextureObject_t optical_flow_tex[4] = {0, 0, 0, 0};
 
     /// Mapped pointers to GL resources
     float4 *mapped_pbo_rgbs = nullptr;
     float2 *mapped_pbo_depths = nullptr;
     float1 *mapped_pbo_silhouettes = nullptr;
     float1 *mapped_pbo_silhouettes_debug = nullptr;
+    float2 *mapped_pbo_opticflow_debug = nullptr;
     float4 *mapped_pbo_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     float4 *mapped_pbo_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -321,6 +335,14 @@ __host__ void map_kinect_textures()
     kinect_tex_32.readMode = cudaReadModeElementType;
     kinect_tex_32.normalizedCoords = 1;
 
+    struct cudaTextureDesc opticflow_2_32;
+    memset(&opticflow_2_32, 0, sizeof(opticflow_2_32));
+    opticflow_2_32.addressMode[0] = cudaAddressModeClamp;
+    opticflow_2_32.addressMode[1] = cudaAddressModeClamp;
+    opticflow_2_32.filterMode = cudaFilterModeLinear;
+    opticflow_2_32.readMode = cudaReadModeElementType;
+    opticflow_2_32.normalizedCoords = 1;
+
     for(int i = 0; i < 4; i++)
     {
         struct cudaResourceDesc depth_descr;
@@ -355,6 +377,17 @@ __host__ void map_kinect_textures()
         silhouette_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
 
         cudaCreateTextureObject(&_dev_res.silhouette_tex[i], &silhouette_descr, &kinect_tex_32, NULL);
+
+        struct cudaResourceDesc opticflow_descr;
+        memset(&opticflow_descr, 0, sizeof(opticflow_descr));
+        opticflow_descr.resType = cudaResourceTypePitch2D;
+        opticflow_descr.res.pitch2D.devPtr = _dev_res.optical_flow[i];
+        opticflow_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        opticflow_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        opticflow_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_optical_flow;
+        opticflow_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+
+        cudaCreateTextureObject(&_dev_res.optical_flow_tex[i], &opticflow_descr, &opticflow_2_32, NULL);
     }
 }
 
@@ -365,6 +398,7 @@ __host__ void unmap_kinect_textures()
         cudaDestroyTextureObject(_dev_res.depth_tex[i]);
         cudaDestroyTextureObject(_dev_res.depth_tex_prev[i]);
         cudaDestroyTextureObject(_dev_res.silhouette_tex[i]);
+        cudaDestroyTextureObject(_dev_res.optical_flow_tex[i]);
     }
 }
 
@@ -427,7 +461,7 @@ __host__ void unmap_kinect_arrays()
 
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaMemcpy2D(&_dev_res.mapped_pbo_silhouettes_debug[i * depth_size], _host_res.measures.depth_res.x * sizeof(float), &_dev_res.kinect_silhouettes[i][0],
+        checkCudaErrors(cudaMemcpy2D(&_dev_res.mapped_pbo_silhouettes_debug[i * depth_size], _host_res.measures.depth_res.x * sizeof(float), &_dev_res.kinect_intens[i][0],
                                      _dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyDeviceToDevice));
         checkCudaErrors(cudaDeviceSynchronize());
     }

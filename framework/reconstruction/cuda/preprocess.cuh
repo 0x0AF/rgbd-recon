@@ -137,18 +137,24 @@ __global__ void kernel_flatten_rgbs(struct_device_resources dev_res, int layer, 
 
     const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
 
-#ifdef SIFT_USE_COLOR
-    float4 color = dev_res.mapped_pbo_rgbs[offset];
+    // printf("\nx:%u, y:%u\n", measures.depth_res.x,measures.depth_res.y);
 
-    // printf ("\ncolor: (%f,%f,%f,%f)\n",color.x,color.y,color.z, color.w);
+    if(dev_res.mapped_pbo_silhouettes[offset].x == 1)
+    {
+        float4 color = dev_res.mapped_pbo_rgbs[offset];
 
-    /// Following statement maps to two-instruction equivalent of 5.0f * color.x + color.y + 2.5f * color.z
-    float intensity = __fmaf_rn(2.5f, color.z, __fmaf_rn(5.f, color.x, color.y));
+        // printf ("\ncolor: (%f,%f,%f,%f)\n",color.x,color.y,color.z, color.w);
 
-    write_pitched_ptr(intensity, dev_res.kinect_intens[layer], dev_res.pitch_kinect_intens, ix, iy);
-#else
-    dev_res.kinect_intens[offset] = dev_res.kinect_depths[offset];
-#endif
+        /// Following statement maps to two-instruction equivalent of 5.0f * color.x + color.y + 2.5f * color.z
+        float intensity = __fmaf_rn(2.5f, color.z, __fmaf_rn(5.f, color.x, color.y));
+
+        write_pitched_ptr(intensity, dev_res.kinect_intens[layer], dev_res.pitch_kinect_intens, ix, iy);
+    }
+    else
+    {
+        float cloud = dev_res.cloud_noise[ix + iy * measures.depth_res.x];
+        write_pitched_ptr(cloud, dev_res.kinect_intens[layer], dev_res.pitch_kinect_intens, ix, iy);
+    }
 }
 
 __host__ void preprocess_intensity()
@@ -216,9 +222,16 @@ extern "C" double preprocess_textures()
 
     map_kinect_arrays();
 
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMemcpy2D(&_dev_res.kinect_intens_prev[i][0], _dev_res.pitch_kinect_intens, &_dev_res.kinect_intens[i][0], _dev_res.pitch_kinect_intens,
+                                     _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyDeviceToDevice));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    preprocess_intensity();
     preprocess_depth();
     preprocess_hull();
-    preprocess_intensity();
 
     unmap_kinect_arrays();
 

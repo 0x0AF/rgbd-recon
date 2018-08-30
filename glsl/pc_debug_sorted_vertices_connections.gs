@@ -54,7 +54,7 @@ void main()
 
     EmitVertex();
 
-    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position + ed_node.translation * 100.f, 1.0);
+    gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position + ed_node.translation, 1.0);
 
     EmitVertex();
     EndPrimitive();
@@ -66,7 +66,7 @@ void main()
         pass_Position = vertex.position;
         pass_Error = vec3(ed_node.misalignment_error, 0.f, 0.f);
 
-        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(vertex.position - ed_node.translation * 100.f, 1.0);
+        gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(vertex.position - ed_node.translation, 1.0);
 
         EmitVertex();
 

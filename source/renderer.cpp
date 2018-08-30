@@ -148,6 +148,7 @@ void renderer::update_gui()
         ImGui::Separator();
 
         ImGui::Checkbox("Debug Texture Silhouettes", &_model->get_recon_pc()->_conf.debug_texture_silhouettes);
+        ImGui::Checkbox("Debug Optical Flow", &_model->get_recon_pc()->_conf.debug_optical_flow);
         ImGui::Checkbox("Debug Correspondence Field", &_model->get_recon_pc()->_conf.debug_correspondence_field);
         ImGui::Checkbox("Debug Reference Volume", &_model->get_recon_pc()->_conf.debug_reference_volume);
         ImGui::Checkbox("Debug Reference Mesh", &_model->get_recon_pc()->_conf.debug_reference_mesh);
@@ -168,6 +169,13 @@ void renderer::update_gui()
         ImGui::Separator();
 
         ImGui::SliderInt("Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
+
+        ImGui::SliderFloat("Optical Flow Scaling Factor", &_model->get_recon_pc()->_conf.opticflow_scaling_factor, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderInt("Optical Flow Inner Iterations", &_model->get_recon_pc()->_conf.opticflow_num_inner_iterations, 1, 5, "%.0f");
+        ImGui::SliderInt("Optical Flow Outer Iterations", &_model->get_recon_pc()->_conf.opticflow_num_outer_iterations, 1, 150, "%.0f");
+        ImGui::SliderInt("Optical Flow Solver Iterations", &_model->get_recon_pc()->_conf.opticflow_num_solver_iterations, 1, 10, "%.0f");
+
+        /**
         ImGui::SliderInt("SIFT Octaves", &_model->get_recon_pc()->_conf.textures_SIFT_octaves, 0, 8, "%.0f");
         ImGui::SliderFloat("SIFT Blur", &_model->get_recon_pc()->_conf.textures_SIFT_blur, 0.001f, 1.0f, "%.5f");
         ImGui::SliderFloat("SIFT Threshold", &_model->get_recon_pc()->_conf.textures_SIFT_threshold, 0.001f, 0.04f, "%.5f");
@@ -175,6 +183,7 @@ void renderer::update_gui()
         ImGui::Checkbox("SIFT Upscale", &_model->get_recon_pc()->_conf.textures_SIFT_upscale);
         ImGui::SliderFloat("SIFT Min Score", &_model->get_recon_pc()->_conf.textures_SIFT_min_score, 0.001f, 1.0f, "%.5f");
         ImGui::SliderFloat("SIFT Max Motion", &_model->get_recon_pc()->_conf.textures_SIFT_max_motion, 0.001f, 1.0f, "%.5f");
+         **/
 
         ImGui::Separator();
 
@@ -246,7 +255,7 @@ void renderer::update_gui()
                 ImGui::Text("   Texture processing");
                 ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_preprocess);
                 ImGui::Text("   SIFT extraction & filtering");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_sift);
+                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_correspondence);
                 ImGui::Text("   Reference copy");
                 ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_copy_reference);
                 ImGui::Text("   Reference mesh extraction");

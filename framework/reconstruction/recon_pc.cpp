@@ -37,7 +37,8 @@ extern "C" double copy_reference();
 extern "C" double perform_brick_indexing();
 extern "C" double sample_ed_nodes();
 extern "C" double preprocess_textures();
-extern "C" double estimate_correspondence_field();
+// extern "C" double estimate_correspondence_field();
+extern "C" double evaluate_dense_correspondence_field();
 extern "C" double pcg_solve();
 extern "C" double fuse_data();
 
@@ -48,9 +49,9 @@ extern "C" void update_configuration(Configuration &configuration);
 extern "C" void deinit_cuda();
 extern "C" unsigned int push_debug_ed_nodes();
 extern "C" unsigned long push_debug_sorted_vertices();
-extern "C" unsigned int push_debug_correspondences();
+// extern "C" unsigned int push_debug_correspondences();
 
-#define PASS_NORMALS
+// #define PASS_NORMALS
 
 #define DATA_IMAGE_UNIT 4
 #define REF_GRAD_IMAGE_UNIT 5
@@ -115,12 +116,24 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     _buffer_pbo_textures_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
+    _opticflow_debug = globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY);
+    _opticflow_debug->image3D(0, GL_RG32F, _measures.depth_res.x, _measures.depth_res.y, 4, 0, GL_RG, GL_FLOAT, (void *)nullptr);
+
+    _buffer_pbo_opticflow_debug->setData(_measures.depth_res.x * _measures.depth_res.y * 4 * sizeof(float2), nullptr, GL_DYNAMIC_COPY);
+    _buffer_pbo_opticflow_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
     glBindTextureUnit(8, _texture2darray_debug->id());
+    glBindTextureUnit(9, _opticflow_debug->id());
     glBindTextureUnit(32, _volume_tsdf_data);
     glBindTextureUnit(34, _volume_tsdf_ref_grad);
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_textures_debug->id();
+#endif
+
+#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
+    _native_handles.pbo_opticflow_debug = _buffer_pbo_opticflow_debug->id();
 #endif
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
@@ -187,6 +200,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _buffer_ed_nodes_debug = new Buffer();
     _buffer_sorted_vertices_debug = new Buffer();
     _buffer_pbo_textures_debug = new Buffer();
+    _buffer_pbo_opticflow_debug = new Buffer();
     _buffer_correspondences_debug = new Buffer();
 
     _vao_fast_mc = new VertexArray();
@@ -196,6 +210,7 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _vec_debug = std::vector<glm::vec3>(MAX_REFERENCE_VERTICES);
 
     _program_pc_debug_textures = new Program();
+    _program_pc_debug_opticflow = new Program();
     _program_pc_debug_draw_ref = new Program();
     _program_pc_debug_draw_ref_grad = new Program();
     _program_pc_debug_reference = new Program();
@@ -354,16 +369,14 @@ void ReconPerformanceCapture::init_shaders()
 
     _program_pc_debug_textures->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_textures.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_textures.fs"));
 
-#ifdef PIPELINE_DEBUG_TEXTURE_COLORS
-    _program_pc_debug_textures->setUniform("texture_2d_array", 1);
-#endif
-
-#ifdef PIPELINE_DEBUG_TEXTURE_DEPTHS
-    _program_pc_debug_textures->setUniform("texture_2d_array", 2);
-#endif
-
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     _program_pc_debug_textures->setUniform("texture_2d_array", 8);
+#endif
+
+    _program_pc_debug_opticflow->attach(Shader::fromFile(GL_VERTEX_SHADER, "glsl/pc_debug_textures.vs"), Shader::fromFile(GL_FRAGMENT_SHADER, "glsl/pc_debug_opticflow.fs"));
+
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+    _program_pc_debug_opticflow->setUniform("opticflow", 9);
 #endif
 
 #ifdef PIPELINE_DEBUG_CORRESPONDENCE_FIELD
@@ -430,8 +443,10 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_sorted_vertices_debug->destroy();
     _buffer_correspondences_debug->destroy();
     _buffer_pbo_textures_debug->destroy();
+    _buffer_pbo_opticflow_debug->destroy();
 
     _texture2darray_debug->destroy();
+    _opticflow_debug->destroy();
     glDeleteTextures(1, &_volume_tsdf_data);
     glDeleteTextures(1, &_volume_tsdf_ref_grad);
 }
@@ -487,7 +502,7 @@ void ReconPerformanceCapture::draw()
 
             if(_conf.pipeline_correspondence)
             {
-                _conf.time_sift = estimate_correspondence_field();
+                _conf.time_correspondence = evaluate_dense_correspondence_field();
             }
 
 #endif
@@ -501,6 +516,22 @@ void ReconPerformanceCapture::draw()
                 glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
                 glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
                 glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+            }
+#endif
+
+#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
+
+            if(_conf.debug_optical_flow)
+            {
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_opticflow_debug->id());
+                glBindTexture(GL_TEXTURE_2D_ARRAY, _opticflow_debug->id());
+                glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RG, GL_FLOAT, 0);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
                 glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 
@@ -569,20 +600,6 @@ void ReconPerformanceCapture::draw()
 
     draw_data();
 
-#ifdef PIPELINE_DEBUG_TEXTURE_COLORS
-    if(_conf.debug_texture_colors)
-    {
-        draw_debug_texture_colors();
-    }
-#endif
-
-#ifdef PIPELINE_DEBUG_TEXTURE_DEPTHS
-    if(_conf.debug_texture_depths)
-    {
-        draw_debug_texture_depths();
-    }
-#endif
-
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     if(_conf.debug_texture_silhouettes)
     {
@@ -590,10 +607,17 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 
+#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
+    if(_conf.debug_optical_flow)
+    {
+        draw_debug_opticflow();
+    }
+#endif
+
 #ifdef PIPELINE_DEBUG_CORRESPONDENCE_FIELD
     if(_conf.debug_correspondence_field)
     {
-        draw_debug_correspondences();
+        // TODO: draw_debug_correspondences();
     }
 #endif
 
@@ -828,34 +852,6 @@ void ReconPerformanceCapture::draw_debug_sorted_vertices()
     }
 #endif
 }
-void ReconPerformanceCapture::draw_debug_texture_colors()
-{
-    _program_pc_debug_textures->use();
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, _nka->getColorHandle(true));
-
-    _vao_fsquad_debug->bind();
-    _vao_fsquad_debug->drawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    globjects::VertexArray::unbind();
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    Program::release();
-}
-void ReconPerformanceCapture::draw_debug_texture_depths()
-{
-    _program_pc_debug_textures->use();
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, _nka->getDepthHandle(true));
-
-    _vao_fsquad_debug->bind();
-    _vao_fsquad_debug->drawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    globjects::VertexArray::unbind();
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    Program::release();
-}
 void ReconPerformanceCapture::draw_debug_texture()
 {
     _program_pc_debug_textures->use();
@@ -870,7 +866,21 @@ void ReconPerformanceCapture::draw_debug_texture()
 
     Program::release();
 }
-void ReconPerformanceCapture::draw_debug_correspondences()
+void ReconPerformanceCapture::draw_debug_opticflow()
+{
+    _program_pc_debug_opticflow->use();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _opticflow_debug->id());
+
+    _vao_fsquad_debug->bind();
+    _vao_fsquad_debug->drawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    globjects::VertexArray::unbind();
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    Program::release();
+}
+/*void ReconPerformanceCapture::draw_debug_correspondences()
 {
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -893,7 +903,7 @@ void ReconPerformanceCapture::draw_debug_correspondences()
     globjects::VertexArray::unbind();
 
     Program::release();
-}
+}*/
 void ReconPerformanceCapture::setVoxelSize(float size)
 {
     _voxel_size = size;

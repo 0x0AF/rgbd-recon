@@ -56,7 +56,7 @@ __global__ void kernel_mark_ed_nodes(unsigned int ed_nodes_count, int *ed_refere
         if(brick_pos == 0 && dev_res.bricks_dense_index[0] != brick_id)
         {
 #ifdef VERBOSE
-            printf("\nspawned vertex outside of occupied bricks, brick id: %u, brick pos: %u\n", brick_id, brick_pos);
+            // printf("\nspawned vertex outside of occupied bricks, brick id: %u, brick pos: %u\n", brick_id, brick_pos);
 #endif
             continue;
         }
