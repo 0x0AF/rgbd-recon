@@ -248,8 +248,9 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
                 float2 value = sample_ref_warped_ptr(dev_res.tsdf_ref_warped, vote_target, measures);
 
-                value.x = value.x * value.y / (value.y + weight) + prediction * weight / (value.y + weight);
-                value.y += weight;
+                value.x = prediction * voxel.y * weight + value.x * value.y;
+                value.y = voxel.y * weight + value.y;
+                value.x /= value.y;
 
                 unsigned int offset = vote_target.x + vote_target.y * measures.data_volume_res.x + vote_target.z * measures.data_volume_res.x * measures.data_volume_res.y;
 
@@ -264,13 +265,73 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
     dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(value.x);
 }
 
+__global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_bricks_count * measures.brick_num_voxels)
+    {
+        return;
+    }
+
+    unsigned int brick_id = dev_res.bricks_dense_index[idx / measures.brick_num_voxels];
+    ;
+    unsigned int pos_id = idx % measures.brick_num_voxels;
+
+    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 position = position_3d(pos_id, measures);
+    glm::uvec3 world = brick + position;
+
+    if(!in_data_volume(world, measures))
+    {
+        return;
+    }
+
+    float2 data;
+    surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+
+    // printf("\ndata: %.3f\n",data.x);
+
+    glm::vec3 norm_pos = data_2_norm(world, measures);
+
+    float aggregated_average_error = 0.f;
+
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], norm_pos);
+        glm::vec2 voxel_proj = glm::vec2(projection.x, projection.y);
+        float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
+
+        aggregated_average_error += alignment_error / 4.0f;
+    }
+
+    unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
+    float2 ref_warped = dev_res.tsdf_ref_warped[offset];
+
+    float weight = ref_warped.y * (1 - aggregated_average_error) + data.y;
+
+    if(glm::abs(weight) < 0.00001f || aggregated_average_error > 0.9999f)
+    {
+        dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+    }
+    else
+    {
+        float value = ref_warped.x * ref_warped.y * (1 - aggregated_average_error) + data.x * data.y;
+        value /= weight;
+
+        dev_res.out_tsdf_data[offset] = tsdf_2_8bit(value);
+    }
+}
+
 extern "C" double fuse_data()
 {
     checkCudaErrors(cudaMemset(_dev_res.out_tsdf_warped_ref, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
+    checkCudaErrors(cudaMemset(_dev_res.out_tsdf_data, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
 
     TimerGPU timer(0);
 
     map_tsdf_volumes();
+    map_error_texture();
 
     kernel_evaluate_gradient_field<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_evaluate_gradient_field");
@@ -284,15 +345,11 @@ extern "C" double fuse_data()
     getLastCudaError("kernel_warp_reference");
     cudaDeviceSynchronize();
 
-    /*unsigned int active_ed_voxels = _host_res.active_ed_nodes_count * _host_res.measures.ed_cell_num_voxels;
-    size_t grid_size = (active_ed_voxels + _host_res.measures.ed_cell_num_voxels - 1) / _host_res.measures.ed_cell_num_voxels;
+    kernel_fuse_data<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
 
-    // printf("\ngrid_size: %lu, block_size: %u\n", grid_size, ED_CELL_VOXELS);
-
-    kernel_fuse_data<<<grid_size, _host_res.measures.ed_cell_num_voxels>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
-    getLastCudaError("render kernel failed");
-    cudaDeviceSynchronize();*/
-
+    unmap_error_texture();
     unmap_tsdf_volumes();
 
     checkCudaErrors(cudaThreadSynchronize());

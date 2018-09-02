@@ -38,7 +38,7 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define CUDA_ALIGN_4
 #endif
 
-#define VERBOSE
+// #define VERBOSE
 // #define DEBUG_NANS
 
 #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES

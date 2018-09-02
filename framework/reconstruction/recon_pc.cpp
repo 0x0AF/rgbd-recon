@@ -51,7 +51,7 @@ extern "C" unsigned int push_debug_ed_nodes();
 extern "C" unsigned long push_debug_sorted_vertices();
 // extern "C" unsigned int push_debug_correspondences();
 
-// #define PASS_NORMALS
+#define PASS_NORMALS
 
 #define DATA_IMAGE_UNIT 4
 #define REF_GRAD_IMAGE_UNIT 5
@@ -598,7 +598,10 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 
-    draw_data();
+    if(!_conf.debug_reference_volume && !_conf.debug_warped_reference_volume_surface)
+    {
+        draw_data();
+    }
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     if(_conf.debug_texture_silhouettes)

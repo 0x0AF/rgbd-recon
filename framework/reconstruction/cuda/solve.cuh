@@ -63,7 +63,7 @@ __global__ void kernel_project_warped(unsigned int active_ed_nodes_count, struct
         unsigned int address = ed_entry.vx_offset + vx_idx;
         struct_vertex vx = dev_res.warped_sorted_vx_ptr[address];
 
-        struct_projection vx_projection = dev_res.sorted_vx_projections[address];
+        struct_projection vx_projection = dev_res.warped_sorted_vx_projections[address];
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
@@ -101,6 +101,144 @@ __global__ void kernel_warp(unsigned int active_ed_nodes_count, struct_device_re
         warped_vx.ed_cell_id = vx.ed_cell_id;
         memcpy(&dev_res.warped_sorted_vx_ptr[address], &warped_vx, sizeof(struct_vertex));
     }
+}
+
+__global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+        return;
+    }
+
+    __syncthreads();
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+
+#pragma unroll
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        struct_vertex warped_vertex = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection warped_projection = dev_res.warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+
+        // printf("\ned_node + vertex match\n");
+
+        for(int i = 0; i < 4; i++)
+        {
+            // printf("\nsampling depth maps: (%f,%f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+
+            if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
+            {
+#ifdef VERBOSE
+                printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+#endif
+                continue;
+            }
+
+            float depth = sample_depth(dev_res.depth_tex[i], warped_projection.projection[i]).x;
+
+            // printf("\ndepth (%f,%f) = %f\n", warped_projection.projection[i].x, warped_projection.projection[i].y, depth);
+
+            if(depth == 0)
+            {
+                // printf("\n depth is off! \n");
+                continue;
+            }
+
+            // printf("\ndepth %f\n", depth);
+
+            glm::vec3 coordinate = glm::vec3(warped_projection.projection[i].x, warped_projection.projection[i].y, depth);
+
+            if(!in_normal_space(coordinate))
+            {
+#ifdef VERBOSE
+                printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+#endif
+                continue;
+            }
+
+            // printf("\nsampling direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+
+            float4 projected = sample_cv_xyz(dev_res.cv_xyz_tex[i], coordinate);
+
+            // printf("\nprojected (%f,%f,%f,%f)\n", projected.x, projected.y, projected.z, projected.w);
+
+            //        if(depth_voxel_space == 45u)
+            //        {
+            //            printf("\nprojected (x,y, depth): (%u,%u,%u) = (%f,%f,%f)\n", pixel.x, pixel.y, depth_voxel_space, projected.x, projected.y, projected.z);
+            //        }
+
+            glm::vec3 extracted_position = glm::vec3(projected.x, projected.y, projected.z);
+            extracted_position = bbox_transform_position(extracted_position, host_res.measures);
+
+            // printf("\nextracted_position (%.2f, %.2f, %.2f)\n", extracted_position.x, extracted_position.y, extracted_position.z);
+
+            if(!in_normal_space(extracted_position))
+            {
+                continue;
+            }
+
+            //        printf("\nextracted_position (%.2f, %.2f, %.2f): (%.2f,%.2f,%.2f) = (%.2f,%.2f,%.2f)\n", coordinate.x, coordinate.y, coordinate.z, warped_position.x, warped_position.y,
+            //        warped_position.z, extracted_position.x, extracted_position.y, extracted_position.z);
+
+            glm::vec3 diff = warped_vertex.position - extracted_position;
+
+            float vx_error = glm::length(glm::dot(warped_vertex.normal, diff));
+
+            // printf("\nvx_error: %f\n", vx_error);
+
+            if(isnan(vx_error))
+            {
+#ifdef DEBUG_NANS
+                printf("\nvx_residual is NaN!\n");
+#endif
+
+                vx_error = 0.f;
+            }
+
+            glm::uvec2 warped_projection_rounding = glm::uvec2(warped_projection.projection[i] * glm::vec2(host_res.measures.depth_res.x, host_res.measures.depth_res.y));
+            size_t pitched_offset = warped_projection_rounding.x + warped_projection_rounding.y * dev_res.pitch_alignment_error / sizeof(float);
+            size_t pitched_offset_bins = warped_projection_rounding.x + warped_projection_rounding.y * dev_res.pitch_alignment_error_bins / sizeof(int);
+
+            int count = 1 + atomicAdd(&dev_res.alignment_error_bins[i][pitched_offset_bins], 1);
+            float curr_mean = dev_res.alignment_error[i][pitched_offset];
+            float inc_average = curr_mean + (vx_error - curr_mean) / ((float)count);
+
+            atomicExch(&dev_res.alignment_error[i][pitched_offset], inc_average);
+            // atomicExch(&dev_res.alignment_error[i][pitched_offset], 0.9f);
+        }
+    }
+}
+
+__global__ void kernel_normalize_alignment_errors(int max_pos, struct_device_resources dev_res, int layer, struct_measures measures)
+{
+    const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
+    const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
+
+    if(ix >= measures.depth_res.x || iy >= measures.depth_res.y)
+    {
+        return;
+    }
+
+    if(iy < 0 || ix < 0)
+    {
+        return;
+    }
+
+    // printf("\nmax: %f\n", dev_res.alignment_error[layer][max_pos]);
+
+    float value = sample_pitched_ptr(dev_res.alignment_error[layer], dev_res.pitch_alignment_error, ix, iy) / dev_res.alignment_error[layer][max_pos];
+
+    if(value == 0)
+    {
+        value = 1.0f;
+    }
+
+    write_pitched_ptr(value, dev_res.alignment_error[layer], dev_res.pitch_alignment_error, ix, iy);
 }
 
 __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
@@ -1036,6 +1174,38 @@ __host__ void evaluate_step_misalignment_energy(float &misalignment_energy, cons
     cudaFree(device_misalignment_energy);
 }
 
+__host__ void evaluate_alignment_error()
+{
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMemset2D(_dev_res.alignment_error[i], _dev_res.pitch_alignment_error, 0, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMemset2D(_dev_res.alignment_error_bins[i], _dev_res.pitch_alignment_error_bins, 0, _host_res.measures.depth_res.x * sizeof(int), _host_res.measures.depth_res.y));
+    }
+
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_reject_misaligned_deformations, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_evaluate_alignment_error<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+
+    dim3 threads(8, 8);
+    dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
+
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(&_dev_res.alignment_error[i][0]);
+        thrust::device_vector<float>::iterator iter = thrust::max_element(d_ptr, d_ptr + _dev_res.pitch_alignment_error * _host_res.measures.depth_res.y);
+        int pos = thrust::device_pointer_cast(&(iter[0])) - d_ptr;
+
+        // printf("\npos: %i\n", pos);
+
+        kernel_normalize_alignment_errors<<<blocks, threads>>>(pos, _dev_res, i, _host_res.measures);
+        getLastCudaError("kernel_normalize_alignment_errors execution failed\n");
+    }
+}
+
 __host__ void reject_misaligned_deformations()
 {
     int block_size;
@@ -1175,6 +1345,8 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
     apply_warp();
     project_warped_vertices();
+
+    evaluate_alignment_error();
 
 #ifdef REJECT_MISALIGNED
     reject_misaligned_deformations();

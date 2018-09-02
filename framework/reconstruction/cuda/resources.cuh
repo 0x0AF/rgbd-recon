@@ -74,12 +74,18 @@ struct struct_device_resources
     /// Optical flow
     float2 *optical_flow[4] = {nullptr, nullptr, nullptr, nullptr};
 
+    /// Vertex-against-depth alignment error
+    float *alignment_error[4] = {nullptr, nullptr, nullptr, nullptr};
+    int *alignment_error_bins[4] = {nullptr, nullptr, nullptr, nullptr};
+
     /// Pitch sizes
     size_t pitch_kinect_intens = 0;
     size_t pitch_kinect_depths = 0;
     size_t pitch_kinect_depths_prev = 0;
     size_t pitch_kinect_silhouettes = 0;
     size_t pitch_optical_flow = 0;
+    size_t pitch_alignment_error = 0;
+    size_t pitch_alignment_error_bins = 0;
 
     /// Textures for interpolated sampling of depths and silhouettes
     cudaTextureObject_t intens_tex[4] = {0, 0, 0, 0};
@@ -87,6 +93,7 @@ struct struct_device_resources
     cudaTextureObject_t depth_tex_prev[4] = {0, 0, 0, 0};
     cudaTextureObject_t silhouette_tex[4] = {0, 0, 0, 0};
     cudaTextureObject_t optical_flow_tex[4] = {0, 0, 0, 0};
+    cudaTextureObject_t alignment_error_tex[4] = {0, 0, 0, 0};
 
     /// Mapped pointers to GL resources
     float4 *mapped_pbo_rgbs = nullptr;
@@ -352,7 +359,7 @@ __host__ void map_kinect_textures()
         depth_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
         depth_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
         depth_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_kinect_depths;
-        depth_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+        depth_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
 
         cudaCreateTextureObject(&_dev_res.depth_tex[i], &depth_descr, &kinect_tex_32, NULL);
 
@@ -363,7 +370,7 @@ __host__ void map_kinect_textures()
         depth_prev_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
         depth_prev_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
         depth_prev_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_kinect_depths_prev;
-        depth_prev_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
+        depth_prev_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
 
         cudaCreateTextureObject(&_dev_res.depth_tex_prev[i], &depth_prev_descr, &kinect_tex_32, NULL);
 
@@ -399,6 +406,39 @@ __host__ void unmap_kinect_textures()
         cudaDestroyTextureObject(_dev_res.depth_tex_prev[i]);
         cudaDestroyTextureObject(_dev_res.silhouette_tex[i]);
         cudaDestroyTextureObject(_dev_res.optical_flow_tex[i]);
+    }
+}
+
+__host__ void map_error_texture()
+{
+    struct cudaTextureDesc kinect_tex_32;
+    memset(&kinect_tex_32, 0, sizeof(kinect_tex_32));
+    kinect_tex_32.addressMode[0] = cudaAddressModeClamp;
+    kinect_tex_32.addressMode[1] = cudaAddressModeClamp;
+    kinect_tex_32.filterMode = cudaFilterModeLinear;
+    kinect_tex_32.readMode = cudaReadModeElementType;
+    kinect_tex_32.normalizedCoords = 1;
+
+    for(int i = 0; i < 4; i++)
+    {
+        struct cudaResourceDesc depth_descr;
+        memset(&depth_descr, 0, sizeof(depth_descr));
+        depth_descr.resType = cudaResourceTypePitch2D;
+        depth_descr.res.pitch2D.devPtr = _dev_res.alignment_error[i];
+        depth_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
+        depth_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        depth_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_alignment_error;
+        depth_descr.res.pitch2D.desc = cudaCreateChannelDesc<float>();
+
+        cudaCreateTextureObject(&_dev_res.alignment_error_tex[i], &depth_descr, &kinect_tex_32, NULL);
+    }
+}
+
+__host__ void unmap_error_texture()
+{
+    for(int i = 0; i < 4; i++)
+    {
+        cudaDestroyTextureObject(_dev_res.alignment_error_tex[i]);
     }
 }
 
@@ -461,7 +501,7 @@ __host__ void unmap_kinect_arrays()
 
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaMemcpy2D(&_dev_res.mapped_pbo_silhouettes_debug[i * depth_size], _host_res.measures.depth_res.x * sizeof(float), &_dev_res.kinect_intens[i][0],
+        checkCudaErrors(cudaMemcpy2D(&_dev_res.mapped_pbo_silhouettes_debug[i * depth_size], _host_res.measures.depth_res.x * sizeof(float), &_dev_res.alignment_error[i][0],
                                      _dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyDeviceToDevice));
         checkCudaErrors(cudaDeviceSynchronize());
     }

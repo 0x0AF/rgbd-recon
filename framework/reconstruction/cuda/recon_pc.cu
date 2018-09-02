@@ -101,6 +101,8 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, _host_res.measures.depth_res.x * sizeof(float2), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error[i], &_dev_res.pitch_alignment_error, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error_bins[i], &_dev_res.pitch_alignment_error_bins, _host_res.measures.depth_res.x * sizeof(int), _host_res.measures.depth_res.y));
     }
 
     checkCudaErrors(cudaMalloc(&_dev_res.cloud_noise, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float)));

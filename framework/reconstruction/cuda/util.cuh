@@ -66,6 +66,7 @@ __device__ float2 sample_ref_warped_ptr(float2 *ref_warped_ptr, glm::uvec3 &pos,
 __device__ float2 sample_opticflow(cudaTextureObject_t &opticflow_tex, glm::vec2 &pos) { return tex2D<float2>(opticflow_tex, pos.x, pos.y); }
 __device__ float1 sample_silhouette(cudaTextureObject_t &silhouette_tex, glm::vec2 &pos) { return tex2D<float1>(silhouette_tex, pos.x, pos.y); }
 __device__ float1 sample_depth(cudaTextureObject_t &depth_tex, glm::vec2 &pos) { return tex2D<float1>(depth_tex, pos.x, pos.y); }
+__device__ float1 sample_error(cudaTextureObject_t &alignment_error_tex, glm::vec2 &pos) { return tex2D<float1>(alignment_error_tex, pos.x, pos.y); }
 __device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
 __device__ float4 sample_cv_xyz_inv(cudaTextureObject_t &cv_xyz_inv_tex, glm::vec3 &pos) { return tex3D<float4>(cv_xyz_inv_tex, pos.x, pos.y, pos.z); }
 
@@ -318,7 +319,7 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
             continue;
         }
 
-        float residual_component = glm::abs(glm::dot(warped_vertex.normal, diff));
+        float residual_component = glm::length(glm::dot(warped_vertex.normal, diff));
 
         // printf("\nresidual_component: %f, warped_normal: (%f,%f,%f), diff: (%f,%f,%f)\n", residual_component, warped_vertex.normal.x, warped_vertex.normal.y, warped_vertex.normal.z, diff.x, diff.y,
         // diff.z);
