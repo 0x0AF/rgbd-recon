@@ -209,7 +209,7 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
             float inc_average = curr_mean + (vx_error - curr_mean) / ((float)count);
 
             atomicExch(&dev_res.alignment_error[i][pitched_offset], inc_average);
-            // atomicExch(&dev_res.alignment_error[i][pitched_offset], 0.9f);
+            //atomicExch(&dev_res.alignment_error[i][pitched_offset], 0.99f);
         }
     }
 }
@@ -1156,7 +1156,8 @@ __host__ void evaluate_step_misalignment_energy(float &misalignment_energy, cons
     cudaDeviceSynchronize();
 
     int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
-    cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph_step[0], 1);
+    float one = 1.f;
+    cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&_dev_res.ed_graph_step[0], 1);
 
     cudaDeviceSynchronize();
 
@@ -1319,7 +1320,8 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 #endif
 
             int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
-            cublasSaxpy(cublas_handle, N, &mu, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
+            float one = 1.f;
+            cublasSaxpy(cublas_handle, N, &one, _dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
             cudaDeviceSynchronize();
 
             mu -= _host_res.configuration.solver_mu_step;

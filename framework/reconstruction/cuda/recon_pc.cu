@@ -128,6 +128,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     checkCudaErrors(cudaMalloc(&_dev_res.tsdf_ref, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(float2)));
     checkCudaErrors(cudaMalloc(&_dev_res.tsdf_ref_warped, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(float2)));
+    checkCudaErrors(cudaMalloc(&_dev_res.tsdf_fused, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(float2)));
 
     checkCudaErrors(cudaMalloc(&_dev_res.out_tsdf_data, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
     checkCudaErrors(cudaMalloc(&_dev_res.out_tsdf_ref, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));

@@ -148,7 +148,7 @@ struct Configuration
     int opticflow_num_solver_iterations = 10; // 10;
 
     float weight_data = 1.f;
-    float weight_hull =1.f;
+    float weight_hull = 1.f;
     float weight_correspondence = 1.f;
     float weight_regularization = 1.f;
 

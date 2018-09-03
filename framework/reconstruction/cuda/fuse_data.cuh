@@ -27,6 +27,7 @@ __global__ void kernel_clean_ref_warped(struct_host_resources host_res, struct_d
 
     float2 voxel{-0.03f, 0.f};
     memcpy(&dev_res.tsdf_ref_warped[offset], &voxel, sizeof(float2));
+    memcpy(&dev_res.tsdf_fused[offset], &voxel, sizeof(float2));
 }
 
 __global__ void kernel_evaluate_gradient_field(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
@@ -169,19 +170,6 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
         return;
     }
 
-    /// Refresh misaligned voxel
-
-    if(ed_entry.misalignment_error > host_res.configuration.rejection_threshold)
-    {
-        float2 data;
-        surf3Dread(&data, _volume_tsdf_data, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
-
-        unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
-        dev_res.tsdf_ref[offset] = data;
-        dev_res.out_tsdf_ref[offset] = tsdf_2_8bit(data.x);
-        return;
-    }
-
     /*if(warped_position_voxel != world_voxel)
     {
         printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
@@ -218,11 +206,13 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     /// Write prediction to 27-neighborhood
 
-    for(int i = 0; i < 3; i++)
+    // TODO: eliminate race condition, cast vote on neighborhood
+
+    for(int i = 1; i < 2; i++)
     {
-        for(int j = 0; j < 3; j++)
+        for(int j = 1; j < 2; j++)
         {
-            for(int k = 0; k < 3; k++)
+            for(int k = 1; k < 2; k++)
             {
                 glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 1, j - 1, k - 1));
 
@@ -243,7 +233,7 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 #ifdef DEBUG_NANS
                     printf("\nNaN in gradient-based prediction\n");
 #endif
-                    prediction = -0.03f;
+                    prediction = voxel.x;
                 }
 
                 float2 value = sample_ref_warped_ptr(dev_res.tsdf_ref_warped, vote_target, measures);
@@ -275,7 +265,6 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
     }
 
     unsigned int brick_id = dev_res.bricks_dense_index[idx / measures.brick_num_voxels];
-    ;
     unsigned int pos_id = idx % measures.brick_num_voxels;
 
     glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
@@ -294,32 +283,88 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
 
     glm::vec3 norm_pos = data_2_norm(world, measures);
 
-    float aggregated_average_error = 0.f;
-
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], norm_pos);
-        glm::vec2 voxel_proj = glm::vec2(projection.x, projection.y);
-        float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
-
-        aggregated_average_error += alignment_error / 4.0f;
-    }
-
     unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
+
     float2 ref_warped = dev_res.tsdf_ref_warped[offset];
 
-    float weight = ref_warped.y * (1 - aggregated_average_error) + data.y;
-
-    if(glm::abs(weight) < 0.00001f || aggregated_average_error > 0.9999f)
+    if(glm::abs(ref_warped.x) < 0.03f)
     {
-        dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+        float aggregated_average_error = 0.f;
+
+        for(unsigned int i = 0; i < 4; i++)
+        {
+            float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], norm_pos);
+            glm::vec2 voxel_proj = glm::vec2(projection.x, projection.y);
+            float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
+
+            aggregated_average_error += alignment_error / 4.f;
+        }
+
+        float weight = ref_warped.y * (1.f - aggregated_average_error) + data.y;
+
+        if(glm::abs(weight) < 0.00001f || aggregated_average_error > 0.9999f)
+        {
+            dev_res.tsdf_fused[offset] = data;
+            dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+        }
+        else
+        {
+            float value = ref_warped.x * ref_warped.y * (1.f - aggregated_average_error) + data.x * data.y;
+            value /= weight;
+
+            dev_res.tsdf_fused[offset] = float2{value, weight};
+            dev_res.out_tsdf_data[offset] = tsdf_2_8bit(value);
+        }
     }
     else
     {
-        float value = ref_warped.x * ref_warped.y * (1 - aggregated_average_error) + data.x * data.y;
-        value /= weight;
+        dev_res.tsdf_fused[offset] = data;
+        dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+    }
+}
 
-        dev_res.out_tsdf_data[offset] = tsdf_2_8bit(value);
+__global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_ed_nodes_count * measures.ed_cell_num_voxels)
+    {
+        return;
+    }
+
+    /// Retrieve ED node
+
+    unsigned int ed_node_offset = idx / measures.ed_cell_num_voxels;
+
+    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
+
+    /// Retrieve voxel position
+
+    unsigned int voxel_id = idx % measures.ed_cell_num_voxels;
+
+    glm::uvec3 world_voxel =
+        index_3d(ed_entry.brick_id, measures) * measures.brick_dim_voxels + ed_cell_3d(ed_entry.ed_cell_id, measures) * measures.ed_cell_dim_voxels + ed_cell_voxel_3d(voxel_id, measures);
+
+    if(!in_data_volume(world_voxel, measures))
+    {
+#ifdef VERBOSE
+        printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
+#endif
+        return;
+    }
+
+    /// Refresh misaligned voxel
+
+    if(ed_entry.misalignment_error > host_res.configuration.rejection_threshold)
+    {
+        unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
+
+        float2 value = dev_res.tsdf_fused[offset];
+
+        dev_res.tsdf_ref[offset] = value;
+        dev_res.out_tsdf_ref[offset] = tsdf_2_8bit(value.x);
+        return;
     }
 }
 
@@ -347,6 +392,10 @@ extern "C" double fuse_data()
 
     kernel_fuse_data<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
+
+    kernel_refresh_misaligned<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_warp_reference");
     cudaDeviceSynchronize();
 
     unmap_error_texture();
