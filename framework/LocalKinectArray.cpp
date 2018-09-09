@@ -109,6 +109,12 @@ bool LocalKinectArray::init()
         _depthsize = _resolution_depth.x * _resolution_depth.y * sizeof(float);
     }
 
+    std::cout << "Colorsize: " << _colorsize << std::endl;
+    std::cout << "Color res: " << _resolution_color.x << "," << _resolution_color.y << std::endl;
+
+    std::cout << "Depthsize: " << _depthsize << std::endl;
+    std::cout << "Depth res: " << _resolution_depth.x << "," << _resolution_depth.y << std::endl;
+
     _pbo_depths = double_pbo{_depthsize * _numLayers};
 
     /* kinect color: GL_RGB32F, GL_RGB, GL_FLOAT*/
