@@ -1,5 +1,5 @@
-#include <reconstruction/cuda/OPTICFLOW/brox_optical_flow.cu>
-#include <reconstruction/cuda/OPTICFLOW/cuda_calls.cu>
+#include <reconstruction/cuda/OPTICFLOW/brox_optical_flow.cuh>
+#include <reconstruction/cuda/OPTICFLOW/cuda_calls.cuh>
 #include <reconstruction/cuda/glm.cuh>
 #include <reconstruction/cuda/resources.cuh>
 

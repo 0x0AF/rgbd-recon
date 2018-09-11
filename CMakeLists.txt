@@ -129,6 +129,7 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 add_subdirectory(framework)
 # applications
 add_subdirectory(source)
+add_subdirectory(source/synthesizer)
 
 ################################
 # suppress displaying of external lib options  
