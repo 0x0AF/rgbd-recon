@@ -24,7 +24,7 @@ out float proj_depth;
 
 void main()
 {
-    Normal = normalize((modelMatrix * vec4(normal, 1.)).rgb) * 0.5 + vec3(0.5);
+    Normal = normalize((vec4(normal, 1.)).rgb) * 0.5 + vec3(0.5);
     TexCoord = vec2(texCoord);
 
     vec3 coords = (modelMatrix * vec4(position, 1.0)).rgb;

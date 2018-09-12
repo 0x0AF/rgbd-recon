@@ -15,6 +15,7 @@
 #include <globjects/base/File.h>
 #include <globjects/globjects.h>
 
+#include "Choreographer.h"
 #include "Controller.h"
 #include "Renderer.h"
 
@@ -118,12 +119,17 @@ int main(int, char *[])
               << "OpenGL Renderer: " << ContextInfo::renderer() << std::endl;
 
     // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/model-triangulated.obj");
-    std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/lion-fixed.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/lion-fixed.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/cube.obj");
+    std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/sphere.obj");
     // std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/emptyworldground.dae");
     std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/environment.dae");
 
     Controller controller(filename_poi, filename_environment);
-    Renderer renderer(&controller);
+    Choreographer choreographer;
+    choreographer.set_translation({0., 0.6, 0.});
+    choreographer.set_rotation(glm::radians(90.), {0., 1., 0.});
+    Renderer renderer(&controller, &choreographer);
 
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
@@ -140,8 +146,8 @@ int main(int, char *[])
     glEnable(GL_TEXTURE_2D);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
-    //glEnable(GL_CULL_FACE);
-    //glFrontFace(GL_CCW);
+    // glEnable(GL_CULL_FACE);
+    // glFrontFace(GL_CCW);
 
     while(!glfwWindowShouldClose(window))
     {

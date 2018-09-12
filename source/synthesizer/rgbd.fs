@@ -41,14 +41,14 @@ void main()
     {
         color = texture(texUnit, TexCoord);
         amb = color * 0.33;
-    }
+    }*/
 
-    if(color.r < 0.001f){*/
-    color = vec4(0.4f, 0.4f, 0.4f, 1.f);
+    /*color = vec4(0.4f, 0.4f, 0.4f, 1.f);
     amb = vec4(0.1f, 0.1f, 0.1f, 1.f);
-    /*}*/
 
-    out_color = (color * intensity) + amb;
+    out_color = (color * intensity) + amb;*/
+
+    out_color = vec4(n, 1.);
 
     // out_color = vec4(1.0f, 0.f, 0.f, 1.f);
 

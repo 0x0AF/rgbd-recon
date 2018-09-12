@@ -2,7 +2,7 @@ find_package(ASSIMP REQUIRED)
 
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; –dlink -use_fast_math -O3 -gencode arch=compute_61,code=sm_61 -lcusparse -lcublas -lcusolver)
 
-add_executable(synthetic_rgbd main.cpp Renderer.h Renderer.cpp Controller.h Controller.cpp FileBuffer.hpp FileBuffer.cpp)
+add_executable(synthetic_rgbd main.cpp Renderer.h Renderer.cpp Controller.h Controller.cpp FileBuffer.hpp FileBuffer.cpp Choreographer.h Choreographer.cpp)
 
 set_property(TARGET synthetic_rgbd PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 

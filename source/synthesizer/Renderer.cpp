@@ -16,6 +16,21 @@ void Renderer::resize(int width, int height)
 static int i = 0;
 void Renderer::draw()
 {
+    /// Choreography
+
+    {
+        int frame = (i % 100);
+        frame = (frame > 50) ? 100 - frame : frame;
+
+        glm::fvec3 translation = _choreographer->get_translation(frame);
+        // glm::fvec4 rotation = _choreographer->get_rotation(frame);
+
+        set_identity_matrix(_model_matrix, 4);
+        translate(0.5f + translation.x, 0.5f + translation.y, -0.5f + translation.z);
+        rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
+        scale(0.25f, 0.25f, 0.25f);
+    }
+
     /// Geometry pass
 
     for(unsigned i = 0; i < 4; i++)
@@ -196,9 +211,10 @@ void Renderer::draw()
 
     i++;
 }
-Renderer::Renderer(Controller *controller)
+Renderer::Renderer(Controller *controller, Choreographer *choreographer)
 {
     _controller = controller;
+    _choreographer = choreographer;
 
     _fb = new FileBuffer(std::string("/home/xaf/Desktop/MSc/data/synthetic_rgbd/record.stream").c_str());
     if(!_fb->open("w", 0))
@@ -318,10 +334,6 @@ Renderer::Renderer(Controller *controller)
     _camera_descriptor.emplace_back(CameraDescriptor({-1.167827, 1.737460, -1.217051}, {0.637262, 0.483070, -0.091411}, {1.004609, 0.109431, -1.444962}));
     _camera_descriptor.emplace_back(CameraDescriptor({-0.555437, 1.450083, 0.766697}, {0.770930, 0.439488, -1.035440}, {-1.396523, 0.059429, -1.071998}));
     _camera_descriptor.emplace_back(CameraDescriptor({1.179815, 1.634909, 0.679016}, {-0.102515, 0.257020, -0.917234}, {-1.362445, -0.061225, 1.111593}));
-
-    set_identity_matrix(_model_matrix, 4);
-    translate(0.5f, 0.3f, -0.5f);
-    scale(0.6f, 0.6f, 0.6f);
 }
 Renderer::~Renderer()
 {
