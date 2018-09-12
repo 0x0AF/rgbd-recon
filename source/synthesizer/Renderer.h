@@ -57,13 +57,15 @@ class Renderer
 
     struct CameraDescriptor
     {
-        CameraDescriptor(glm::vec3 pos, glm::vec3 look_at)
+        CameraDescriptor(glm::vec3 pos, glm::vec3 look_at, glm::vec3 up)
         {
             this->pos = pos;
             this->look_at = look_at;
+            this->up = up;
         }
         glm::vec3 pos;
         glm::vec3 look_at;
+        glm::vec3 up;
     };
 
     struct MeshDescriptor
@@ -92,7 +94,7 @@ class Renderer
     unsigned char* _frame_color;
     float* _frame_depth;
 
-    int _mode = 1;
+    int _mode = 0;
     int _width = 1, _height = 1;
     glm::vec3 _translation{0.f}; //{8.60003f, 11.4501f, -6.89923f};
     std::vector<CameraDescriptor> _camera_descriptor;
@@ -140,7 +142,7 @@ class Renderer
     void rotate(float angle, float x, float y, float z);
     void scale(float x, float y, float z);
     void build_projection_matrix(float fov, float ratio, float nearp, float farp);
-    void set_camera(float posX, float posY, float posZ, float lookAtX, float lookAtY, float lookAtZ);
+    void set_camera(float posX, float posY, float posZ, float lookAtX, float lookAtY, float lookAtZ, float upX, float upY, float upZ);
 
     void gen_VAOs_and_uniform_buffer(const aiScene *sc);
     void recursive_render(const aiScene *sc, const aiNode *nd, int offset = 0);

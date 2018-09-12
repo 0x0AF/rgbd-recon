@@ -63,7 +63,6 @@ public:
   std::vector<std::string> m_cv_uv_filenames;
 
   std::vector<globjects::Texture*> m_volumes_xyz;
-  std::vector<glm::fvec3> m_positions_cameras;
   std::vector<globjects::Texture*> m_volumes_uv;
 
   std::vector<globjects::Texture*> m_volumes_xyz_inv;

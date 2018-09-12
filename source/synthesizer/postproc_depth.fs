@@ -8,7 +8,7 @@ in vec2 v_uv;
 
 float linearize(float z)
 {
-    float n = 0.5f;
+    float n = 0.1f;
     float f = 3.f;
     return (2.f * n) / (f + n - z * (f - n));
 }
@@ -106,38 +106,49 @@ float cnoise(vec2 P)
 
 // #define POSTPROC_PERLIN_20
 
-vec4 postprocess(vec4 color, vec2 uv)
+float postprocess(float color, vec2 uv)
 {
-    #ifdef POSTPROC_SP_20
-        return color * (1.f - 0.2f * rand(uv));
-    #endif
+#ifdef POSTPROC_SP_20
+    return color * (1.f - 0.2f * rand(uv));
+#endif
 
-    #ifdef POSTPROC_SP_80
-        return color * (1.f - 0.8f * rand(uv));
-    #endif
+#ifdef POSTPROC_SP_80
+    return color * (1.f - 0.8f * rand(uv));
+#endif
 
-    #ifdef POSTPROC_PERIODIC_20
-        return color * (1.f - 0.2f * pnoise(uv * 10., vec2(1., 1.)));
-    #endif
+#ifdef POSTPROC_PERIODIC_20
+    return color * (1.f - 0.2f * pnoise(uv * 10., vec2(1., 1.)));
+#endif
 
-    #ifdef POSTPROC_PERIODIC_80
-        return color * (1.f - 0.8f * pnoise(uv * 10., vec2(1., 1.)));
-    #endif
+#ifdef POSTPROC_PERIODIC_80
+    return color * (1.f - 0.8f * pnoise(uv * 10., vec2(1., 1.)));
+#endif
 
-    #ifdef POSTPROC_PERLIN_20
-        return color * (1.f - 0.2f * cnoise(uv * 10.));
-    #endif
+#ifdef POSTPROC_PERLIN_20
+    return color * (1.f - 0.2f * cnoise(uv * 10.));
+#endif
 
-    #ifdef POSTPROC_PERLIN_80
-        return color * (1.f - 0.8f * cnoise(uv * 10.));
-    #endif
+#ifdef POSTPROC_PERLIN_80
+    return color * (1.f - 0.8f * cnoise(uv * 10.));
+#endif
 
     return color;
 }
 
 void main()
 {
-    fragColor = texture(texture_2d_array, vec3(v_uv, layer));
-    fragColor = vec4(vec3(linearize(fragColor.r)), 1.f);
-    fragColor = postprocess(fragColor, v_uv.xy);
+    vec2 uv = v_uv;
+    //uv.y = 1. - uv.y;
+
+    /*float rot = radians(-180.);
+    uv -= .5;
+    mat2 m = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+    uv = m * uv;
+    uv += .5;*/
+
+    fragColor = vec4(0., 0., 0., 1.);
+    fragColor.r = texture(texture_2d_array, vec3(uv, layer)).r;
+    //fragColor.r = linearize(fragColor.r);
+    fragColor.r = postprocess(fragColor.r, uv);
+    fragColor.r = fragColor.r * (3. - 0.5) + 0.5; //* (4.5 - 0.5) + 0.5
 }

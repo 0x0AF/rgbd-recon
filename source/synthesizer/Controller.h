@@ -9,6 +9,7 @@
 #include <BoundingBox.h>
 #include <memory>
 #include <calibration/CalibVolumes.hpp>
+#include <calibration/calibration_files.hpp>
 
 class Controller
 {
@@ -18,6 +19,7 @@ class Controller
 
     const aiScene *get_environment();
     const aiScene *get_poi();
+    kinect::CalibVolumes *get_cv();
 
   private:
     const aiScene *import_file(const std::string &pFile, Assimp::Importer&importer);
@@ -25,8 +27,9 @@ class Controller
     Assimp::Importer _importer_environment, _importer_poi;
     const aiScene *_scene_environment, *_scene_poi;
 
-    std::shared_ptr<gloost::BoundingBox> _bbox;
-    std::shared_ptr<kinect::CalibVolumes> _cv;
+    gloost::BoundingBox *_bbox;
+    kinect::CalibVolumes *_cv;
+    kinect::CalibrationFiles *_calib_files;
 };
 
 #endif // SYNTHETIC_RGBD_CONTROLLER_H

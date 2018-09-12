@@ -16,6 +16,10 @@ in vec3 Normal;
 in vec2 TexCoord;
 out vec4 out_color;
 
+in float proj_depth;
+
+out float gl_FragDepth;
+
 void main()
 {
     vec4 color;
@@ -25,7 +29,7 @@ void main()
     vec3 n;
 
     lightDir = normalize(vec3(1.0, 1.0, 1.0));
-    n = normalize(Normal);
+    n = /*normalize(*/Normal/*)*/;
     intensity = max(dot(lightDir, n), 0.0);
 
     /*if(texCount == 0)
@@ -40,11 +44,13 @@ void main()
     }
 
     if(color.r < 0.001f){*/
-    color = vec4(0.75f, 0.75f, 0.75f, 1.f);
-    amb = vec4(0.2f, 0.2f, 0.2f, 1.f);
+    color = vec4(0.4f, 0.4f, 0.4f, 1.f);
+    amb = vec4(0.1f, 0.1f, 0.1f, 1.f);
     /*}*/
 
     out_color = (color * intensity) + amb;
 
     // out_color = vec4(1.0f, 0.f, 0.f, 1.f);
+
+    gl_FragDepth = proj_depth;
 }

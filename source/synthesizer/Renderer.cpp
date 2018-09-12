@@ -11,7 +11,7 @@ void Renderer::resize(int width, int height)
     // Set the viewport to be the entire window
     glViewport(0, 0, _width, _height);
 
-    build_projection_matrix(49.13f, 1.185185185f, 0.5f, 3.f);
+    build_projection_matrix(70.6f, 1.20754717f, 0.1f, 3.f);
 }
 static int i = 0;
 void Renderer::draw()
@@ -26,7 +26,7 @@ void Renderer::draw()
         _fbo->attachTextureLayer((gl::GLenum)GL_COLOR_ATTACHMENT0, _texture_color, 0, i);
         _fbo->attachTextureLayer((gl::GLenum)GL_DEPTH_ATTACHMENT, _texture_depth, 0, i);
 
-        glViewport(0, 0, 1280, 1080);
+        glViewport(0, 0, 512, 424);
 
         if(GL_FRAMEBUFFER_COMPLETE != _fbo->checkStatus())
         {
@@ -36,16 +36,17 @@ void Renderer::draw()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         globjects::Framebuffer::clearColor(0.f, 0.2f, 0.f, 1.f);
-        globjects::Framebuffer::clearDepth(4.f);
+        globjects::Framebuffer::clearDepth(100.f);
 
-        //std::cout << "Camera " << i << std::endl;
+        // std::cout << "Camera " << i << std::endl;
         set_camera(_camera_descriptor[i].pos.x, _camera_descriptor[i].pos.y, _camera_descriptor[i].pos.z, _camera_descriptor[i].look_at.x, _camera_descriptor[i].look_at.y,
-                   _camera_descriptor[i].look_at.z);
+                   _camera_descriptor[i].look_at.z, _camera_descriptor[i].up.x, _camera_descriptor[i].up.y, _camera_descriptor[i].up.z);
 
-        set_identity_matrix(_model_matrix, 4);
-        translate(_translation.x, _translation.y, _translation.z);
+        /*set_identity_matrix(_model_matrix, 4);
+        translate(_translation.x, _translation.y, _translation.z);*/
 
         _program->use();
+        _program->setUniform("layer", (int)i);
 
         // 27 meshes
         /*recursive_render(_controller->get_environment(), _controller->get_environment()->mRootNode);*/
@@ -76,7 +77,7 @@ void Renderer::draw()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         globjects::Framebuffer::clearColor(0.f, 0.2f, 0.f, 1.f);
-        globjects::Framebuffer::clearDepth(4.f);
+        globjects::Framebuffer::clearDepth(100.f);
 
         _program_postproc_color->use();
         _program_postproc_color->setUniform("layer", (int)i);
@@ -114,7 +115,7 @@ void Renderer::draw()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         globjects::Framebuffer::clearColor(0.f, 0.2f, 0.f, 1.f);
-        globjects::Framebuffer::clearDepth(4.f);
+        globjects::Framebuffer::clearDepth(100.f);
 
         _program_postproc_depth->use();
         _program_postproc_depth->setUniform("layer", (int)i);
@@ -164,7 +165,7 @@ void Renderer::draw()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         globjects::Framebuffer::clearColor(0.f, 0.2f, 0.f, 1.f);
-        globjects::Framebuffer::clearDepth(4.f);
+        globjects::Framebuffer::clearDepth(100.f);
 
         _program_debug_texture->use();
 
@@ -197,6 +198,8 @@ void Renderer::draw()
 }
 Renderer::Renderer(Controller *controller)
 {
+    _controller = controller;
+
     _fb = new FileBuffer(std::string("/home/xaf/Desktop/MSc/data/synthetic_rgbd/record.stream").c_str());
     if(!_fb->open("w", 0))
     {
@@ -225,12 +228,12 @@ Renderer::Renderer(Controller *controller)
     _fbo_depth = new globjects::Framebuffer();
 
     _texture_color = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
-    _texture_color->image3D(0, (gl::GLenum)GL_RGB8, 1280, 1080, 4, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, (void *)nullptr);
+    _texture_color->image3D(0, (gl::GLenum)GL_RGB8, 512, 424, 4, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, (void *)nullptr);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
 
     _texture_depth = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
-    _texture_depth->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 1280, 1080, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_depth->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 512, 424, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
     _texture_depth->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_NEAREST);
     _texture_depth->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_NEAREST);
 
@@ -289,9 +292,17 @@ Renderer::Renderer(Controller *controller)
     _ub_materials = new globjects::UniformBlock(_program, globjects::LocationIdentity("Material"));
     _ub_materials->setBinding(2);
 
-    _program->setUniform("texUnit", 0);
+    kinect::CalibVolumes *cv = _controller->get_cv();
 
-    _controller = controller;
+    std::vector<int> cv_xyz_inv = std::vector<int>(cv->getXYZVolumeUnitsInv());
+    std::vector<int> cv_xyz = std::vector<int>(cv->getXYZVolumeUnits());
+    std::vector<int> cv_uv = std::vector<int>(cv->getUVVolumeUnits());
+
+    _program->setUniform("texUnit", 0);
+    _program->setUniform("cv_xyz_inv", cv_xyz_inv);
+    _program->setUniform("cv_xyz", cv_xyz);
+    _program->setUniform("cv_uv", cv_uv);
+
     /*gen_VAOs_and_uniform_buffer(_controller->get_environment());*/
     // std::cout << _meshes.size ()<<std::endl;
     gen_VAOs_and_uniform_buffer(_controller->get_poi());
@@ -303,12 +314,14 @@ Renderer::Renderer(Controller *controller)
     gl::glBindBufferRange((gl::GLenum)GL_UNIFORM_BUFFER, 1, _matrices_uni_buffer, 0, MatricesUniBufferSize);
     gl::glBindBuffer((gl::GLenum)GL_UNIFORM_BUFFER, 0);
 
-    _camera_descriptor.emplace_back(CameraDescriptor({-1.6f, 1.0f, 1.6f}, {0.f, -0.2f, 0.f}));
-    _camera_descriptor.emplace_back(CameraDescriptor({-1.6f, 1.0f, -1.6f}, {0.f, -0.2f, 0.f}));
-    _camera_descriptor.emplace_back(CameraDescriptor({1.6f, 1.0f, -1.6f}, {0.f, -0.2f, 0.f}));
-    _camera_descriptor.emplace_back(CameraDescriptor({1.6f, 1.0f, 1.6f}, {0.f, -0.2f, 0.f}));
+    _camera_descriptor.emplace_back(CameraDescriptor({1.151654, 1.696604, -1.405546}, {-0.220648, 0.170372, -0.032749}, {1.186234, 0.088544, 1.296422}));
+    _camera_descriptor.emplace_back(CameraDescriptor({-1.167827, 1.737460, -1.217051}, {0.637262, 0.483070, -0.091411}, {1.004609, 0.109431, -1.444962}));
+    _camera_descriptor.emplace_back(CameraDescriptor({-0.555437, 1.450083, 0.766697}, {0.770930, 0.439488, -1.035440}, {-1.396523, 0.059429, -1.071998}));
+    _camera_descriptor.emplace_back(CameraDescriptor({1.179815, 1.634909, 0.679016}, {-0.102515, 0.257020, -0.917234}, {-1.362445, -0.061225, 1.111593}));
 
     set_identity_matrix(_model_matrix, 4);
+    translate(0.5f, 0.3f, -0.5f);
+    scale(0.6f, 0.6f, 0.6f);
 }
 Renderer::~Renderer()
 {
@@ -653,13 +666,13 @@ void Renderer::build_projection_matrix(float fov, float ratio, float nearp, floa
     std::cout << projMatrix[15] << std::endl;
     std::cout << std::endl;*/
 }
-void Renderer::set_camera(float posX, float posY, float posZ, float lookAtX, float lookAtY, float lookAtZ)
+void Renderer::set_camera(float posX, float posY, float posZ, float lookAtX, float lookAtY, float lookAtZ, float upX, float upY, float upZ)
 {
     float dir[3], right[3], up[3];
 
-    up[0] = 0.0f;
-    up[1] = 1.0f;
-    up[2] = 0.0f;
+    up[0] = upX;
+    up[1] = upY;
+    up[2] = upZ;
 
     dir[0] = (lookAtX - posX);
     dir[1] = (lookAtY - posY);

@@ -60,7 +60,7 @@ float uncompress(float d_c){
     }
 }
 
-float sample(vec2 coords) {
+float sample_depth(vec2 coords) {
   float depth = 0.0;
   if(compress){
     depth = uncompress(texture(kinect_depths, vec3(coords, layer)).r);
@@ -105,7 +105,7 @@ vec2 bilateral_filter(vec3 coords){
       weight_samples +=  1.0 - length(vec2(x,y)) / length(vec2(0,6));
       vec2 coords_s = coords.xy + vec2(x, y) * texSizeInv;
       
-      float depth_s = sample(coords_s);
+      float depth_s = sample_depth(coords_s);
       float depth_range = abs(depth_s - depth);
       if(is_outside(depth_s) || (depth_range > dist_range_max)){
         border_samples += 1.0;
@@ -128,7 +128,7 @@ vec2 bilateral_filter(vec3 coords){
 
 void main(void) {
 
-  float depth = sample(pass_TexCoord);
+  float depth = sample_depth(pass_TexCoord);
   float depth_norm = normalize_depth(depth);
   vec3 pos_world = texture(cv_xyz[layer], vec3(pass_TexCoord, depth_norm)).xyz;
   bool is_in_box = in_bbox(pos_world);
@@ -137,7 +137,7 @@ void main(void) {
 #if 0
   // uncomment this for depth visualizazion (in lab sapce channel)
   float orig_depth_normalized = (depth > cv_max_ds) ? 1.0 : (depth/cv_max_ds);
-  out_Color = vec4(orig_depth_normalized, 1.0f);
+  out_Color = vec4(vec3(orig_depth_normalized), 1.0f);
 
 #endif
   if (!is_in_box) {

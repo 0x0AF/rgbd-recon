@@ -101,35 +101,44 @@ float cnoise(vec2 P)
 
 vec4 postprocess(vec4 color, vec2 uv)
 {
-    #ifdef POSTPROC_SP_20
-        return color * (1.f - 0.2f * rand(uv));
-    #endif
+#ifdef POSTPROC_SP_20
+    return color * (1.f - 0.2f * rand(uv));
+#endif
 
-    #ifdef POSTPROC_SP_80
-        return color * (1.f - 0.8f * rand(uv));
-    #endif
+#ifdef POSTPROC_SP_80
+    return color * (1.f - 0.8f * rand(uv));
+#endif
 
-    #ifdef POSTPROC_PERIODIC_20
-        return color * (1.f - 0.2f * pnoise(uv * 10., vec2(1., 1.)));
-    #endif
+#ifdef POSTPROC_PERIODIC_20
+    return color * (1.f - 0.2f * pnoise(uv * 10., vec2(1., 1.)));
+#endif
 
-    #ifdef POSTPROC_PERIODIC_80
-        return color * (1.f - 0.8f * pnoise(uv * 10., vec2(1., 1.)));
-    #endif
+#ifdef POSTPROC_PERIODIC_80
+    return color * (1.f - 0.8f * pnoise(uv * 10., vec2(1., 1.)));
+#endif
 
-    #ifdef POSTPROC_PERLIN_20
-        return color * (1.f - 0.2f * cnoise(uv * 10.));
-    #endif
+#ifdef POSTPROC_PERLIN_20
+    return color * (1.f - 0.2f * cnoise(uv * 10.));
+#endif
 
-    #ifdef POSTPROC_PERLIN_80
-        return color * (1.f - 0.8f * cnoise(uv * 10.));
-    #endif
+#ifdef POSTPROC_PERLIN_80
+    return color * (1.f - 0.8f * cnoise(uv * 10.));
+#endif
 
     return color;
 }
 
 void main()
 {
-    fragColor = texture(texture_2d_array, vec3(v_uv, layer));
-    fragColor = postprocess(fragColor, v_uv.xy);
+    vec2 uv = v_uv;
+    //uv.y = 1. - uv.y;
+
+    /*float rot = radians(-180.);
+    uv -= .5;
+    mat2 m = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+    uv = m * uv;
+    uv += .5;*/
+
+    fragColor = texture(texture_2d_array, vec3(uv, layer));
+    fragColor = postprocess(fragColor, uv.xy);
 }

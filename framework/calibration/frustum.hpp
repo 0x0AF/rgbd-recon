@@ -16,7 +16,6 @@ public:
   glm::fvec3 getCameraPos() const;
   bool inside(glm::fvec3 const& point) const;
 
-private:
   std::array<glm::fvec3, 8> m_corners;
   std::array<glm::fvec4, 6> m_planes;
 };

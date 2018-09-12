@@ -39,8 +39,16 @@ __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
+
             vx_projection.projection[i].x = projection.x;
             vx_projection.projection[i].y = projection.y;
+
+            /*
+
+            TODO: investigate if inv projection is enough for data component evaluation (!)
+
+            float depth = sample_depth(dev_res.depth_tex[i], vx_projection.projection[i]).x;
+            printf("\nprojection: (%f,%f) %f:%f\n", projection.x, projection.y, projection.z, depth);*/
         }
         memcpy(&dev_res.sorted_vx_projections[address], &vx_projection, sizeof(struct_projection));
     }

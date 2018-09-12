@@ -38,7 +38,14 @@ void main()
         layer = 3;
     }
 
+    /*float rot = radians(270.);
+    uv -= .5;
+    mat2 m = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+    uv = m * uv;
+    uv += .5;*/
+
     ivec3 dims = textureSize(texture_2d_array, 0);
     ivec3 coordinate = ivec3(uv.x * dims.x, uv.y * dims.y, layer);
+
     fragColor = texelFetch(texture_2d_array, coordinate, 0);
 }
