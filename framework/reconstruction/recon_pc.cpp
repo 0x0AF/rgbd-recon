@@ -42,6 +42,8 @@ extern "C" double evaluate_dense_correspondence_field();
 extern "C" double pcg_solve();
 extern "C" double fuse_data();
 
+extern "C" double extract_data();
+
 extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
@@ -460,6 +462,19 @@ void ReconPerformanceCapture::drawF()
     }
 }
 
+void ReconPerformanceCapture::drawComparison()
+{
+    _nka->getPBOMutex().lock();
+
+    update_configuration(_conf);
+
+    extract_data(); // TODO: timer
+
+    draw_data();
+
+    _nka->getPBOMutex().unlock();
+}
+
 void ReconPerformanceCapture::draw()
 {
     _nka->getPBOMutex().lock();
@@ -600,7 +615,7 @@ void ReconPerformanceCapture::draw()
 
     if(!_conf.debug_reference_volume && !_conf.debug_warped_reference_volume_surface)
     {
-        draw_data();
+        draw_fused();
     }
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
@@ -668,6 +683,42 @@ void ReconPerformanceCapture::draw_data()
     _program_pc_fast_mc->setUniform("NormalMatrix", normal_matrix);
 
     auto total_verts = (unsigned int)compute_isosurface(IsoSurfaceVolume::Data);
+
+    _vao_fast_mc->bind();
+    _vao_fast_mc->drawArrays(GL_TRIANGLES, 0, total_verts);
+    globjects::VertexArray::unbind();
+
+    Program::release();
+
+    TimerDatabase::instance().end(TIMER_DATA_MESH_DRAW);
+}
+void ReconPerformanceCapture::draw_fused()
+{
+    TimerDatabase::instance().begin(TIMER_DATA_MESH_DRAW);
+
+    _program_pc_fast_mc->use();
+
+    gloost::Matrix projection_matrix;
+    glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
+    gloost::Matrix viewport_translate;
+    viewport_translate.setIdentity();
+    viewport_translate.setTranslate(1.0, 1.0, 1.0);
+    gloost::Matrix viewport_scale;
+    viewport_scale.setIdentity();
+
+    glm::uvec4 viewport_vals{getViewport()};
+    viewport_scale.setScale(viewport_vals[2] * 0.5, viewport_vals[3] * 0.5, 0.5f);
+    gloost::Matrix image_to_eye = viewport_scale * viewport_translate * projection_matrix;
+    image_to_eye.invert();
+    _program_pc_fast_mc->setUniform("img_to_eye_curr", image_to_eye);
+
+    gloost::Matrix modelview;
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelview.data());
+    glm::fmat4 model_view{modelview};
+    glm::fmat4 normal_matrix = glm::inverseTranspose(model_view * _mat_vol_to_world);
+    _program_pc_fast_mc->setUniform("NormalMatrix", normal_matrix);
+
+    auto total_verts = (unsigned int)compute_isosurface(IsoSurfaceVolume::Fused);
 
     _vao_fast_mc->bind();
     _vao_fast_mc->drawArrays(GL_TRIANGLES, 0, total_verts);
@@ -1064,4 +1115,5 @@ void ReconPerformanceCapture::divideBox()
     std::cout << "brick res " << _res_bricks.x << ", " << _res_bricks.y << ", " << _res_bricks.z << " - " << _bricks.front().indices.size() << " voxels per brick" << std::endl;
 }
 void ReconPerformanceCapture::pause(bool pause) { _is_paused = pause; }
+
 } // namespace kinect

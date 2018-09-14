@@ -132,6 +132,33 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         _io->_refine = !_io->_refine;
         _model->get_nka()->refineBoundary(_io->_refine);
         break;
+    case GLFW_KEY_J:
+        _io->_splitscreen_comparison = !_io->_splitscreen_comparison;
+
+        if(_io->_splitscreen_comparison)
+        {
+            _io->_aspect = (float)(_io->_screenWidth * 0.5 / _io->_screenHeight);
+
+            _model->get_camera()->setAspect(_io->_aspect);
+
+            for(auto &recon : _model->get_recons())
+            {
+                recon->resize((unsigned int)glm::round(_io->_screenWidth * 0.5), _io->_screenHeight);
+            }
+        }
+        else
+        {
+            _io->_aspect = (float)(_io->_screenWidth * 1. / _io->_screenHeight);
+
+            _model->get_camera()->setAspect(_io->_aspect);
+
+            for(auto &recon : _model->get_recons())
+            {
+                recon->resize((unsigned int)glm::round(_io->_screenWidth), _io->_screenHeight);
+            }
+        }
+
+        break;
     case GLFW_KEY_G:
         _io->_draw_grid = !_io->_draw_grid;
         break;
@@ -190,7 +217,7 @@ void click_callback(GLFWwindow *window, int button, int action, int mods)
 }
 void scroll_callback(GLFWwindow *window, double xoffset, double yoffset)
 {
-    _io->_zoom = std::min(_io->_zoom + (float)yoffset * 0.01f, 2.3f);
+    _io->_zoom = std::min(_io->_zoom + (float)yoffset * 0.05f, 2.5f);
     _model->get_navi()->setZoom(_io->_zoom);
 
     ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);

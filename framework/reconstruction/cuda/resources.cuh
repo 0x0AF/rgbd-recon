@@ -185,6 +185,7 @@ struct struct_device_resources
     uchar *out_tsdf_data = nullptr;
     uchar *out_tsdf_ref = nullptr;
     uchar *out_tsdf_warped_ref = nullptr;
+    uchar *out_tsdf_fused = nullptr;
 
     /// MC outputs
     float4 *pos = 0;

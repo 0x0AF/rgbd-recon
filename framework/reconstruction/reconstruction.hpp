@@ -15,6 +15,7 @@ namespace kinect{
 
     virtual void draw() = 0;
     virtual void drawF();
+    virtual void drawComparison();
 
     virtual void reload();
     // mustnt be implemented by children without fbos

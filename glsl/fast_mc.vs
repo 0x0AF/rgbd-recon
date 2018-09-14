@@ -15,5 +15,5 @@ void main()
 {
     gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * world_to_vol * in_position;
     pass_Position = (inverse(vol_to_world) * world_to_vol * in_position).xyz;
-    pass_Normal = in_normal.xyz;
+    pass_Normal = normalize(in_normal.xyz);
 }

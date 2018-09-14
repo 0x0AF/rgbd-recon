@@ -76,7 +76,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 #endif
 
 #ifdef PIPELINE_DEBUG_OPTICAL_FLOW
-  checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow_debug, native_handles.pbo_opticflow_debug, cudaGraphicsRegisterFlagsWriteDiscard));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow_debug, native_handles.pbo_opticflow_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 #endif
 
     for(unsigned int i = 0; i < 4; i++)
@@ -133,6 +133,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaMalloc(&_dev_res.out_tsdf_data, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
     checkCudaErrors(cudaMalloc(&_dev_res.out_tsdf_ref, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
     checkCudaErrors(cudaMalloc(&_dev_res.out_tsdf_warped_ref, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
+    checkCudaErrors(cudaMalloc(&_dev_res.out_tsdf_fused, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
 
     checkCudaErrors(cudaMalloc(&_dev_res.pos, MAX_REFERENCE_VERTICES * 4 * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.normal, MAX_REFERENCE_VERTICES * 4 * sizeof(float)));
@@ -246,7 +247,7 @@ extern "C" void deinit_cuda()
 #endif
 
 #ifdef PIPELINE_DEBUG_OPTICAL_FLOW
-  checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow_debug));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow_debug));
 #endif
 
     for(unsigned int i = 0; i < 4; i++)
@@ -298,6 +299,11 @@ extern "C" void deinit_cuda()
     if(_dev_res.out_tsdf_warped_ref != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.out_tsdf_warped_ref));
+    }
+
+    if(_dev_res.out_tsdf_fused != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.out_tsdf_fused));
     }
 
     free_brick_resources();

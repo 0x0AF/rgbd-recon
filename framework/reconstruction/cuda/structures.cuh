@@ -103,7 +103,8 @@ enum class IsoSurfaceVolume
 {
     Data,
     Reference,
-    WarpedReference
+    WarpedReference,
+    Fused
 };
 
 struct Configuration

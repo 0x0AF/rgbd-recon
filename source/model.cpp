@@ -60,7 +60,7 @@ void model::cmd(CMDParser &p)
     // load global variables
     init_config(p.getArgs());
 }
-void model::init(std::string& file_name, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path)
+void model::init(std::string &file_name, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path)
 {
     _bbox = std::make_shared<gloost::BoundingBox>();
     _camera = std::make_shared<gloost::PerspectiveCamera>(50.0, io._aspect, 0.1, 200.0);
@@ -97,13 +97,13 @@ void model::init(std::string& file_name, gloost::Point3 &bbox_min, gloost::Point
     _recon_pc->setTsdfLimit(io._tsdf_limit);
     //    _recon_pc->setVoxelSize(io._voxel_size);
     //    _recon_pc->setBrickSize(io._brick_size);
-//    _recon_integration->setTsdfLimit(io._tsdf_limit);
-//    _recon_integration->setVoxelSize(io._voxel_size);
-//    _recon_integration->setBrickSize(io._brick_size);
-//    _recon_integration->setColorFilling(io._colorfill);
-//    _recon_integration->setSpaceSkip(io._skip_space);
-//    _recon_integration->setDrawBricks(io._draw_bricks);
-//    _recon_integration->setUseBricks(io._bricking);
+    //    _recon_integration->setTsdfLimit(io._tsdf_limit);
+    //    _recon_integration->setVoxelSize(io._voxel_size);
+    //    _recon_integration->setBrickSize(io._brick_size);
+    //    _recon_integration->setColorFilling(io._colorfill);
+    //    _recon_integration->setSpaceSkip(io._skip_space);
+    //    _recon_integration->setDrawBricks(io._draw_bricks);
+    //    _recon_integration->setUseBricks(io._bricking);
 
     io._aspect = (float)(io._screenWidth * 1.0 / io._screenHeight);
 

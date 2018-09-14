@@ -305,7 +305,7 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
         if(glm::abs(weight) < 0.00001f || aggregated_average_error > 0.9999f)
         {
             dev_res.tsdf_fused[offset] = data;
-            dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+            dev_res.out_tsdf_fused[offset] = tsdf_2_8bit(data.x);
         }
         else
         {
@@ -313,13 +313,13 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
             value /= weight;
 
             dev_res.tsdf_fused[offset] = float2{value, weight};
-            dev_res.out_tsdf_data[offset] = tsdf_2_8bit(value);
+            dev_res.out_tsdf_fused[offset] = tsdf_2_8bit(value);
         }
     }
     else
     {
         dev_res.tsdf_fused[offset] = data;
-        dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+        dev_res.out_tsdf_fused[offset] = tsdf_2_8bit(data.x);
     }
 }
 
@@ -371,7 +371,7 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
 extern "C" double fuse_data()
 {
     checkCudaErrors(cudaMemset(_dev_res.out_tsdf_warped_ref, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
-    checkCudaErrors(cudaMemset(_dev_res.out_tsdf_data, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
+    checkCudaErrors(cudaMemset(_dev_res.out_tsdf_fused, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
 
     TimerGPU timer(0);
 
@@ -399,6 +399,53 @@ extern "C" double fuse_data()
     cudaDeviceSynchronize();
 
     unmap_error_texture();
+    unmap_tsdf_volumes();
+
+    checkCudaErrors(cudaThreadSynchronize());
+    return timer.read();
+}
+
+__global__ void kernel_copy_data(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_bricks_count * measures.brick_num_voxels)
+    {
+        return;
+    }
+
+    unsigned int brick_id = dev_res.bricks_dense_index[idx / measures.brick_num_voxels];
+    unsigned int pos_id = idx % measures.brick_num_voxels;
+
+    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 position = position_3d(pos_id, measures);
+    glm::uvec3 world = brick + position;
+
+    if(!in_data_volume(world, measures))
+    {
+        return;
+    }
+
+    float2 data;
+    surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+
+    unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
+
+    dev_res.out_tsdf_data[offset] = tsdf_2_8bit(data.x);
+}
+
+extern "C" double extract_data()
+{
+    checkCudaErrors(cudaMemset(_dev_res.out_tsdf_data, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
+
+    TimerGPU timer(0);
+
+    map_tsdf_volumes();
+
+    kernel_copy_data<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
+
     unmap_tsdf_volumes();
 
     checkCudaErrors(cudaThreadSynchronize());

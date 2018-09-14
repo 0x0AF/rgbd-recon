@@ -464,11 +464,26 @@ void renderer::draw3d()
     {
     case 0: // MONO
     {
-        glViewport(0, 0, _io->_screenWidth, _io->_screenHeight);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        _model->get_camera()->set();
-        update_model_matrix();
-        _model->get_recons().at(_io->_recon_mode)->drawF();
+        if(!_io->_splitscreen_comparison)
+        {
+            glViewport(0, 0, _io->_screenWidth, _io->_screenHeight);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            _model->get_camera()->set();
+            update_model_matrix();
+            _model->get_recons().at(_io->_recon_mode)->drawF();
+        }
+        else
+        {
+            _model->get_camera()->set();
+            update_model_matrix();
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            glViewport(0, 0, _io->_screenWidth / 2, _io->_screenHeight);
+            _model->get_recons().at(_io->_recon_mode)->drawF();
+
+            glViewport(_io->_screenWidth / 2, 0, _io->_screenWidth / 2, _io->_screenHeight);
+            _model->get_recons().at(_io->_recon_mode)->drawComparison();
+        }
     }
     break;
     case 1: // ANAGLYPH STEREO
@@ -527,17 +542,52 @@ void renderer::draw3d()
 
     if(0 == _io->_stereo_mode)
     {
-        if(_io->_draw_calibvis)
+        if(!_io->_splitscreen_comparison)
         {
-            _model->get_calibvis()->draw();
+            if(_io->_draw_calibvis)
+            {
+                _model->get_calibvis()->draw();
+            }
+            if(_io->_draw_frustums)
+            {
+                _model->get_cv()->drawFrustums();
+            }
+            if(_io->_draw_grid)
+            {
+                _model->get_bbox()->draw();
+            }
         }
-        if(_io->_draw_frustums)
+        else
         {
-            _model->get_cv()->drawFrustums();
-        }
-        if(_io->_draw_grid)
-        {
-            _model->get_bbox()->draw();
+            glViewport(0, 0, _io->_screenWidth / 2, _io->_screenHeight);
+
+            if(_io->_draw_calibvis)
+            {
+                _model->get_calibvis()->draw();
+            }
+            if(_io->_draw_frustums)
+            {
+                _model->get_cv()->drawFrustums();
+            }
+            if(_io->_draw_grid)
+            {
+                _model->get_bbox()->draw();
+            }
+
+            glViewport(_io->_screenWidth / 2, 0, _io->_screenWidth / 2, _io->_screenHeight);
+
+            if(_io->_draw_calibvis)
+            {
+                _model->get_calibvis()->draw();
+            }
+            if(_io->_draw_frustums)
+            {
+                _model->get_cv()->drawFrustums();
+            }
+            if(_io->_draw_grid)
+            {
+                _model->get_bbox()->draw();
+            }
         }
     }
 

@@ -53,6 +53,9 @@ extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target)
     case IsoSurfaceVolume::WarpedReference:
         target_ptr = _dev_res.out_tsdf_warped_ref;
         break;
+    case IsoSurfaceVolume::Fused:
+        target_ptr = _dev_res.out_tsdf_fused;
+        break;
     }
 
     bindVolumeTexture(target_ptr);

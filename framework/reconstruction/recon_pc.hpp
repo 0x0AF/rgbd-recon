@@ -65,6 +65,7 @@ class ReconPerformanceCapture : public Reconstruction
 
     void draw() override;
     void drawF() override;
+    void drawComparison() override;
     void integrate_data_frame();
 
     float occupiedRatio() const;
@@ -132,6 +133,7 @@ class ReconPerformanceCapture : public Reconstruction
     void divideBox();
     void extract_reference_mesh();
     void draw_data();
+    void draw_fused();
     void draw_debug_reference_volume();
     void draw_debug_reference_volume_warped();
     void draw_debug_reference_gradient();
