@@ -38,7 +38,7 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define CUDA_ALIGN_4
 #endif
 
-// #define VERBOSE
+#define VERBOSE
 // #define DEBUG_NANS
 
 #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
@@ -79,7 +79,7 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
 // #define EVALUATE_ED_REGULARIZATION
-#define EVALUATE_CORRESPONDENCE_FIELD
+// #define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
@@ -94,9 +94,9 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 // #define DEBUG_JTF
 // #define DEBUG_H
 
-#define SOLVER_DIRECT_CHOL
+// #define SOLVER_DIRECT_CHOL
 // #define SOLVER_DIRECT_QR
-// #define SOLVER_CG
+#define SOLVER_CG
 // #define SOLVER_PCG
 
 enum class IsoSurfaceVolume
@@ -112,7 +112,7 @@ struct Configuration
     // bool verbose = false;
     // bool debug_nan = false;
 
-    int reset_frame_count = 64;
+    int reset_frame_count = 100;
 
     bool use_bricks = true;
     bool draw_bricks = false;
@@ -130,11 +130,11 @@ struct Configuration
 
     bool pipeline_preprocess_textures = true;
     bool pipeline_sample = true;
-    bool pipeline_correspondence = true;
+    bool pipeline_correspondence = false;
     bool pipeline_align = true;
     bool pipeline_fuse = true;
 
-    int textures_silhouettes_iterations = 10;
+    int textures_silhouettes_iterations = 20;
     int textures_SIFT_octaves = 5;
     float textures_SIFT_blur = 0.2f;
     float textures_SIFT_threshold = 0.025f;
@@ -143,19 +143,19 @@ struct Configuration
     float textures_SIFT_min_score = 0.95f;
     float textures_SIFT_max_motion = 0.1f;
 
-    float opticflow_scaling_factor = 0.05;    // 0.95;
+    float opticflow_scaling_factor = 0.95;    // 0.95;
     int opticflow_num_inner_iterations = 5;   // 5;
     int opticflow_num_outer_iterations = 150; // 150;
     int opticflow_num_solver_iterations = 10; // 10;
 
-    float weight_data = 1.f;
-    float weight_hull = 1.f;
+    float weight_data = 1000.f;
+    float weight_hull = 0.01f;
     float weight_correspondence = 1.f;
     float weight_regularization = 1.f;
 
-    float solver_mu = 0.001f;
-    float solver_mu_step = 0.025f;
-    int solver_lma_steps = 1;
+    float solver_mu = 1.2f;
+    float solver_mu_step = 0.1f;
+    int solver_lma_steps = 12;
     int solver_cg_steps = 12;
 
     float rejection_threshold = 0.01f;

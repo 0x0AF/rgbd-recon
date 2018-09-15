@@ -116,7 +116,7 @@ class model
         float _zoom = 2.5f;
         double _time_prev = 0.0f;
 
-        int _min_voxels = 6;
+        int _min_voxels = 0;
 
         bool _loaded_conf = false;
         unsigned _time_limit = 1;

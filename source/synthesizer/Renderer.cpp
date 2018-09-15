@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include "Controller.h"
+#include <reconstruction/cuda/clouds.h>
 
 using namespace glbinding;
 
@@ -28,7 +29,7 @@ void Renderer::draw()
         set_identity_matrix(_model_matrix, 4);
         translate(0.5f + translation.x, 0.5f + translation.y, -0.5f + translation.z);
         rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
-        scale(0.25f, 0.25f, 0.25f);
+        scale(0.5f, 0.5f, 0.5f);
     }
 
     /// Geometry pass
@@ -62,6 +63,7 @@ void Renderer::draw()
 
         _program->use();
         _program->setUniform("layer", (int)i);
+        _program->setUniform("clouds", 8);
 
         // 27 meshes
         /*recursive_render(_controller->get_environment(), _controller->get_environment()->mRootNode);*/
@@ -189,13 +191,13 @@ void Renderer::draw()
         case 0:
         {
             glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_color_postproc->id());
-            _program_debug_texture->setUniform("texture_2d_array", 12);
+            _program_debug_texture->setUniform("texture_2d_array", 6);
         }
         break;
         case 1:
         {
             glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_depth_postproc->id());
-            _program_debug_texture->setUniform("texture_2d_array", 13);
+            _program_debug_texture->setUniform("texture_2d_array", 7);
         }
         break;
         }
@@ -243,6 +245,28 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _fbo_color = new globjects::Framebuffer();
     _fbo_depth = new globjects::Framebuffer();
 
+    float *cloud_noise = (float *)malloc(512 * 424 * sizeof(float));
+    char *cloud_data_ptr = cloud_data;
+
+    for(int i = 0; i < 512 * 424; i++)
+    {
+        int pixel = (((cloud_data_ptr[0] - 33) << 2) | ((cloud_data_ptr[1] - 33) >> 4));
+        cloud_noise[i] = ((float)pixel) / 256.f;
+
+        // printf("\npixel: %i\n", pixel);
+
+        cloud_data_ptr += 4;
+    }
+
+    _texture_clouds = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D);
+    _texture_clouds->image2D(0, (gl::GLenum)GL_R32F, 512, 424, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, cloud_noise);
+    _texture_clouds->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_clouds->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
+
+    free(cloud_noise);
+
+    gl::glBindTextureUnit(8, _texture_clouds->id());
+
     _texture_color = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
     _texture_color->image3D(0, (gl::GLenum)GL_RGB8, 512, 424, 4, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, (void *)nullptr);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
@@ -273,10 +297,10 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _texture_dummy_depth_512->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_NEAREST);
     _texture_dummy_depth_512->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_NEAREST);
 
-    gl::glBindTextureUnit(10, _texture_color->id());
-    gl::glBindTextureUnit(11, _texture_depth->id());
-    gl::glBindTextureUnit(12, _texture_color_postproc->id());
-    gl::glBindTextureUnit(13, _texture_depth_postproc->id());
+    gl::glBindTextureUnit(4, _texture_color->id());
+    gl::glBindTextureUnit(5, _texture_depth->id());
+    gl::glBindTextureUnit(6, _texture_color_postproc->id());
+    gl::glBindTextureUnit(7, _texture_depth_postproc->id());
 
     _program_debug_texture = new globjects::Program();
     _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
@@ -285,12 +309,12 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _program_postproc_color = new globjects::Program();
     _program_postproc_color->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
     _program_postproc_color->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/postproc_color.fs"));
-    _program_postproc_color->setUniform("texture_2d_array", 10);
+    _program_postproc_color->setUniform("texture_2d_array", 4);
 
     _program_postproc_depth = new globjects::Program();
     _program_postproc_depth->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
     _program_postproc_depth->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/postproc_depth.fs"));
-    _program_postproc_depth->setUniform("texture_2d_array", 11);
+    _program_postproc_depth->setUniform("texture_2d_array", 5);
 
     _program = new globjects::Program();
 
@@ -337,6 +361,12 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
 }
 Renderer::~Renderer()
 {
+    _texture_clouds->destroy();
+    _texture_color->destroy();
+    _texture_depth->destroy();
+    _texture_color_postproc->destroy();
+    _texture_depth_postproc->destroy();
+
     free(_frame_color);
     free(_frame_depth);
 

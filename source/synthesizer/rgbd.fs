@@ -11,6 +11,7 @@ layout(std140) uniform Material
 };
 
 uniform sampler2D texUnit;
+uniform sampler2D clouds;
 
 in vec3 Normal;
 in vec2 TexCoord;
@@ -29,7 +30,7 @@ void main()
     vec3 n;
 
     lightDir = normalize(vec3(1.0, 1.0, 1.0));
-    n = /*normalize(*/Normal/*)*/;
+    n = /*normalize(*/ Normal /*)*/;
     intensity = max(dot(lightDir, n), 0.0);
 
     /*if(texCount == 0)
@@ -48,7 +49,7 @@ void main()
 
     out_color = (color * intensity) + amb;*/
 
-    out_color = vec4(n, 1.);
+    out_color = vec4(n * texture(clouds, TexCoord).r, 1.);
 
     // out_color = vec4(1.0f, 0.f, 0.f, 1.f);
 

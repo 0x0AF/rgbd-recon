@@ -109,6 +109,7 @@ class Renderer
     globjects::VertexArray *_vao_fsquad_debug;
 
     globjects::Framebuffer *_fbo, *_fbo_color, *_fbo_depth;
+    globjects::Texture *_texture_clouds;
     globjects::Texture *_texture_color;
     globjects::Texture *_texture_depth;
     globjects::Texture *_texture_color_postproc;

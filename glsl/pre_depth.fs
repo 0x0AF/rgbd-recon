@@ -79,8 +79,8 @@ float normalize_depth(float depth) {
   return (depth - cv_min_ds)/(cv_max_ds - cv_min_ds);
 }
 vec3 get_color(vec3 coords) {
-  vec2 coords_c = texture(cv_uv[layer], coords).xy;
-  return texture(kinect_colors, vec3(coords_c, layer)).rgb;
+  //vec2 coords_c = texture(cv_uv[layer], coords).xy;
+  return texture(kinect_colors, vec3(coords.xy, layer)).rgb;
 }
 vec2 bilateral_filter(vec3 coords){
 

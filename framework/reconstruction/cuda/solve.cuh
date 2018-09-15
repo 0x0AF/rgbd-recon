@@ -141,9 +141,9 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
             if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
             {
-#ifdef VERBOSE
+/*#ifdef VERBOSE
                 printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
-#endif
+#endif*/
                 continue;
             }
 
@@ -163,9 +163,9 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
             if(!in_normal_space(coordinate))
             {
-#ifdef VERBOSE
+/*#ifdef VERBOSE
                 printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
-#endif
+#endif*/
                 continue;
             }
 

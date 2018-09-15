@@ -119,9 +119,10 @@ int main(int, char *[])
               << "OpenGL Renderer: " << ContextInfo::renderer() << std::endl;
 
     // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/model-triangulated.obj");
-    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/lion-fixed.obj");
+    std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/breakers.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/lion-simple.obj");
     // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/cube.obj");
-    std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/sphere.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/sphere.obj");
     // std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/emptyworldground.dae");
     std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/environment.dae");
 

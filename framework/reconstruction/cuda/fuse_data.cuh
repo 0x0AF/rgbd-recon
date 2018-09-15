@@ -149,9 +149,9 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     if(!in_data_volume(world_voxel, measures))
     {
-#ifdef VERBOSE
+/*#ifdef VERBOSE
         printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
-#endif
+#endif*/
         return;
     }
 
@@ -164,9 +164,9 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     if(!in_data_volume(warped_position_voxel, measures))
     {
-#ifdef VERBOSE
+/*#ifdef VERBOSE
         printf("\nout of volume: warped_position_voxel(%i,%i,%i)\n", warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
-#endif
+#endif*/
         return;
     }
 
@@ -348,9 +348,9 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
 
     if(!in_data_volume(world_voxel, measures))
     {
-#ifdef VERBOSE
+/*#ifdef VERBOSE
         printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
-#endif
+#endif*/
         return;
     }
 

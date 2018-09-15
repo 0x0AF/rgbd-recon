@@ -280,9 +280,9 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         if(!in_normal_space(coordinate))
         {
-#ifdef VERBOSE
+/*#ifdef VERBOSE
             printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
-#endif
+#endif*/
             continue;
         }
 
