@@ -2,8 +2,18 @@
 
 #extension GL_ARB_explicit_attrib_location : require
 uniform sampler2DArray texture_2d_array;
+uniform int mode;
 layout(location = 0) out vec4 fragColor;
 in vec2 v_uv;
+
+#define TWO_PI 6.28318530718
+
+vec3 hsv2rgb(in vec3 c)
+{
+    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+
+    return c.z * mix(vec3(1.0), rgb, c.y);
+}
 
 void main()
 {
@@ -49,8 +59,17 @@ void main()
 
     fragColor = texelFetch(texture_2d_array, coordinate, 0);
 
-    if(fragColor.r > 1.0)
+    switch(mode)
     {
+    case 1:
         fragColor = fragColor / (3. - 0.5);
+        break;
+    case 3:
+        float angle = atan(fragColor.y, fragColor.x);
+        float radius = length(vec2(fragColor.x, fragColor.y)) * 2.f;
+
+        vec3 color = hsv2rgb(vec3((angle / TWO_PI) + 0.5f, radius, 1.f));
+        fragColor = vec4(color, 1.f);
+        break;
     }
 }

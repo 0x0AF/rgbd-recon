@@ -2,6 +2,14 @@
 #include "Controller.h"
 #include <reconstruction/cuda/clouds.h>
 
+#include <cuda_runtime.h>
+
+#include <globjects/Sync.h>
+
+extern "C" void init_of_cuda();
+extern "C" void deinit_of_cuda();
+extern "C" void evaluate_optical_flow(float *color_frame, float *color_frame_previous, float2 *opticflow_frame);
+
 using namespace glbinding;
 
 void Renderer::resize(int width, int height)
@@ -14,13 +22,13 @@ void Renderer::resize(int width, int height)
 
     build_projection_matrix(70.6f, 1.20754717f, 0.1f, 3.f);
 }
-static int i = 0;
+static int k = 0;
 void Renderer::draw()
 {
     /// Choreography
 
     {
-        int frame = (i % 100);
+        int frame = (k % 100);
         frame = (frame > 50) ? 100 - frame : frame;
 
         glm::fvec3 translation = _choreographer->get_translation(frame);
@@ -51,6 +59,8 @@ void Renderer::draw()
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        _fbo->clearBuffer((gl::GLenum)GL_COLOR, (gl::GLint)0, glm::vec4(0.f, 0.2f, 0.f, 1.f));
+
         globjects::Framebuffer::clearColor(0.f, 0.2f, 0.f, 1.f);
         globjects::Framebuffer::clearDepth(100.f);
 
@@ -58,16 +68,53 @@ void Renderer::draw()
         set_camera(_camera_descriptor[i].pos.x, _camera_descriptor[i].pos.y, _camera_descriptor[i].pos.z, _camera_descriptor[i].look_at.x, _camera_descriptor[i].look_at.y,
                    _camera_descriptor[i].look_at.z, _camera_descriptor[i].up.x, _camera_descriptor[i].up.y, _camera_descriptor[i].up.z);
 
-        /*set_identity_matrix(_model_matrix, 4);
-        translate(_translation.x, _translation.y, _translation.z);*/
-
         _program->use();
         _program->setUniform("layer", (int)i);
         _program->setUniform("clouds", 8);
 
-        // 27 meshes
-        /*recursive_render(_controller->get_environment(), _controller->get_environment()->mRootNode);*/
         recursive_render(_controller->get_poi(), _controller->get_poi()->mRootNode);
+
+        globjects::Program::release();
+
+        globjects::Framebuffer::unbind();
+    }
+
+    /// OpticFlow pass
+
+    for(unsigned i = 0; i < 4; i++)
+    {
+        _fbo_grayscale->bind();
+
+        _fbo_grayscale->setDrawBuffers({(gl::GLenum)GL_COLOR_ATTACHMENT0, (gl::GLenum)GL_DEPTH_ATTACHMENT});
+        _fbo_grayscale->attachTextureLayer((gl::GLenum)GL_COLOR_ATTACHMENT0, _texture_grayscale, 0, i);
+        _fbo_grayscale->attachTextureLayer((gl::GLenum)GL_DEPTH_ATTACHMENT, _texture_dummy_depth_512, 0, i);
+
+        glViewport(0, 0, 512, 424);
+
+        if(GL_FRAMEBUFFER_COMPLETE != _fbo_grayscale->checkStatus())
+        {
+            std::cerr << "FBO is not happy: " << _fbo_grayscale->checkStatus() << std::endl;
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        _fbo_grayscale->clearBuffer((gl::GLenum)GL_COLOR, (gl::GLint)0, glm::vec4(0.f, 0.2f, 0.f, 1.f));
+
+        globjects::Framebuffer::clearColor(0.f, 0.2f, 0.f, 1.f);
+        globjects::Framebuffer::clearDepth(100.f);
+
+        _program_postproc_color->use();
+        _program_postproc_color->setUniform("layer", (int)i);
+        _program_postproc_color->setUniform("clouds", 8);
+        _program_postproc_color->setUniform("fill_clouds", (bool)true);
+
+        glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_color->id());
+
+        _vao_fsquad_debug->bind();
+        _vao_fsquad_debug->drawArrays((gl::GLenum)GL_TRIANGLE_STRIP, 0, 4);
+        globjects::VertexArray::unbind();
+
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
         globjects::Program::release();
 
@@ -98,6 +145,7 @@ void Renderer::draw()
 
         _program_postproc_color->use();
         _program_postproc_color->setUniform("layer", (int)i);
+        _program_postproc_color->setUniform("fill_clouds", (bool)false);
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_color->id());
 
@@ -113,6 +161,8 @@ void Renderer::draw()
     }
 
     /// Depth postprocess pass
+
+    glDisable(GL_MULTISAMPLE);
 
     for(unsigned i = 0; i < 4; i++)
     {
@@ -150,17 +200,62 @@ void Renderer::draw()
         globjects::Framebuffer::unbind();
     }
 
+    glEnable(GL_MULTISAMPLE);
+
     /// Write to RAM
     {
+        _texture_grayscale->getImage(0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, _frame_grayscale);
         _texture_color_postproc->getImage(0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, _frame_color);
         _texture_depth_postproc->getImage(0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, _frame_depth);
     }
+
+#define WRITE_OPTICFLOW
+
+#ifdef WRITE_OPTICFLOW
+
+    if(k < 101)
+    {
+        size_t size_grayscale = 512 * 424 * sizeof(float);
+        size_t framesize_grayscale = 4 * size_grayscale;
+        size_t size_opticflow = 512 * 424 * 2 * sizeof(float);
+        size_t framesize_opticflow = 4 * size_opticflow;
+
+        if(k == 0)
+        {
+            memcpy(_frame_grayscale_prev, _frame_grayscale, framesize_grayscale);
+        }
+
+        for(int layer = 0; layer < 4; layer++)
+        {
+            evaluate_optical_flow(_frame_grayscale + 512 * 424 * layer, _frame_grayscale_prev + 512 * 424 * layer, _of_frame);
+
+            /*for(int i = 0; i < 512 * 424; i++)
+            {
+                if(_of_frame[layer][i].x != 0 || _of_frame[layer][i].y != 0)
+                {
+                    printf("\n(%i,%i): (%f,%f)\n", i / 512, i % 424, _of_frame[layer][i].x, _of_frame[layer][i].y);
+                }
+            }*/
+
+            memcpy(_of_frame_concat + 512 * 424 * layer, _of_frame, size_opticflow);
+        }
+
+        memcpy(_frame_grayscale_prev, _frame_grayscale, framesize_grayscale);
+
+        _fb_of->write((byte *)_of_frame_concat, framesize_opticflow);
+
+        _texture_optical_flow->subImage3D(0, 0, 0, 0, 512, 424, 4, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, _of_frame_concat);
+
+        std::cout << k << "%" << std::endl;
+    }
+
+#endif
 
 #define WRITE_RGBD
 
 #ifdef WRITE_RGBD
 
-    if(i < 101)
+    if(k < 101)
     {
         size_t colorsize = 1280 * 1080 * 3 * sizeof(byte);
         size_t depthsize = 512 * 424 * sizeof(float);
@@ -192,12 +287,28 @@ void Renderer::draw()
         {
             glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_color_postproc->id());
             _program_debug_texture->setUniform("texture_2d_array", 6);
+            _program_debug_texture->setUniform("mode", 0);
         }
         break;
         case 1:
         {
             glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_depth_postproc->id());
             _program_debug_texture->setUniform("texture_2d_array", 7);
+            _program_debug_texture->setUniform("mode", 1);
+        }
+        break;
+        case 2:
+        {
+            glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_grayscale->id());
+            _program_debug_texture->setUniform("texture_2d_array", 10);
+            _program_debug_texture->setUniform("mode", 2);
+        }
+        break;
+        case 3:
+        {
+            glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_optical_flow->id());
+            _program_debug_texture->setUniform("texture_2d_array", 9);
+            _program_debug_texture->setUniform("mode", 3);
         }
         break;
         }
@@ -211,7 +322,7 @@ void Renderer::draw()
         globjects::Program::release();
     }
 
-    i++;
+    k++;
 }
 Renderer::Renderer(Controller *controller, Choreographer *choreographer)
 {
@@ -226,8 +337,22 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
                   << " exiting..." << std::endl;
     }
 
+    _fb_of = new FileBuffer(std::string("/home/xaf/Desktop/MSc/data/synthetic_rgbd/record.flow").c_str());
+    if(!_fb_of->open("w", 0))
+    {
+        std::cerr << "error opening "
+                  << "record.flow"
+                  << " exiting..." << std::endl;
+    }
+
+    _of_frame = (float2 *)malloc((512 * 424) * 2 * sizeof(float));
+    memset(_of_frame, 0, (512 * 424) * 2 * sizeof(float));
+
     _frame_color = (unsigned char *)malloc(4 * (1280 * 1080) * 3 * sizeof(unsigned char));
+    _frame_grayscale = (float *)malloc(4 * (512 * 424) * sizeof(float));
+    _frame_grayscale_prev = (float *)malloc(4 * (512 * 424) * sizeof(float));
     _frame_depth = (float *)malloc(4 * (512 * 424) * sizeof(float));
+    _of_frame_concat = (float2 *)malloc(4 * (512 * 424) * 2 * sizeof(float));
     _vao_fsquad_debug = new globjects::VertexArray();
 
     const std::array<glm::vec2, 4> raw{{glm::vec2(1.f, -1.f), glm::vec2(1.f, 1.f), glm::vec2(-1.f, -1.f), glm::vec2(-1.f, 1.f)}};
@@ -242,35 +367,19 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _vao_fsquad_debug->enable(0);
 
     _fbo = new globjects::Framebuffer();
+    _fbo_grayscale = new globjects::Framebuffer();
     _fbo_color = new globjects::Framebuffer();
     _fbo_depth = new globjects::Framebuffer();
-
-    float *cloud_noise = (float *)malloc(512 * 424 * sizeof(float));
-    char *cloud_data_ptr = cloud_data;
-
-    for(int i = 0; i < 512 * 424; i++)
-    {
-        int pixel = (((cloud_data_ptr[0] - 33) << 2) | ((cloud_data_ptr[1] - 33) >> 4));
-        cloud_noise[i] = ((float)pixel) / 256.f;
-
-        // printf("\npixel: %i\n", pixel);
-
-        cloud_data_ptr += 4;
-    }
-
-    _texture_clouds = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D);
-    _texture_clouds->image2D(0, (gl::GLenum)GL_R32F, 512, 424, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, cloud_noise);
-    _texture_clouds->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
-    _texture_clouds->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
-
-    free(cloud_noise);
-
-    gl::glBindTextureUnit(8, _texture_clouds->id());
 
     _texture_color = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
     _texture_color->image3D(0, (gl::GLenum)GL_RGB8, 512, 424, 4, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, (void *)nullptr);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
+
+    _texture_grayscale = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
+    _texture_grayscale->image3D(0, (gl::GLenum)GL_LUMINANCE32F_ARB, 512, 424, 4, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_grayscale->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_grayscale->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
 
     _texture_depth = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
     _texture_depth->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 512, 424, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
@@ -302,6 +411,37 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     gl::glBindTextureUnit(6, _texture_color_postproc->id());
     gl::glBindTextureUnit(7, _texture_depth_postproc->id());
 
+    gl::glBindTextureUnit(10, _texture_grayscale->id());
+
+    float *cloud_noise = (float *)malloc(512 * 424 * sizeof(float));
+    char *cloud_data_ptr = cloud_data;
+
+    for(int i = 0; i < 512 * 424; i++)
+    {
+        int pixel = (((cloud_data_ptr[0] - 33) << 2) | ((cloud_data_ptr[1] - 33) >> 4));
+        cloud_noise[i] = ((float)pixel) / 256.f;
+
+        // printf("\npixel: %i\n", pixel);
+
+        cloud_data_ptr += 4;
+    }
+
+    _texture_clouds = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D);
+    _texture_clouds->image2D(0, (gl::GLenum)GL_R32F, 512, 424, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, cloud_noise);
+    _texture_clouds->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_clouds->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
+
+    free(cloud_noise);
+
+    gl::glBindTextureUnit(8, _texture_clouds->id());
+
+    _texture_optical_flow = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
+    _texture_optical_flow->image3D(0, (gl::GLenum)GL_RG32F, 512, 424, 4, 0, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_optical_flow->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_optical_flow->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
+
+    gl::glBindTextureUnit(9, _texture_optical_flow->id());
+
     _program_debug_texture = new globjects::Program();
     _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
     _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/debug_texture.fs"));
@@ -317,6 +457,7 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _program_postproc_depth->setUniform("texture_2d_array", 5);
 
     _program = new globjects::Program();
+    _program->use();
 
     _program->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/rgbd.vs"));
     _program->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/rgbd.fs"));
@@ -343,6 +484,8 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _program->setUniform("cv_xyz", cv_xyz);
     _program->setUniform("cv_uv", cv_uv);
 
+    globjects::Program::release();
+
     /*gen_VAOs_and_uniform_buffer(_controller->get_environment());*/
     // std::cout << _meshes.size ()<<std::endl;
     gen_VAOs_and_uniform_buffer(_controller->get_poi());
@@ -358,26 +501,40 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer)
     _camera_descriptor.emplace_back(CameraDescriptor({-1.167827, 1.737460, -1.217051}, {0.637262, 0.483070, -0.091411}, {1.004609, 0.109431, -1.444962}));
     _camera_descriptor.emplace_back(CameraDescriptor({-0.555437, 1.450083, 0.766697}, {0.770930, 0.439488, -1.035440}, {-1.396523, 0.059429, -1.071998}));
     _camera_descriptor.emplace_back(CameraDescriptor({1.179815, 1.634909, 0.679016}, {-0.102515, 0.257020, -0.917234}, {-1.362445, -0.061225, 1.111593}));
+
+    init_of_cuda();
 }
 Renderer::~Renderer()
 {
     _texture_clouds->destroy();
     _texture_color->destroy();
+    _texture_grayscale->destroy();
+    _texture_optical_flow->destroy();
     _texture_depth->destroy();
     _texture_color_postproc->destroy();
     _texture_depth_postproc->destroy();
 
+    free(_of_frame);
+
     free(_frame_color);
+    free(_frame_grayscale);
+    free(_frame_grayscale_prev);
     free(_frame_depth);
+    free(_of_frame_concat);
 
     _fb->close();
     delete _fb;
 
+    _fb_of->close();
+    delete _fb_of;
+
     _vao_fsquad_debug->destroy();
     _buffer_fsquad_debug->destroy();
-    _fbo->destroy();
 
     _program->destroy();
+    _program_debug_texture->destroy();
+    _program_postproc_color->destroy();
+    _program_postproc_depth->destroy();
 
     _texture_id_map.clear();
 
@@ -389,6 +546,8 @@ Renderer::~Renderer()
     }
 
     gl::glDeleteBuffers(1, &_matrices_uni_buffer);
+
+    deinit_of_cuda();
 }
 void Renderer::recursive_render(const aiScene *sc, const aiNode *nd, int offset)
 {
@@ -793,3 +952,5 @@ void Renderer::normalize(float *a)
 glm::vec3 &Renderer::get_translation() { return _translation; }
 void Renderer::set_color() { _mode = 0; }
 void Renderer::set_depth() { _mode = 1; }
+void Renderer::set_grayscale() { _mode = 2; }
+void Renderer::set_opticflow() { _mode = 3; }

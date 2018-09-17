@@ -109,7 +109,7 @@ class model
         bool _draw_bricks = false;
         bool _watch_errors = true;
         int _num_kinect = 1;
-        float _voxel_size = 0.0109375f; // 256: 0.00546875f; // 128: 0.0109375f; // 64: 0.021875f
+        float _voxel_size = 0.021875f; // 256: 0.00546875f; // 128: 0.0109375f; // 64: 0.021875f
         float _ed_cell_size = _voxel_size * 3;
         float _brick_size = _voxel_size * 9;
         float _tsdf_limit = 0.03f;
@@ -125,7 +125,7 @@ class model
 
     static IO &get_io() { return get_instance().io; }
     void cmd(CMDParser &p);
-    void init(std::string& file_name, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path);
+    void init(std::string &file_name, std::string &file_name_flow, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path);
     void init_stereo_camera();
     void init_fbr(const char *client_socket);
     void init_config(std::vector<std::string> const &args);
@@ -162,7 +162,7 @@ class model
 
     std::shared_ptr<kinect::ReconPoints> _recon_points;
     std::shared_ptr<kinect::ReconPerformanceCapture> _recon_pc;
-    //std::shared_ptr<kinect::ReconIntegration> _recon_integration;
+    // std::shared_ptr<kinect::ReconIntegration> _recon_integration;
     std::vector<std::shared_ptr<kinect::Reconstruction>> _recons;
 
     std::shared_ptr<kinect::ReconCalibs> _calibvis;

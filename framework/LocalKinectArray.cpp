@@ -30,15 +30,15 @@ using namespace gl;
 namespace kinect
 {
 static const std::size_t s_nu_bg_frames = 20;
-LocalKinectArray::LocalKinectArray(std::string &file_name, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile)
-    : _numLayers(0), _colorArray(),
+LocalKinectArray::LocalKinectArray(std::string &file_name, std::string &file_name_flow, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile)
+    : _numLayers(4), _colorArray(),
       _depthArray_raw(), _textures_depth{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_depth_b{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_depth2{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY), globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_quality{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_normal{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_color{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_bg{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY),
                                                                                             globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_silhouette{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _fbo{new globjects::Framebuffer()}, _colorArray_back(), _colorsize(0), _depthsize(0), _pbo_colors(), _pbo_depths(),
-      _mutex_pbo(), _running(true), _filter_textures(true), _refine_bound(true), _curr_frametime{0.0}, _use_processed_depth{true}, _start_texture_unit(0), _calib_files{calibs}, _calib_vols{vols}
+      _mutex_pbo(), _running(true), _filter_textures(true), _refine_bound(true), _curr_frametime{0.0}, _use_processed_depth{true}, _start_texture_unit(1), _calib_files{calibs}, _calib_vols{vols}
 {
     _file_buffer = new sys::FileBuffer(file_name.c_str());
     if(!_file_buffer->open("r"))
@@ -48,9 +48,18 @@ LocalKinectArray::LocalKinectArray(std::string &file_name, CalibrationFiles cons
     }
     _file_buffer->setLooping(true);
 
+    _file_buffer_flow = new sys::FileBuffer(file_name_flow.c_str());
+    if(!_file_buffer_flow->open("r"))
+    {
+        std::cerr << "error opening " << file_name_flow << " exiting..." << std::endl;
+        exit(1);
+    }
+    _file_buffer_flow->setLooping(true);
+
     _out_pbo_colors = new globjects::Buffer();
     _out_pbo_depths = new globjects::Buffer();
     _out_pbo_silhouettes = new globjects::Buffer();
+    _out_pbo_flows = new globjects::Buffer();
 
     _programs.emplace("filter", new globjects::Program());
     _programs.emplace("normal", new globjects::Program());
@@ -117,6 +126,10 @@ bool LocalKinectArray::init()
 
     _pbo_depths = double_pbo{_depthsize * _numLayers};
 
+    _pbo_flow = double_pbo{_depthsize * _numLayers * 2};
+    _flowArray = std::unique_ptr<TextureArray>{new TextureArray(512, 424, 4, GL_RG32F, GL_RG, GL_FLOAT)};
+    _flowArray->setMAGMINFilter(GL_LINEAR);
+
     /* kinect color: GL_RGB32F, GL_RGB, GL_FLOAT*/
     /* kinect depth: GL_LUMINANCE32F_ARB, GL_RED, GL_FLOAT*/
     // _colorArray = new TextureArray(_resolution_depth.x, _resolution_depth.y, _numLayers, GL_RGB32F, GL_RGB, GL_FLOAT);
@@ -153,6 +166,10 @@ bool LocalKinectArray::init()
 
     _out_pbo_depths->setData(_depthsize * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
     _out_pbo_depths->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
+    _out_pbo_flows->setData(_depthsize * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
+    _out_pbo_flows->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
     _out_pbo_silhouettes->setData(_depthsize * _numLayers, nullptr, GL_DYNAMIC_COPY);
@@ -218,6 +235,7 @@ LocalKinectArray::~LocalKinectArray()
     _colorArray->unbind();
     _colorArray_back->unbind();
     _depthArray_raw->unbind();
+    _flowArray->unbind();
 
     _fbo->destroy();
 
@@ -236,6 +254,7 @@ LocalKinectArray::~LocalKinectArray()
     _out_pbo_colors->destroy();
     _out_pbo_depths->destroy();
     _out_pbo_silhouettes->destroy();
+    _out_pbo_flows->destroy();
 }
 
 bool LocalKinectArray::update(int frame_number)
@@ -245,11 +264,12 @@ bool LocalKinectArray::update(int frame_number)
     // lock pbos before checking status
     std::unique_lock<std::mutex> lock(_mutex_pbo);
     // skip if no new frame was received
-    if(!_pbo_colors.dirty || !_pbo_depths.dirty)
+    if(!_pbo_colors.dirty || !_pbo_depths.dirty || !_pbo_flow.dirty)
         return false;
 
     _colorArray->fillLayersFromPBO(_pbo_colors.get()->id());
     _depthArray_raw->fillLayersFromPBO(_pbo_depths.get()->id());
+    _flowArray->fillLayersFromPBO(_pbo_flow.get()->id());
 
     globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
 
@@ -268,6 +288,12 @@ bool LocalKinectArray::update(int frame_number)
     glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_silhouette->id());
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_silhouettes->id());
     glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _flowArray->getGLHandle());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_flows->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RG, GL_FLOAT, 0);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
@@ -451,9 +477,9 @@ void LocalKinectArray::setStartTextureUnit(unsigned start_texture_unit)
     _texture_unit_offsets["quality"] = _start_texture_unit + 2;
     _texture_unit_offsets["normal"] = _start_texture_unit + 3;
     _texture_unit_offsets["silhouette"] = _start_texture_unit + 4;
-    // _texture_unit_offsets["bg"] = _start_texture_unit + 5;
     _texture_unit_offsets["morph_depth"] = _start_texture_unit + 5;
     _texture_unit_offsets["color_lab"] = _start_texture_unit + 6;
+    _texture_unit_offsets["flow"] = _start_texture_unit + 7;
 
     bindToTextureUnits();
 
@@ -472,10 +498,12 @@ void LocalKinectArray::bindToTextureUnits() const
     glActiveTexture(GL_TEXTURE0 + getTextureUnit("color"));
     _colorArray->bind();
 
+    glActiveTexture(GL_TEXTURE0 + getTextureUnit("flow"));
+    _flowArray->bind();
+
     _textures_quality->bindActive(getTextureUnit("quality"));
     _textures_normal->bindActive(getTextureUnit("normal"));
     _textures_silhouette->bindActive(getTextureUnit("silhouette"));
-    // _textures_bg.front->bindActive(getTextureUnit("bg"));
     _textures_depth2.front->bindActive(getTextureUnit("morph_depth"));
     _textures_color->bindActive(getTextureUnit("color_lab"));
 
@@ -696,7 +724,11 @@ void LocalKinectArray::writeBMP(std::string filename, std::vector<std::uint8_t> 
 void LocalKinectArray::readFromFiles(int frame_number)
 {
     const size_t frame_size_bytes((_colorsize + _depthsize) * _numLayers);
+    const size_t flow_size_bytes = 512 * 424 * 2 * sizeof(float);
+    const size_t flow_frame_size_bytes = flow_size_bytes * _numLayers;
+
     _file_buffer->gotoByte(frame_size_bytes * frame_number);
+    _file_buffer_flow->gotoByte(flow_frame_size_bytes * frame_number);
 
     // lock pbos
     std::unique_lock<std::mutex> lock(_mutex_pbo);
@@ -705,9 +737,11 @@ void LocalKinectArray::readFromFiles(int frame_number)
     {
         _file_buffer->read((byte *)_pbo_colors.pointer() + i * _colorsize, _colorsize);
         _file_buffer->read((byte *)_pbo_depths.pointer() + i * _depthsize, _depthsize);
+        _file_buffer_flow->read((byte *)_pbo_flow.pointer() + i * flow_size_bytes, flow_size_bytes);
     }
     _pbo_colors.dirty = true;
     _pbo_depths.dirty = true;
+    _pbo_flow.dirty = true;
 }
 
 const unsigned int LocalKinectArray::getColorHandle(bool texture)
@@ -733,6 +767,14 @@ const unsigned int LocalKinectArray::getSilhouetteHandle(bool texture)
         return _textures_silhouette->id();
     }
     _out_pbo_silhouettes->id();
+}
+const unsigned int LocalKinectArray::getFlowTextureHandle(bool texture)
+{
+    if(texture)
+    {
+        return _flowArray->getGLHandle();
+    }
+    return _out_pbo_flows->id();
 }
 std::mutex &LocalKinectArray::getPBOMutex() { return _mutex_pbo; }
 } // namespace kinect

@@ -170,10 +170,12 @@ void renderer::update_gui()
 
         ImGui::SliderInt("Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
 
+        /**
         ImGui::SliderFloat("Optical Flow Scaling Factor", &_model->get_recon_pc()->_conf.opticflow_scaling_factor, 0.001f, 1.0f, "%.5f");
         ImGui::SliderInt("Optical Flow Inner Iterations", &_model->get_recon_pc()->_conf.opticflow_num_inner_iterations, 1, 5, "%.0f");
         ImGui::SliderInt("Optical Flow Outer Iterations", &_model->get_recon_pc()->_conf.opticflow_num_outer_iterations, 1, 150, "%.0f");
         ImGui::SliderInt("Optical Flow Solver Iterations", &_model->get_recon_pc()->_conf.opticflow_num_solver_iterations, 1, 10, "%.0f");
+         **/
 
         /**
         ImGui::SliderInt("SIFT Octaves", &_model->get_recon_pc()->_conf.textures_SIFT_octaves, 0, 8, "%.0f");
@@ -367,7 +369,7 @@ void renderer::update_gui()
             }
             if(ImGui::CollapsingHeader("Texture Type", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                static std::vector<const char *> listbox_items = {"Color", "Depth", "Quality", "Normals", "Silhouette", "Orig Depth", "LAB colors"};
+                static std::vector<const char *> listbox_items = {"Color", "Depth", "Quality", "Normals", "Silhouette", "Orig Depth", "LAB colors", "Optical Flow"};
                 ImGui::ListBox("Type", &setting.first, listbox_items.data(), listbox_items.size(), listbox_items.size());
             }
 

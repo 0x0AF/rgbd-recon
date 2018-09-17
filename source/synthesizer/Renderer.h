@@ -34,8 +34,10 @@
 #include <string>
 #include <vector>
 
-#include "FileBuffer.hpp"
 #include "Choreographer.h"
+#include "FileBuffer.hpp"
+
+#include <vector_types.h>
 
 #define MatricesUniBufferSize sizeof(float) * 16 * 3
 #define ProjMatrixOffset 0
@@ -48,7 +50,7 @@ class Controller;
 class Renderer
 {
   public:
-    explicit Renderer(Controller *controller, Choreographer*choreographer);
+    explicit Renderer(Controller *controller, Choreographer *choreographer);
     ~Renderer();
 
     void resize(int width, int height);
@@ -89,11 +91,18 @@ class Renderer
 
     void set_color();
     void set_depth();
+    void set_grayscale();
+    void set_opticflow();
 
   private:
-    FileBuffer * _fb;
-    unsigned char* _frame_color;
-    float* _frame_depth;
+    FileBuffer *_fb, * _fb_of;
+    unsigned char *_frame_color;
+    float *_frame_grayscale;
+    float *_frame_grayscale_prev;
+    float *_frame_depth;
+    float2 *_of_frame_concat;
+
+    float2 *_of_frame;
 
     int _mode = 0;
     int _width = 1, _height = 1;
@@ -108,9 +117,11 @@ class Renderer
     globjects::Buffer *_buffer_fsquad_debug;
     globjects::VertexArray *_vao_fsquad_debug;
 
-    globjects::Framebuffer *_fbo, *_fbo_color, *_fbo_depth;
+    globjects::Framebuffer *_fbo, *_fbo_grayscale, *_fbo_color, *_fbo_depth;
+    globjects::Texture *_texture_optical_flow;
     globjects::Texture *_texture_clouds;
     globjects::Texture *_texture_color;
+    globjects::Texture *_texture_grayscale;
     globjects::Texture *_texture_depth;
     globjects::Texture *_texture_color_postproc;
     globjects::Texture *_texture_depth_postproc;

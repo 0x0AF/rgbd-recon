@@ -15,9 +15,10 @@ uniform sampler2D clouds;
 
 in vec3 Normal;
 in vec2 TexCoord;
-out vec4 out_color;
 
 in float proj_depth;
+
+out vec4 out_color;
 
 out float gl_FragDepth;
 

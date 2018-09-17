@@ -60,7 +60,7 @@ void model::cmd(CMDParser &p)
     // load global variables
     init_config(p.getArgs());
 }
-void model::init(std::string &file_name, gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path)
+void model::init(std::string &file_name, std::string &file_name_flow,gloost::Point3 &bbox_min, gloost::Point3 &bbox_max, std::vector<std::string> &calib_filenames, std::string &resource_path)
 {
     _bbox = std::make_shared<gloost::BoundingBox>();
     _camera = std::make_shared<gloost::PerspectiveCamera>(50.0, io._aspect, 0.1, 200.0);
@@ -71,7 +71,7 @@ void model::init(std::string &file_name, gloost::Point3 &bbox_min, gloost::Point
 
     _calib_files = std::make_shared<kinect::CalibrationFiles>(calib_filenames);
     _cv = std::make_shared<kinect::CalibVolumes>(calib_filenames, *_bbox);
-    _nka = std::make_shared<kinect::LocalKinectArray>(file_name, _calib_files.get(), _cv.get(), true);
+    _nka = std::make_shared<kinect::LocalKinectArray>(file_name, file_name_flow, _calib_files.get(), _cv.get(), true);
 
     // binds to unit 1 to 18
     _nka->setStartTextureUnit(1);

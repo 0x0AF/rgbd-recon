@@ -2,7 +2,9 @@
 
 #extension GL_ARB_explicit_attrib_location : require
 uniform sampler2DArray texture_2d_array;
+uniform sampler2D clouds;
 uniform int layer;
+uniform bool fill_clouds;
 layout(location = 0) out vec4 fragColor;
 in vec2 v_uv;
 
@@ -131,7 +133,7 @@ vec4 postprocess(vec4 color, vec2 uv)
 void main()
 {
     vec2 uv = v_uv;
-    //uv.y = 1. - uv.y;
+    // uv.y = 1. - uv.y;
 
     /*float rot = radians(-180.);
     uv -= .5;
@@ -140,5 +142,9 @@ void main()
     uv += .5;*/
 
     fragColor = texture(texture_2d_array, vec3(uv, layer));
+    if(fill_clouds && fragColor.rgb == vec3(0.f, 0.2f, 0.f))
+    {
+        fragColor = vec4(texture(clouds, vec2(uv)).r, 0.,0.,1.);
+    }
     fragColor = postprocess(fragColor, uv.xy);
 }

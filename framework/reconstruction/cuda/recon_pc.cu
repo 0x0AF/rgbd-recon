@@ -23,7 +23,6 @@
 #include <reconstruction/cuda/ed_sample.cuh>
 #include <reconstruction/cuda/fuse_data.cuh>
 #include <reconstruction/cuda/mc.cuh>
-#include <reconstruction/cuda/opticflow.cuh>
 #include <reconstruction/cuda/preprocess.cuh>
 #include <reconstruction/cuda/solve.cuh>
 
@@ -70,13 +69,10 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_rgbs, native_handles.pbo_kinect_rgbs, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_depths, native_handles.pbo_kinect_depths, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes, native_handles.pbo_kinect_silhouettes, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow, native_handles.pbo_opticflow, cudaGraphicsRegisterFlagsReadOnly));
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes_debug, native_handles.pbo_kinect_silhouettes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
-#endif
-
-#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow_debug, native_handles.pbo_opticflow_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 #endif
 
     for(unsigned int i = 0; i < 4; i++)
@@ -95,14 +91,12 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     for(unsigned int i = 0; i < 4; i++)
     {
-        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_intens[i], &_dev_res.pitch_kinect_intens, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
-        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_intens_prev[i], &_dev_res.pitch_kinect_intens, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths[i], &_dev_res.pitch_kinect_depths, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
-        checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, _host_res.measures.depth_res.x * sizeof(float2), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error[i], &_dev_res.pitch_alignment_error, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error_bins[i], &_dev_res.pitch_alignment_error_bins, _host_res.measures.depth_res.x * sizeof(int), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, _host_res.measures.depth_res.x * sizeof(float2), _host_res.measures.depth_res.y));
     }
 
     checkCudaErrors(cudaMalloc(&_dev_res.cloud_noise, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float)));
@@ -246,19 +240,12 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes_debug));
 #endif
 
-#ifdef PIPELINE_DEBUG_OPTICAL_FLOW
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow_debug));
-#endif
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow));
 
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_cv_xyz_inv[i]));
         checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_cv_xyz[i]));
-    }
-
-    if(_dev_res.kinect_intens != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.kinect_intens));
     }
 
     if(_dev_res.kinect_depths != nullptr)

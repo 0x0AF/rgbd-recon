@@ -107,9 +107,9 @@ class ReconPerformanceCapture : public Reconstruction
     globjects::Buffer *_buffer_fast_mc_pos, *_buffer_fast_mc_normal, *_buffer_debug, *_buffer_fsquad_debug;
     std::vector<glm::fvec3> _vec_debug;
 
-    globjects::Texture *_texture2darray_debug, *_opticflow_debug;
+    globjects::Texture *_texture2darray_debug;
 
-    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug, *_buffer_pbo_opticflow_debug;
+    globjects::Buffer *_buffer_correspondences_debug, *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_textures_debug;
     globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_opticflow, *_program_pc_debug_draw_ref, *_program_pc_debug_draw_ref_grad, *_program_pc_debug_sorted_vertices,
         *_program_pc_debug_sorted_vertices_connections, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
@@ -141,8 +141,6 @@ class ReconPerformanceCapture : public Reconstruction
     void draw_debug_ed_sampling();
     void draw_debug_sorted_vertices();
     void draw_debug_texture();
-    void draw_debug_opticflow();
-    // void draw_debug_correspondences();
 
     // privatized temporarily
     void setVoxelSize(float size);

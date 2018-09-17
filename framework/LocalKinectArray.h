@@ -40,7 +40,7 @@ class CalibVolumes;
 class LocalKinectArray
 {
   public:
-    LocalKinectArray(std::string& file_name, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile = false);
+    LocalKinectArray(std::string &file_name, std::string &file_name_flow, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile = false);
     LocalKinectArray(std::vector<KinectCalibrationFile *> &calibs);
 
     ~LocalKinectArray();
@@ -69,6 +69,7 @@ class LocalKinectArray
     const unsigned int getColorHandle(bool textures = false);
     const unsigned int getDepthHandle(bool textures = false);
     const unsigned int getSilhouetteHandle(bool textures = false);
+    const unsigned int getFlowTextureHandle(bool textures = false);
     std::mutex &getPBOMutex();
 
     void readFromFiles(int frame_number);
@@ -88,9 +89,11 @@ class LocalKinectArray
     globjects::ref_ptr<globjects::Buffer> _out_pbo_colors;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_depths;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_silhouettes;
+    globjects::ref_ptr<globjects::Buffer> _out_pbo_flows;
 
     std::unique_ptr<TextureArray> _colorArray;
     std::unique_ptr<TextureArray> _depthArray_raw;
+    std::unique_ptr<TextureArray> _flowArray;
     globjects::ref_ptr<globjects::Texture> _textures_depth;
     globjects::ref_ptr<globjects::Texture> _textures_depth_b;
     double_buffer<globjects::ref_ptr<globjects::Texture>> _textures_depth2;
@@ -109,6 +112,7 @@ class LocalKinectArray
     unsigned _depthsize; // per frame
     double_pbo _pbo_colors;
     double_pbo _pbo_depths;
+    double_pbo _pbo_flow;
 
     std::mutex _mutex_pbo;
     bool _running;
@@ -121,6 +125,7 @@ class LocalKinectArray
     CalibrationFiles const *_calib_files;
     CalibVolumes const *_calib_vols;
     sys::FileBuffer *_file_buffer;
+    sys::FileBuffer *_file_buffer_flow;
 };
 
 } // namespace kinect

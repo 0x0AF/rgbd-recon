@@ -42,7 +42,6 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 // #define DEBUG_NANS
 
 #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-#define PIPELINE_DEBUG_OPTICAL_FLOW
 #define PIPELINE_DEBUG_CORRESPONDENCE_FIELD
 #define PIPELINE_DEBUG_REFERENCE_VOLUME
 #define PIPELINE_DEBUG_REFERENCE_MESH
@@ -79,7 +78,7 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
 // #define EVALUATE_ED_REGULARIZATION
-// #define EVALUATE_CORRESPONDENCE_FIELD
+#define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
@@ -94,9 +93,9 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 // #define DEBUG_JTF
 // #define DEBUG_H
 
-// #define SOLVER_DIRECT_CHOL
+#define SOLVER_DIRECT_CHOL
 // #define SOLVER_DIRECT_QR
-#define SOLVER_CG
+// #define SOLVER_CG
 // #define SOLVER_PCG
 
 enum class IsoSurfaceVolume
@@ -143,11 +142,6 @@ struct Configuration
     float textures_SIFT_min_score = 0.95f;
     float textures_SIFT_max_motion = 0.1f;
 
-    float opticflow_scaling_factor = 0.95;    // 0.95;
-    int opticflow_num_inner_iterations = 5;   // 5;
-    int opticflow_num_outer_iterations = 150; // 150;
-    int opticflow_num_solver_iterations = 10; // 10;
-
     float weight_data = 1000.f;
     float weight_hull = 0.01f;
     float weight_correspondence = 1.f;
@@ -183,9 +177,9 @@ struct struct_native_handles
     unsigned int pbo_kinect_rgbs;
     unsigned int pbo_kinect_depths;
     unsigned int pbo_kinect_silhouettes;
+    unsigned int pbo_opticflow;
 
     unsigned int pbo_kinect_silhouettes_debug;
-    unsigned int pbo_opticflow_debug;
 
     unsigned int pbo_cv_xyz_inv[4];
     unsigned int pbo_cv_xyz[4];

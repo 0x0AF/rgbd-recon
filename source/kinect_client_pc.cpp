@@ -103,7 +103,10 @@ void init(std::vector<std::string> const &args)
     }
     in.close();
 
-    _model->init(_io->_record_name, bbox_min, bbox_max, calib_filenames, resource_path);
+    std::string flow_name(_io->_record_name);
+    flow_name.replace(flow_name.find("stream"), 6, "flow");
+
+    _model->init(_io->_record_name, flow_name, bbox_min, bbox_max, calib_filenames, resource_path);
 }
 
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)

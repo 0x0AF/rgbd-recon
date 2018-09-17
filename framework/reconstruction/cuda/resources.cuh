@@ -35,9 +35,9 @@ struct struct_graphic_resources
     cudaGraphicsResource *pbo_kinect_rgbs{nullptr};
     cudaGraphicsResource *pbo_kinect_depths{nullptr};
     cudaGraphicsResource *pbo_kinect_silhouettes{nullptr};
+    cudaGraphicsResource *pbo_opticflow{nullptr};
 
     cudaGraphicsResource *pbo_kinect_silhouettes_debug{nullptr};
-    cudaGraphicsResource *pbo_opticflow_debug{nullptr};
 
     cudaGraphicsResource *pbo_cv_xyz_inv[4]{nullptr, nullptr, nullptr, nullptr};
     cudaGraphicsResource *pbo_cv_xyz[4]{nullptr, nullptr, nullptr, nullptr};
@@ -53,12 +53,6 @@ struct_graphic_resources _cgr;
 
 struct struct_device_resources
 {
-    /// Merged grayscale colors
-    float *kinect_intens[4] = {nullptr, nullptr, nullptr, nullptr};
-
-    /// Merged grayscale colors (previous frame)
-    float *kinect_intens_prev[4] = {nullptr, nullptr, nullptr, nullptr};
-
     /// Current depth frames
     float *kinect_depths[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -100,7 +94,7 @@ struct struct_device_resources
     float2 *mapped_pbo_depths = nullptr;
     float1 *mapped_pbo_silhouettes = nullptr;
     float1 *mapped_pbo_silhouettes_debug = nullptr;
-    float2 *mapped_pbo_opticflow_debug = nullptr;
+    float2 *mapped_pbo_opticflow = nullptr;
     float4 *mapped_pbo_cv_xyz_inv[4] = {nullptr, nullptr, nullptr, nullptr};
     float4 *mapped_pbo_cv_xyz[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -472,11 +466,13 @@ __host__ void map_kinect_arrays()
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_rgbs, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_depths, 0));
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_opticflow, 0));
 
     size_t dummy_size = 0;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_rgbs, &dummy_size, _cgr.pbo_kinect_rgbs));
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_depths, &dummy_size, _cgr.pbo_kinect_depths));
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_silhouettes, &dummy_size, _cgr.pbo_kinect_silhouettes));
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&_dev_res.mapped_pbo_opticflow, &dummy_size, _cgr.pbo_opticflow));
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsMapResources(1, &_cgr.pbo_kinect_silhouettes_debug, 0));
@@ -511,6 +507,7 @@ __host__ void unmap_kinect_arrays()
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes_debug));
 #endif
 
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_opticflow));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_silhouettes));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_depths));
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.pbo_kinect_rgbs));

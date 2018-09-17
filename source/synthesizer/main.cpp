@@ -82,6 +82,16 @@ void key_callback(GLFWwindow *window, int key, int /*scancode*/, int action, int
             ptr->_renderer->set_depth();
         }
         break;
+        case GLFW_KEY_3:
+        {
+            ptr->_renderer->set_grayscale();
+        }
+        break;
+        case GLFW_KEY_4:
+        {
+            ptr->_renderer->set_opticflow();
+        }
+        break;
         }
     }
 }
@@ -95,7 +105,7 @@ int main(int, char *[])
 
     glfwDefaultWindowHints();
 
-    GLFWwindow *window = glfwCreateWindow(1920, 1080, "", glfwGetPrimaryMonitor(), nullptr);
+    GLFWwindow *window = glfwCreateWindow(1280, 1080, "Video Avatars RGB-D Synthesizer", nullptr, nullptr);
     if(!window)
     {
         glfwTerminate();
@@ -149,6 +159,7 @@ int main(int, char *[])
     glDepthFunc(GL_LESS);
     // glEnable(GL_CULL_FACE);
     // glFrontFace(GL_CCW);
+    glDisable(GL_BLEND);
 
     while(!glfwWindowShouldClose(window))
     {
