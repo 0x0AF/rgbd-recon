@@ -336,7 +336,6 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
 
     unsigned int ed_node_offset = idx / measures.ed_cell_num_voxels;
 
-    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
 
     /// Retrieve voxel position

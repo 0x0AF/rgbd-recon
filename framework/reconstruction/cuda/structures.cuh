@@ -77,7 +77,7 @@ const unsigned ED_COMPONENT_COUNT = 7u;
 
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
-// #define EVALUATE_ED_REGULARIZATION
+#define EVALUATE_ED_REGULARIZATION
 #define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
@@ -129,7 +129,7 @@ struct Configuration
 
     bool pipeline_preprocess_textures = true;
     bool pipeline_sample = true;
-    bool pipeline_correspondence = false;
+    bool pipeline_correspondence = true;
     bool pipeline_align = true;
     bool pipeline_fuse = true;
 
@@ -142,13 +142,13 @@ struct Configuration
     float textures_SIFT_min_score = 0.95f;
     float textures_SIFT_max_motion = 0.1f;
 
-    float weight_data = 1000.f;
-    float weight_hull = 0.01f;
+    float weight_data = 500.f;
+    float weight_hull = 0.07f;
     float weight_correspondence = 1.f;
-    float weight_regularization = 1.f;
+    float weight_regularization = 0.005f;
 
-    float solver_mu = 1.2f;
-    float solver_mu_step = 0.1f;
+    float solver_mu = 2.4f;
+    float solver_mu_step = 0.2f;
     int solver_lma_steps = 12;
     int solver_cg_steps = 12;
 

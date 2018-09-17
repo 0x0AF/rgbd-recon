@@ -227,7 +227,7 @@ void Renderer::draw()
 
         for(int layer = 0; layer < 4; layer++)
         {
-            evaluate_optical_flow(_frame_grayscale + 512 * 424 * layer, _frame_grayscale_prev + 512 * 424 * layer, _of_frame);
+            evaluate_optical_flow(_frame_grayscale_prev + 512 * 424 * layer, _frame_grayscale + 512 * 424 * layer, _of_frame);
 
             /*for(int i = 0; i < 512 * 424; i++)
             {

@@ -42,13 +42,6 @@ __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device
 
             vx_projection.projection[i].x = projection.x;
             vx_projection.projection[i].y = projection.y;
-
-            /*
-
-            TODO: investigate if inv projection is enough for data component evaluation (!)
-
-            float depth = sample_depth(dev_res.depth_tex[i], vx_projection.projection[i]).x;
-            printf("\nprojection: (%f,%f) %f:%f\n", projection.x, projection.y, projection.z, depth);*/
         }
         memcpy(&dev_res.sorted_vx_projections[address], &vx_projection, sizeof(struct_projection));
     }
@@ -141,9 +134,9 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
             if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
             {
-/*#ifdef VERBOSE
-                printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
-#endif*/
+                /*#ifdef VERBOSE
+                                printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+                #endif*/
                 continue;
             }
 
@@ -163,9 +156,9 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
             if(!in_normal_space(coordinate))
             {
-/*#ifdef VERBOSE
-                printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
-#endif*/
+                /*#ifdef VERBOSE
+                                printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+                #endif*/
                 continue;
             }
 
@@ -217,7 +210,7 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
             float inc_average = curr_mean + (vx_error - curr_mean) / ((float)count);
 
             atomicExch(&dev_res.alignment_error[i][pitched_offset], inc_average);
-            //atomicExch(&dev_res.alignment_error[i][pitched_offset], 0.99f);
+            // atomicExch(&dev_res.alignment_error[i][pitched_offset], 0.99f);
         }
     }
 }
@@ -565,6 +558,9 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
 #ifdef EVALUATE_ED_REGULARIZATION
     __shared__ float ed_pds[ED_COMPONENT_COUNT];
+
+    struct_ed_node ed_node_new;
+    memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
 
     float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
 

@@ -37,8 +37,6 @@ extern "C" double copy_reference();
 extern "C" double perform_brick_indexing();
 extern "C" double sample_ed_nodes();
 extern "C" double preprocess_textures();
-// extern "C" double estimate_correspondence_field();
-// extern "C" double evaluate_dense_correspondence_field();
 extern "C" double pcg_solve();
 extern "C" double fuse_data();
 
@@ -51,7 +49,6 @@ extern "C" void update_configuration(Configuration &configuration);
 extern "C" void deinit_cuda();
 extern "C" unsigned int push_debug_ed_nodes();
 extern "C" unsigned long push_debug_sorted_vertices();
-// extern "C" unsigned int push_debug_correspondences();
 
 #define PASS_NORMALS
 

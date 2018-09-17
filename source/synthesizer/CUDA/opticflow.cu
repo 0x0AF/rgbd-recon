@@ -18,6 +18,10 @@
 #include "brox_optical_flow.cuh"
 #include "cuda_calls.cuh"
 
+#include <thrust/execution_policy.h>
+#include <thrust/functional.h>
+#include <thrust/transform.h>
+
 float opticflow_scaling_factor = 0.95;    // 0.95;
 int opticflow_num_inner_iterations = 5;   // 5;
 int opticflow_num_outer_iterations = 150; // 150;
@@ -43,12 +47,22 @@ extern "C" void init_of_cuda()
     }
 }
 
-extern "C" void deinit_of_cuda()
-{
-    cudaDeviceReset();
-}
+extern "C" void deinit_of_cuda() { cudaDeviceReset(); }
 
-extern "C" void evaluate_optical_flow(float *color_frame, float *color_frame_previous, float2 *optical_flow)
+template <class T>
+struct normalize_functor
+{
+    T _min;
+    T _max;
+    normalize_functor(T min, T max)
+    {
+        _min = min;
+        _max = max;
+    }
+    __host__ __device__ T operator()(T &x) const { return (x - _min) / (_max - _min); }
+};
+
+extern "C" void evaluate_optical_flow(float *color_frame_previous, float *color_frame, float2 *optical_flow)
 {
     int im_width = 512;
     int im_height = 424;
@@ -57,8 +71,27 @@ extern "C" void evaluate_optical_flow(float *color_frame, float *color_frame_pre
     std::vector<float> norm_im_0(im_width * im_height, 0.0);
     std::vector<float> norm_im_1(im_width * im_height, 0.0);
 
-    memcpy(&norm_im_0[0], color_frame, im_height * im_width * sizeof(float));
-    memcpy(&norm_im_1[0], color_frame_previous, im_height * im_width * sizeof(float));
+    memcpy(&norm_im_0[0], color_frame_previous, im_height * im_width * sizeof(float));
+    memcpy(&norm_im_1[0], color_frame, im_height * im_width * sizeof(float));
+
+    thrust::host_vector<float> prev(norm_im_0.begin(), norm_im_0.end());
+    thrust::host_vector<float> curr(norm_im_1.begin(), norm_im_1.end());
+
+    thrust::host_vector<float>::iterator max_0 = thrust::max_element(prev.begin(), prev.end());
+    thrust::host_vector<float>::iterator max_1 = thrust::max_element(curr.begin(), curr.end());
+
+    thrust::host_vector<float>::iterator min_0 = thrust::min_element(prev.begin(), prev.end());
+    thrust::host_vector<float>::iterator min_1 = thrust::min_element(curr.begin(), curr.end());
+
+    float min = std::min(*min_0, *min_1);
+    float max = std::max(*max_0, *max_1);
+
+    // printf("\nminmax: %f:%f\n", min, max);
+
+    normalize_functor<float> nf(min, max);
+
+    thrust::transform(prev.begin(), prev.end(), norm_im_0.begin(), nf);
+    thrust::transform(curr.begin(), curr.end(), norm_im_1.begin(), nf);
 
     std::vector<float> computed_flow_x(im_width * im_height, 0.0);
     std::vector<float> computed_flow_y(im_width * im_height, 0.0);
