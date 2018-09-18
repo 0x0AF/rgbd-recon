@@ -442,7 +442,7 @@ void renderer::draw3d()
         {
             _frame_number++;
 
-            if(_frame_number > 100)
+            if(_frame_number > 101)
             {
                 _forward_motion = false;
             }

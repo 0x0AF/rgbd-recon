@@ -21,6 +21,10 @@
 #include <helper_cuda.h>
 #include <helper_cusolver.h>
 
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thrust/scan.h>
+
 #define UMUL(a, b) ((a) * (b))
 #define UMAD(a, b, c) (UMUL((a), (b)) + (c))
 
@@ -70,16 +74,16 @@ struct struct_device_resources
 
     /// Vertex-against-depth alignment error
     float *alignment_error[4] = {nullptr, nullptr, nullptr, nullptr};
-    int *alignment_error_bins[4] = {nullptr, nullptr, nullptr, nullptr};
+
+    /// Per-vertex depth alignment error
+    float *warped_sorted_vx_error[4] = {nullptr, nullptr, nullptr, nullptr};
 
     /// Pitch sizes
-    size_t pitch_kinect_intens = 0;
     size_t pitch_kinect_depths = 0;
     size_t pitch_kinect_depths_prev = 0;
     size_t pitch_kinect_silhouettes = 0;
     size_t pitch_optical_flow = 0;
     size_t pitch_alignment_error = 0;
-    size_t pitch_alignment_error_bins = 0;
 
     /// Textures for interpolated sampling of depths and silhouettes
     cudaTextureObject_t intens_tex[4] = {0, 0, 0, 0};
@@ -133,13 +137,6 @@ struct struct_device_resources
 
     /// Warped ED-sorted vertex projections
     struct_projection *warped_sorted_vx_projections = nullptr;
-
-#ifdef PIPELINE_CORRESPONDENCE
-    struct_correspondence *sorted_correspondences = nullptr;
-    struct_correspondence *unsorted_correspondences = nullptr;
-    unsigned int *depth_cell_counter = nullptr;
-    struct_depth_cell_meta *depth_cell_meta = nullptr;
-#endif
 
     /// JTJ sparse pointers
     float *jtj_vals = nullptr;
@@ -210,6 +207,9 @@ struct struct_host_resources
     uint total_verts;
 
     float *kernel_gauss;
+
+    float *vx_error_map;
+    float *vx_error_values;
 };
 
 struct_host_resources _host_res;
@@ -547,6 +547,15 @@ __host__ void free_ed_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
+    for(int i = 0; i < 4; i++)
+    {
+        if(_dev_res.warped_sorted_vx_error[i] != nullptr)
+        {
+            checkCudaErrors(cudaFree(_dev_res.warped_sorted_vx_error[i]));
+            checkCudaErrors(cudaDeviceSynchronize());
+        }
+    }
+
     if(_dev_res.sorted_vx_projections != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.sorted_vx_projections));
@@ -643,6 +652,11 @@ __host__ void allocate_ed_resources()
     checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
     checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
+    for(int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_error[i], MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    }
+
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_step, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_meta, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
@@ -677,6 +691,11 @@ __host__ void clean_ed_resources()
     checkCudaErrors(cudaMemset(_dev_res.sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
     checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
+    for(int i = 0; i < 4; i++)
+    {
+        checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_error[i], 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    }
+
     checkCudaErrors(cudaMemset(_dev_res.ed_graph, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMemset(_dev_res.ed_graph_step, 0, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMemset(_dev_res.ed_graph_meta, 0, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
@@ -699,49 +718,6 @@ __host__ void clean_pcg_resources()
     checkCudaErrors(cudaMemset(_dev_res.jtj_rows, 0, JTJ_NNZ * sizeof(int)));
     checkCudaErrors(cudaMemset(_dev_res.jtj_rows_csr, 0, JTJ_NNZ * sizeof(int)));
     checkCudaErrors(cudaMemset(_dev_res.jtj_cols, 0, JTJ_NNZ * sizeof(int)));
-}
-
-__host__ void allocate_correspondence_resources()
-{
-    checkCudaErrors(cudaMalloc(&_dev_res.sorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
-    checkCudaErrors(cudaMalloc(&_dev_res.unsorted_correspondences, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
-    checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_counter, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
-    checkCudaErrors(cudaMalloc(&_dev_res.depth_cell_meta, 4 * _host_res.measures.num_depth_cells * sizeof(struct_depth_cell_meta)));
-}
-
-__host__ void clean_correspondence_resources()
-{
-    checkCudaErrors(cudaMemset(_dev_res.sorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
-    checkCudaErrors(cudaMemset(_dev_res.unsorted_correspondences, 0, 4 * SIFT_MAX_CORRESPONDENCES * sizeof(struct_correspondence)));
-    checkCudaErrors(cudaMemset(_dev_res.depth_cell_counter, 0, 4 * _host_res.measures.num_depth_cells * sizeof(unsigned int)));
-    checkCudaErrors(cudaMemset(_dev_res.depth_cell_meta, 0, 4 * _host_res.measures.num_depth_cells * sizeof(struct_depth_cell_meta)));
-}
-
-__host__ void free_correspondence_resources()
-{
-    if(_dev_res.sorted_correspondences != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.sorted_correspondences));
-        checkCudaErrors(cudaDeviceSynchronize());
-    }
-
-    if(_dev_res.unsorted_correspondences != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.unsorted_correspondences));
-        checkCudaErrors(cudaDeviceSynchronize());
-    }
-
-    if(_dev_res.depth_cell_counter != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.depth_cell_counter));
-        checkCudaErrors(cudaDeviceSynchronize());
-    }
-
-    if(_dev_res.depth_cell_meta != nullptr)
-    {
-        checkCudaErrors(cudaFree(_dev_res.depth_cell_meta));
-        checkCudaErrors(cudaDeviceSynchronize());
-    }
 }
 
 extern "C" void update_configuration(Configuration &configuration) { memcpy(&_host_res.configuration, &configuration, sizeof(Configuration)); }

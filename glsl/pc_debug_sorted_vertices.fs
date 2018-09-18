@@ -7,6 +7,6 @@ in vec3 pass_Error;
 
 void main()
 {
-    float error = clamp(pass_Error.x / 0.01f, 0.f, 1.f);
+    float error = clamp(pass_Error.x / 0.03f, 0.f, 1.f);
     out_Color = vec4(error, 0.f, 1.f - error, 1.0f);
 }

@@ -4,6 +4,7 @@
 uniform sampler2DArray texture_2d_array;
 uniform sampler2D clouds;
 uniform int layer;
+uniform int frame;
 uniform bool fill_clouds;
 layout(location = 0) out vec4 fragColor;
 in vec2 v_uv;

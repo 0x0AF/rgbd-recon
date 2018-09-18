@@ -3,6 +3,7 @@
 #extension GL_ARB_explicit_attrib_location : require
 uniform sampler2DArray texture_2d_array;
 uniform int layer;
+uniform int frame;
 layout(location = 0) out vec4 fragColor;
 in vec2 v_uv;
 
@@ -104,32 +105,32 @@ float cnoise(vec2 P)
     return 2.3 * n_xy;
 }
 
-// #define POSTPROC_PERLIN_20
+//#define POSTPROC_SP_80
 
-float postprocess(float color, vec2 uv)
+float postprocess(float color, vec2 uv, int frame)
 {
 #ifdef POSTPROC_SP_20
-    return color * (1.f - 0.2f * rand(uv));
+    return color * (1.f - 0.2f * rand(uv * rand(uv * frame)));
 #endif
 
 #ifdef POSTPROC_SP_80
-    return color * (1.f - 0.8f * rand(uv));
+    return color * (1.f - 0.8f * rand(uv * rand(uv * frame)));
 #endif
 
 #ifdef POSTPROC_PERIODIC_20
-    return color * (1.f - 0.2f * pnoise(uv * 10., vec2(1., 1.)));
+    return color * (1.f - 0.2f * pnoise(uv * 10., vec2(rand(uv * frame), rand(uv * frame))));
 #endif
 
 #ifdef POSTPROC_PERIODIC_80
-    return color * (1.f - 0.8f * pnoise(uv * 10., vec2(1., 1.)));
+    return color * (1.f - 0.8f * pnoise(uv * 10., vec2(rand(uv * frame), rand(uv * frame))));
 #endif
 
 #ifdef POSTPROC_PERLIN_20
-    return color * (1.f - 0.2f * cnoise(uv * 10.));
+    return color * (1.f - 0.2f * cnoise(uv * 10. * rand(uv * frame)));
 #endif
 
 #ifdef POSTPROC_PERLIN_80
-    return color * (1.f - 0.8f * cnoise(uv * 10.));
+    return color * (1.f - 0.8f * cnoise(uv * 10.* rand(uv * frame)));
 #endif
 
     return color;
@@ -149,6 +150,6 @@ void main()
     fragColor = vec4(0., 0., 0., 1.);
     fragColor.r = texture(texture_2d_array, vec3(uv, layer)).r;
     //fragColor.r = linearize(fragColor.r);
-    fragColor.r = postprocess(fragColor.r, uv);
+    fragColor.r = postprocess(fragColor.r, uv, frame);
     fragColor.r = fragColor.r * (3. - 0.5) + 0.5; //* (4.5 - 0.5) + 0.5
 }

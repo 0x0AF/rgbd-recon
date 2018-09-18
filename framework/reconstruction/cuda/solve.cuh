@@ -114,8 +114,6 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
         return;
     }
 
-    __syncthreads();
-
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
     // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
@@ -188,7 +186,7 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
             glm::vec3 diff = warped_vertex.position - extracted_position;
 
-            float vx_error = glm::length(glm::dot(warped_vertex.normal, diff));
+            float vx_error = glm::length(diff);
 
             // printf("\nvx_error: %f\n", vx_error);
 
@@ -201,45 +199,9 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
                 vx_error = 0.f;
             }
 
-            glm::uvec2 warped_projection_rounding = glm::uvec2(warped_projection.projection[i] * glm::vec2(host_res.measures.depth_res.x, host_res.measures.depth_res.y));
-            size_t pitched_offset = warped_projection_rounding.x + warped_projection_rounding.y * dev_res.pitch_alignment_error / sizeof(float);
-            size_t pitched_offset_bins = warped_projection_rounding.x + warped_projection_rounding.y * dev_res.pitch_alignment_error_bins / sizeof(int);
-
-            int count = 1 + atomicAdd(&dev_res.alignment_error_bins[i][pitched_offset_bins], 1);
-            float curr_mean = dev_res.alignment_error[i][pitched_offset];
-            float inc_average = curr_mean + (vx_error - curr_mean) / ((float)count);
-
-            atomicExch(&dev_res.alignment_error[i][pitched_offset], inc_average);
-            // atomicExch(&dev_res.alignment_error[i][pitched_offset], 0.99f);
+            dev_res.warped_sorted_vx_error[i][ed_entry.vx_offset + vx_idx] = vx_error;
         }
     }
-}
-
-__global__ void kernel_normalize_alignment_errors(int max_pos, struct_device_resources dev_res, int layer, struct_measures measures)
-{
-    const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
-    const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
-
-    if(ix >= measures.depth_res.x || iy >= measures.depth_res.y)
-    {
-        return;
-    }
-
-    if(iy < 0 || ix < 0)
-    {
-        return;
-    }
-
-    // printf("\nmax: %f\n", dev_res.alignment_error[layer][max_pos]);
-
-    float value = sample_pitched_ptr(dev_res.alignment_error[layer], dev_res.pitch_alignment_error, ix, iy) / dev_res.alignment_error[layer][max_pos];
-
-    if(value == 0)
-    {
-        value = 1.0f;
-    }
-
-    write_pitched_ptr(value, dev_res.alignment_error[layer], dev_res.pitch_alignment_error, ix, iy);
 }
 
 __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
@@ -267,18 +229,25 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
         // printf("\ned_node + vertex match\n");
 
         float vx_misalignment = 0.f;
+        float data_misalignment = 0.f;
+        float hull_misalignment = 0.f;
 
 #ifdef EVALUATE_DATA
-        vx_misalignment = evaluate_vx_misalignment(vx, host_res.measures);
+        data_misalignment = evaluate_vx_misalignment(vx, host_res.measures);
+#endif
 
 #ifdef EVALUATE_VISUAL_HULL
-        vx_misalignment = glm::min(vx_misalignment, evaluate_hull_residual(vx_proj, dev_res, host_res.measures));
+        hull_misalignment = evaluate_hull_residual(vx_proj, dev_res, host_res.measures);
 #endif
-#else
-#ifdef EVALUATE_VISUAL_HULL
-        vx_misalignment = evaluate_hull_residual(vx_proj, dev_res, host_res.measures);
-#endif
-#endif
+
+        if(hull_misalignment == 0.f)
+        {
+            vx_misalignment = data_misalignment;
+        }
+        else
+        {
+            vx_misalignment = glm::min(data_misalignment, hull_misalignment);
+        }
 
         // printf("\nvx_residual: %f\n", vx_residual);
 
@@ -1179,12 +1148,31 @@ __host__ void evaluate_step_misalignment_energy(float &misalignment_energy, cons
     cudaFree(device_misalignment_energy);
 }
 
+#include <CGAL/Delaunay_triangulation_2.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Interpolation_traits_2.h>
+#include <CGAL/interpolation_functions.h>
+#include <CGAL/natural_neighbor_coordinates_2.h>
+typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
+typedef CGAL::Delaunay_triangulation_2<K> Delaunay_triangulation;
+typedef CGAL::Interpolation_traits_2<K> Traits;
+typedef K::FT Coord_type;
+typedef K::Point_2 Point;
+
+template <class T>
+struct normalize_alignment_error_functor
+{
+    T _max;
+    normalize_alignment_error_functor(T max) { _max = max; }
+    __host__ __device__ T operator()(T &x) const { return glm::min(1.f, x / _max); }
+};
+
 __host__ void evaluate_alignment_error()
 {
     for(unsigned int i = 0; i < 4; i++)
     {
         checkCudaErrors(cudaMemset2D(_dev_res.alignment_error[i], _dev_res.pitch_alignment_error, 0, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
-        checkCudaErrors(cudaMemset2D(_dev_res.alignment_error_bins[i], _dev_res.pitch_alignment_error_bins, 0, _host_res.measures.depth_res.x * sizeof(int), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_error[i], 0, _host_res.active_ed_vx_count * sizeof(float)));
     }
 
     int block_size;
@@ -1195,19 +1183,61 @@ __host__ void evaluate_alignment_error()
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 
+    struct_projection *vx_projections = (struct_projection *)malloc(_host_res.active_ed_vx_count * sizeof(struct_projection));
+    checkCudaErrors(cudaMemcpy(vx_projections, &_dev_res.warped_sorted_vx_projections[0], _host_res.active_ed_vx_count * sizeof(struct_projection), cudaMemcpyDeviceToHost));
+
     dim3 threads(8, 8);
     dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
 
+    // TODO: speed up
+
     for(unsigned int i = 0; i < 4; i++)
     {
-        thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(&_dev_res.alignment_error[i][0]);
-        thrust::device_vector<float>::iterator iter = thrust::max_element(d_ptr, d_ptr + _dev_res.pitch_alignment_error * _host_res.measures.depth_res.y);
-        int pos = thrust::device_pointer_cast(&(iter[0])) - d_ptr;
+        thrust::device_ptr<float> d_ptr = thrust::device_pointer_cast(&_dev_res.warped_sorted_vx_error[i][0]);
+        thrust::device_vector<float>::iterator iter = thrust::max_element(d_ptr, d_ptr + _host_res.active_ed_vx_count);
 
-        // printf("\npos: %i\n", pos);
+        normalize_alignment_error_functor<float> nf(*iter);
+        thrust::transform(d_ptr, d_ptr + _host_res.active_ed_vx_count, d_ptr, nf);
 
-        kernel_normalize_alignment_errors<<<blocks, threads>>>(pos, _dev_res, i, _host_res.measures);
-        getLastCudaError("kernel_normalize_alignment_errors execution failed\n");
+        Delaunay_triangulation T;
+        std::map<Point, Coord_type, K::Less_xy_2> function_values;
+        typedef CGAL::Data_access<std::map<Point, Coord_type, K::Less_xy_2>> Value_access;
+
+        /// Copy device resources to host pointers
+
+        memset(_host_res.vx_error_values, 0, _host_res.active_ed_vx_count * sizeof(float));
+        checkCudaErrors(cudaMemcpy(_host_res.vx_error_values, &_dev_res.warped_sorted_vx_error[i][0], _host_res.active_ed_vx_count * sizeof(float), cudaMemcpyDeviceToHost));
+
+        /// Populate scatter data
+
+        for(int vx = 0; vx < _host_res.active_ed_vx_count; vx++)
+        {
+            K::Point_2 p(vx_projections[vx].projection[i].x, vx_projections[vx].projection[i].y);
+            T.insert(p);
+            // TODO: check  T.is_valid();
+            function_values.insert(std::make_pair(p, _host_res.vx_error_values[vx]));
+        }
+
+        /// Evaluate the map
+
+        memset(_host_res.vx_error_map, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
+
+        for(int x = 0; x < _host_res.measures.depth_res.x; x++)
+        {
+            for(int y = 0; y < _host_res.measures.depth_res.y; y++)
+            {
+                K::Point_2 p(x / ((float)_host_res.measures.depth_res.x), y / ((float)_host_res.measures.depth_res.y));
+                std::vector<std::pair<Point, Coord_type>> coords;
+                Coord_type norm = CGAL::natural_neighbor_coordinates_2(T, p, std::back_inserter(coords)).second;
+                Coord_type res = CGAL::linear_interpolation(coords.begin(), coords.end(), norm, Value_access(function_values));
+
+                _host_res.vx_error_map[x + y * _host_res.measures.depth_res.x] = (res == 0.f) ? 1.f : res;
+            }
+        }
+
+        checkCudaErrors(cudaMemcpy2D(&_dev_res.alignment_error[i][0], _dev_res.pitch_alignment_error, &_host_res.vx_error_map[0], _host_res.measures.depth_res.x * sizeof(float),
+                                     _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaDeviceSynchronize());
     }
 }
 

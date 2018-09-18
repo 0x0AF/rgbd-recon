@@ -12,7 +12,7 @@ set_target_properties(framework PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 # self built libraries
 target_link_libraries(framework gloost fastdxt ${SQUISH_LIBRARIES} globjects::globjects tinyply ${CUDA_cublas_LIBRARY} ${CUDA_cusolver_LIBRARY} ${CUDA_cusparse_LIBRARY})
 # global libraries
-target_link_libraries(framework GLU zmq ${BOOST_LIBRARIES} gmp mpfr)
+target_link_libraries(framework GLU zmq ${BOOST_LIBRARIES} gmp mpfr CGAL::CGAL)
 
 target_include_directories(framework PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(framework PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/calibration)

@@ -145,6 +145,7 @@ void Renderer::draw()
 
         _program_postproc_color->use();
         _program_postproc_color->setUniform("layer", (int)i);
+        _program_postproc_color->setUniform("frame", (int)k);
         _program_postproc_color->setUniform("fill_clouds", (bool)false);
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_color->id());
@@ -186,6 +187,7 @@ void Renderer::draw()
 
         _program_postproc_depth->use();
         _program_postproc_depth->setUniform("layer", (int)i);
+        _program_postproc_depth->setUniform("frame", (int)k);
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_depth->id());
 
@@ -209,7 +211,7 @@ void Renderer::draw()
         _texture_depth_postproc->getImage(0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, _frame_depth);
     }
 
-#define WRITE_OPTICFLOW
+// #define WRITE_OPTICFLOW
 
 #ifdef WRITE_OPTICFLOW
 

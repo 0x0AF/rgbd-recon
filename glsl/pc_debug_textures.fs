@@ -46,5 +46,10 @@ void main()
     ivec3 dims = textureSize(texture_2d_array, 0);
     ivec3 coordinate = ivec3(uv.x * dims.x, uv.y * dims.y, layer);
     fragColor = texelFetch(texture_2d_array, coordinate, 0);
+
+    float error = fragColor.r;
+
+    fragColor = vec4(error, 0., 1. - error, 1.);
+
     // fragColor = vec4(uv.xy, float(layer) / 4., 1.);
 }

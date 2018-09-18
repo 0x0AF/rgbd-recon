@@ -95,7 +95,6 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error[i], &_dev_res.pitch_alignment_error, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
-        checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error_bins[i], &_dev_res.pitch_alignment_error_bins, _host_res.measures.depth_res.x * sizeof(int), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, _host_res.measures.depth_res.x * sizeof(float2), _host_res.measures.depth_res.y));
     }
 
@@ -131,6 +130,9 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     checkCudaErrors(cudaMalloc(&_dev_res.pos, MAX_REFERENCE_VERTICES * 4 * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.normal, MAX_REFERENCE_VERTICES * 4 * sizeof(float)));
+
+    _host_res.vx_error_map = (float *)malloc(_host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
+    _host_res.vx_error_values = (float *)malloc(MAX_REFERENCE_VERTICES * sizeof(float));
 
     _host_res.kernel_gauss = (float *)malloc(KERNEL_LENGTH * sizeof(float));
 
@@ -180,7 +182,6 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     allocate_brick_resources();
     allocate_ed_resources();
     allocate_pcg_resources();
-    allocate_correspondence_resources();
 
     /*sift_front = (SiftData *)malloc(4 * sizeof(SiftData));
     sift_back = (SiftData *)malloc(4 * sizeof(SiftData));
@@ -209,11 +210,12 @@ extern "C" void deinit_cuda()
     free(sift_back);
     free(sift_front);*/
 
-    free_correspondence_resources();
     free_pcg_resources();
     free_ed_resources();
     free_brick_resources();
 
+    free(_host_res.vx_error_values);
+    free(_host_res.vx_error_map);
     free(_host_res.kernel_gauss);
 
     cusparseDestroy(cusparse_handle);
