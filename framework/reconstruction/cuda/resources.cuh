@@ -208,6 +208,7 @@ struct struct_host_resources
 
     float *kernel_gauss;
 
+    float *silhouette;
     float *vx_error_map;
     float *vx_error_values;
 };

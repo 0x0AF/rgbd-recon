@@ -131,6 +131,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaMalloc(&_dev_res.pos, MAX_REFERENCE_VERTICES * 4 * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.normal, MAX_REFERENCE_VERTICES * 4 * sizeof(float)));
 
+    _host_res.silhouette = (float *)malloc(_host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
     _host_res.vx_error_map = (float *)malloc(_host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
     _host_res.vx_error_values = (float *)malloc(MAX_REFERENCE_VERTICES * sizeof(float));
 
@@ -216,6 +217,7 @@ extern "C" void deinit_cuda()
 
     free(_host_res.vx_error_values);
     free(_host_res.vx_error_map);
+    free(_host_res.silhouette);
     free(_host_res.kernel_gauss);
 
     cusparseDestroy(cusparse_handle);

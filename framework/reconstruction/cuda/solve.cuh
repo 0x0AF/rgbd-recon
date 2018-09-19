@@ -1208,13 +1208,15 @@ __host__ void evaluate_alignment_error()
         memset(_host_res.vx_error_values, 0, _host_res.active_ed_vx_count * sizeof(float));
         checkCudaErrors(cudaMemcpy(_host_res.vx_error_values, &_dev_res.warped_sorted_vx_error[i][0], _host_res.active_ed_vx_count * sizeof(float), cudaMemcpyDeviceToHost));
 
+        memset(_host_res.silhouette, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
+        checkCudaErrors(cudaMemcpy(_host_res.silhouette, &_dev_res.kinect_silhouettes[i][0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float), cudaMemcpyDeviceToHost));
+
         /// Populate scatter data
 
         for(int vx = 0; vx < _host_res.active_ed_vx_count; vx++)
         {
             K::Point_2 p(vx_projections[vx].projection[i].x, vx_projections[vx].projection[i].y);
             T.insert(p);
-            // TODO: check  T.is_valid();
             function_values.insert(std::make_pair(p, _host_res.vx_error_values[vx]));
         }
 
@@ -1231,7 +1233,8 @@ __host__ void evaluate_alignment_error()
                 Coord_type norm = CGAL::natural_neighbor_coordinates_2(T, p, std::back_inserter(coords)).second;
                 Coord_type res = CGAL::linear_interpolation(coords.begin(), coords.end(), norm, Value_access(function_values));
 
-                _host_res.vx_error_map[x + y * _host_res.measures.depth_res.x] = (res == 0.f) ? 1.f : res;
+                bool is_valid_silhouette = _host_res.silhouette[x + y * _host_res.measures.depth_res.x] == 1.f;
+                _host_res.vx_error_map[x + y * _host_res.measures.depth_res.x] = is_valid_silhouette ? res : 1.f;
             }
         }
 
