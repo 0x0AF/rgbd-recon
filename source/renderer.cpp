@@ -46,8 +46,13 @@ renderer::renderer()
 {
     _model = &model::get_instance();
     _io = &model::get_io();
+    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 256);
 }
-renderer::~renderer() { _buffer_shading->destroy(); }
+renderer::~renderer()
+{
+    _buffer_shading->destroy();
+    delete _sequencer;
+}
 void renderer::init()
 {
     //    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -436,28 +441,19 @@ void renderer::draw3d()
 {
     if(_io->_play)
     {
-        _model->get_nka()->update(_frame_number);
+        int frame_position = _sequencer->next_frame_position();
 
-        if(_forward_motion)
+        if(_sequencer->is_finished())
         {
-            _frame_number++;
-
-            if(_frame_number > 101)
-            {
-                _forward_motion = false;
-            }
+            _sequencer->rewind();
         }
-        else
-        {
-            _frame_number--;
 
-            if(_frame_number < 1)
-            {
-                _forward_motion = true;
-            }
-        }
+        _model->get_nka()->update(frame_position);
 
         process_textures();
+
+        _io->_play = false;
+        _model->get_recon_pc()->pause(true);
     }
 
     glClearColor(_io->_clear_color[0], _io->_clear_color[1], _io->_clear_color[2], _io->_clear_color[3]);

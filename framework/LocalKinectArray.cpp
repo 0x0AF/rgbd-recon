@@ -739,6 +739,7 @@ void LocalKinectArray::readFromFiles(int frame_number)
         _file_buffer->read((byte *)_pbo_depths.pointer() + i * _depthsize, _depthsize);
         _file_buffer_flow->read((byte *)_pbo_flow.pointer() + i * flow_size_bytes, flow_size_bytes);
     }
+
     _pbo_colors.dirty = true;
     _pbo_depths.dirty = true;
     _pbo_flow.dirty = true;

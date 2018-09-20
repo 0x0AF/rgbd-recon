@@ -1,12 +1,13 @@
 #ifndef RGBD_RECON_CHOREOGRAPHER_H
 #define RGBD_RECON_CHOREOGRAPHER_H
 
+#include "../FrameSequencer.h"
 #include <glm/vec3.hpp>
 
 class Choreographer
 {
   public:
-    Choreographer() = default;
+    explicit Choreographer(FrameSequencer *sequencer) { _frame_cycle = sequencer->length(); }
     ~Choreographer() = default;
 
     glm::dvec3 get_translation(int frame);
@@ -18,7 +19,7 @@ class Choreographer
     void set_rotation(double angle, glm::dvec3 axis);
 
   private:
-    int _frame_cycle = 100;
+    int _frame_cycle;
     glm::dvec3 _translation;
     double _angle;
     glm::dvec3 _axis;

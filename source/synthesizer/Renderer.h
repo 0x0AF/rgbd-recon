@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "Choreographer.h"
+#include "../FrameSequencer.h"
 #include "FileBuffer.hpp"
 
 #include <vector_types.h>
@@ -50,7 +51,7 @@ class Controller;
 class Renderer
 {
   public:
-    explicit Renderer(Controller *controller, Choreographer *choreographer);
+    Renderer(Controller *controller, Choreographer *choreographer, FrameSequencer * sequencer);
     ~Renderer();
 
     void resize(int width, int height);
@@ -131,6 +132,7 @@ class Renderer
     globjects::UniformBlock *_ub_materials;
     Controller *_controller;
     Choreographer *_choreographer;
+    FrameSequencer *_sequencer;
     globjects::Program *_program, *_program_postproc_color, *_program_postproc_depth, *_program_debug_texture;
 
     std::vector<MeshDescriptor> _meshes;

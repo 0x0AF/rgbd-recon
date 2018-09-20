@@ -91,7 +91,7 @@ class model
         unsigned _right_pos_y = 0;
 
         float _aspect = (float)(_screenWidth * 1.0 / _screenHeight);
-        bool _play = true;
+        bool _play = false;
         bool _draw_frustums = false;
         bool _draw_grid = true;
         bool _animate = false;

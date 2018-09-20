@@ -111,6 +111,12 @@ void init(std::vector<std::string> const &args)
 
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
+    if(key == GLFW_KEY_P && action == GLFW_PRESS)
+    {
+        _io->_play = true;
+        _model->get_recon_pc()->pause(false);
+    }
+
     if(action != GLFW_RELEASE)
         return;
 
@@ -180,10 +186,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     case GLFW_KEY_S:
         _model->reload_reconstructions();
         _renderer->process_textures();
-        break;
-    case GLFW_KEY_P:
-        _io->_play = !_io->_play;
-        _model->get_recon_pc()->pause(!_io->_play);
         break;
     case GLFW_KEY_1:
         _renderer->next_shading_mode();

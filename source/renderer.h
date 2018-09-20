@@ -49,6 +49,7 @@ using namespace gl;
 #include <rendering/timer_database.hpp>
 
 #include "model.h"
+#include "FrameSequencer.h"
 /**
  * @class renderer implements all rendering routines
  */
@@ -76,8 +77,7 @@ class renderer
     static void watch_gl_errors(bool activate);
 
   private:
-    int _frame_number;
-    bool _forward_motion;
+    FrameSequencer *_sequencer;
 
     model *_model;
     model::IO *_io;

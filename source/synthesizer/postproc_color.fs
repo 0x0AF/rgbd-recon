@@ -145,7 +145,7 @@ void main()
     fragColor = texture(texture_2d_array, vec3(uv, layer));
     if(fill_clouds && fragColor.rgb == vec3(0.f, 0.2f, 0.f))
     {
-        fragColor = vec4(texture(clouds, vec2(uv)).r, 0.,0.,1.);
+        fragColor = vec4(texture(clouds, vec2(uv) * 0.5).r, 0., 0., 1.);
     }
     fragColor = postprocess(fragColor, uv.xy);
 }

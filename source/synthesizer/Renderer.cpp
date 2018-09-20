@@ -22,22 +22,20 @@ void Renderer::resize(int width, int height)
 
     build_projection_matrix(70.6f, 1.20754717f, 0.1f, 3.f);
 }
-static int k = 0;
 void Renderer::draw()
 {
+    int frame = _sequencer->next_frame();
+
     /// Choreography
 
     {
-        int frame = (k % 100);
-        frame = (frame > 50) ? 100 - frame : frame;
-
         glm::fvec3 translation = _choreographer->get_translation(frame);
         // glm::fvec4 rotation = _choreographer->get_rotation(frame);
 
         set_identity_matrix(_model_matrix, 4);
         translate(0.5f + translation.x, 0.5f + translation.y, -0.5f + translation.z);
-        rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
-        scale(0.5f, 0.5f, 0.5f);
+        // rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
+        scale(0.25f, 0.25f, 0.25f);
     }
 
     /// Geometry pass
@@ -145,7 +143,7 @@ void Renderer::draw()
 
         _program_postproc_color->use();
         _program_postproc_color->setUniform("layer", (int)i);
-        _program_postproc_color->setUniform("frame", (int)k);
+        _program_postproc_color->setUniform("frame", (int)frame);
         _program_postproc_color->setUniform("fill_clouds", (bool)false);
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_color->id());
@@ -187,7 +185,7 @@ void Renderer::draw()
 
         _program_postproc_depth->use();
         _program_postproc_depth->setUniform("layer", (int)i);
-        _program_postproc_depth->setUniform("frame", (int)k);
+        _program_postproc_depth->setUniform("frame", (int)frame);
 
         glBindTexture(GL_TEXTURE_2D_ARRAY, _texture_depth->id());
 
@@ -211,45 +209,40 @@ void Renderer::draw()
         _texture_depth_postproc->getImage(0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, _frame_depth);
     }
 
-// #define WRITE_OPTICFLOW
+#define WRITE_OPTICFLOW
 
 #ifdef WRITE_OPTICFLOW
 
-    if(k < 101)
+    size_t size_grayscale = 512 * 424 * sizeof(float);
+    size_t framesize_grayscale = 4 * size_grayscale;
+    size_t size_opticflow = 512 * 424 * 2 * sizeof(float);
+    size_t framesize_opticflow = 4 * size_opticflow;
+
+    if(_sequencer->is_first_frame())
     {
-        size_t size_grayscale = 512 * 424 * sizeof(float);
-        size_t framesize_grayscale = 4 * size_grayscale;
-        size_t size_opticflow = 512 * 424 * 2 * sizeof(float);
-        size_t framesize_opticflow = 4 * size_opticflow;
-
-        if(k == 0)
-        {
-            memcpy(_frame_grayscale_prev, _frame_grayscale, framesize_grayscale);
-        }
-
-        for(int layer = 0; layer < 4; layer++)
-        {
-            evaluate_optical_flow(_frame_grayscale_prev + 512 * 424 * layer, _frame_grayscale + 512 * 424 * layer, _of_frame);
-
-            /*for(int i = 0; i < 512 * 424; i++)
-            {
-                if(_of_frame[layer][i].x != 0 || _of_frame[layer][i].y != 0)
-                {
-                    printf("\n(%i,%i): (%f,%f)\n", i / 512, i % 424, _of_frame[layer][i].x, _of_frame[layer][i].y);
-                }
-            }*/
-
-            memcpy(_of_frame_concat + 512 * 424 * layer, _of_frame, size_opticflow);
-        }
-
         memcpy(_frame_grayscale_prev, _frame_grayscale, framesize_grayscale);
-
-        _fb_of->write((byte *)_of_frame_concat, framesize_opticflow);
-
-        _texture_optical_flow->subImage3D(0, 0, 0, 0, 512, 424, 4, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, _of_frame_concat);
-
-        std::cout << k << "%" << std::endl;
     }
+
+    for(int layer = 0; layer < 4; layer++)
+    {
+        evaluate_optical_flow(_frame_grayscale_prev + 512 * 424 * layer, _frame_grayscale + 512 * 424 * layer, _of_frame);
+
+        /*for(int i = 0; i < 512 * 424; i++)
+        {
+            if(_of_frame[layer][i].x != 0 || _of_frame[layer][i].y != 0)
+            {
+                printf("\n(%i,%i): (%f,%f)\n", i / 512, i % 424, _of_frame[layer][i].x, _of_frame[layer][i].y);
+            }
+        }*/
+
+        memcpy(_of_frame_concat + 512 * 424 * layer, _of_frame, size_opticflow);
+    }
+
+    memcpy(_frame_grayscale_prev, _frame_grayscale, framesize_grayscale);
+
+    _fb_of->write((byte *)_of_frame_concat, framesize_opticflow);
+
+    _texture_optical_flow->subImage3D(0, 0, 0, 0, 512, 424, 4, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, _of_frame_concat);
 
 #endif
 
@@ -257,16 +250,13 @@ void Renderer::draw()
 
 #ifdef WRITE_RGBD
 
-    if(k < 101)
-    {
-        size_t colorsize = 1280 * 1080 * 3 * sizeof(byte);
-        size_t depthsize = 512 * 424 * sizeof(float);
+    size_t colorsize = 1280 * 1080 * 3 * sizeof(byte);
+    size_t depthsize = 512 * 424 * sizeof(float);
 
-        for(unsigned i = 0; i < 4; ++i)
-        {
-            _fb->write((byte *)_frame_color + colorsize * i, colorsize);
-            _fb->write((byte *)_frame_depth + depthsize * i, depthsize);
-        }
+    for(unsigned i = 0; i < 4; ++i)
+    {
+        _fb->write((byte *)_frame_color + colorsize * i, colorsize);
+        _fb->write((byte *)_frame_depth + depthsize * i, depthsize);
     }
 
 #endif
@@ -323,13 +313,12 @@ void Renderer::draw()
 
         globjects::Program::release();
     }
-
-    k++;
 }
-Renderer::Renderer(Controller *controller, Choreographer *choreographer)
+Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSequencer * sequencer)
 {
     _controller = controller;
     _choreographer = choreographer;
+    _sequencer = sequencer;
 
     _fb = new FileBuffer(std::string("/home/xaf/Desktop/MSc/data/synthetic_rgbd/record.stream").c_str());
     if(!_fb->open("w", 0))
