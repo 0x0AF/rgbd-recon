@@ -3,6 +3,7 @@
 //
 
 #include "renderer.h"
+#include <globjects/Sync.h>
 #include <imgui_impl_glfw_gl3.h>
 
 std::ostream &operator<<(std::ostream &os, const glm::mat4 &m)
@@ -46,7 +47,7 @@ renderer::renderer()
 {
     _model = &model::get_instance();
     _io = &model::get_io();
-    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 256);
+    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 32);
 }
 renderer::~renderer()
 {
@@ -153,13 +154,29 @@ void renderer::update_gui()
         ImGui::Separator();
 
         ImGui::Checkbox("Debug Texture Silhouettes", &_model->get_recon_pc()->_conf.debug_texture_silhouettes);
-        ImGui::Checkbox("Debug Optical Flow", &_model->get_recon_pc()->_conf.debug_optical_flow);
-        ImGui::Checkbox("Debug Correspondence Field", &_model->get_recon_pc()->_conf.debug_correspondence_field);
+        ImGui::Checkbox("Debug Texture Alignment Error", &_model->get_recon_pc()->_conf.debug_texture_alignment_error);
         ImGui::Checkbox("Debug Reference Volume", &_model->get_recon_pc()->_conf.debug_reference_volume);
         ImGui::Checkbox("Debug Reference Mesh", &_model->get_recon_pc()->_conf.debug_reference_mesh);
         ImGui::Checkbox("Debug ED Sampling", &_model->get_recon_pc()->_conf.debug_ed_sampling);
         ImGui::Checkbox("Debug Vertices", &_model->get_recon_pc()->_conf.debug_sorted_vertices);
-        ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
+
+        if(_model->get_recon_pc()->_conf.debug_sorted_vertices)
+        {
+            ImGui::RadioButton("Misalignment energy", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 0);
+            ImGui::RadioButton("Data Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 1);
+            ImGui::RadioButton("Hull Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 2);
+            ImGui::RadioButton("Correspondence Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 3);
+            ImGui::RadioButton("Regularization Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 4);
+
+            ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
+        }
+
+        if(_model->get_recon_pc()->_conf.debug_sorted_vertices_connections)
+        {
+            ImGui::RadioButton("Debug Vertex Vectors", &_model->get_recon_pc()->_conf.debug_sorted_vertices_traces, 0);
+            ImGui::RadioButton("Debug Vertex Traces", &_model->get_recon_pc()->_conf.debug_sorted_vertices_traces, 1);
+        }
+
         ImGui::Checkbox("Debug Gradient Field", &_model->get_recon_pc()->_conf.debug_gradient_field);
         ImGui::Checkbox("Debug Warped Reference Volume [Surface]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_surface);
 
@@ -175,23 +192,6 @@ void renderer::update_gui()
 
         ImGui::SliderInt("Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
 
-        /**
-        ImGui::SliderFloat("Optical Flow Scaling Factor", &_model->get_recon_pc()->_conf.opticflow_scaling_factor, 0.001f, 1.0f, "%.5f");
-        ImGui::SliderInt("Optical Flow Inner Iterations", &_model->get_recon_pc()->_conf.opticflow_num_inner_iterations, 1, 5, "%.0f");
-        ImGui::SliderInt("Optical Flow Outer Iterations", &_model->get_recon_pc()->_conf.opticflow_num_outer_iterations, 1, 150, "%.0f");
-        ImGui::SliderInt("Optical Flow Solver Iterations", &_model->get_recon_pc()->_conf.opticflow_num_solver_iterations, 1, 10, "%.0f");
-         **/
-
-        /**
-        ImGui::SliderInt("SIFT Octaves", &_model->get_recon_pc()->_conf.textures_SIFT_octaves, 0, 8, "%.0f");
-        ImGui::SliderFloat("SIFT Blur", &_model->get_recon_pc()->_conf.textures_SIFT_blur, 0.001f, 1.0f, "%.5f");
-        ImGui::SliderFloat("SIFT Threshold", &_model->get_recon_pc()->_conf.textures_SIFT_threshold, 0.001f, 0.04f, "%.5f");
-        ImGui::SliderFloat("SIFT Lowest Scale", &_model->get_recon_pc()->_conf.textures_SIFT_lowest_scale, 0.001f, 1.0f, "%.5f");
-        ImGui::Checkbox("SIFT Upscale", &_model->get_recon_pc()->_conf.textures_SIFT_upscale);
-        ImGui::SliderFloat("SIFT Min Score", &_model->get_recon_pc()->_conf.textures_SIFT_min_score, 0.001f, 1.0f, "%.5f");
-        ImGui::SliderFloat("SIFT Max Motion", &_model->get_recon_pc()->_conf.textures_SIFT_max_motion, 0.001f, 1.0f, "%.5f");
-         **/
-
         ImGui::Separator();
 
         ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 1.0f, "%.5f");
@@ -202,13 +202,13 @@ void renderer::update_gui()
         ImGui::Separator();
 
         ImGui::SliderFloat("Mu", &_model->get_recon_pc()->_conf.solver_mu, 0.f, 5.f, "%.5f");
-        ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.001f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.01f, 1.0f, "%.5f");
         ImGui::SliderInt("LMA Max Steps", &_model->get_recon_pc()->_conf.solver_lma_steps, 0, 100, "%.0f");
         ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.1f, "%.5f");
+        ImGui::SliderFloat("Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.3f, "%.5f");
     }
     if(ImGui::CollapsingHeader("Settings"))
     {
@@ -448,12 +448,16 @@ void renderer::draw3d()
             _sequencer->rewind();
         }
 
+        _model->get_recon_pc()->_conf.frame = _sequencer->current_frame();
         _model->get_nka()->update(frame_position);
 
         process_textures();
 
-        _io->_play = false;
-        _model->get_recon_pc()->pause(true);
+        _model->get_nka()->write_out_pbos();
+
+        // TODO: investigate
+        /// Have to do it two times, otherwise get black textures
+        process_textures();
     }
 
     glClearColor(_io->_clear_color[0], _io->_clear_color[1], _io->_clear_color[2], _io->_clear_color[3]);
@@ -587,6 +591,12 @@ void renderer::draw3d()
                 _model->get_bbox()->draw();
             }
         }
+    }
+
+    if(_io->_play)
+    {
+        _io->_play = false;
+        _model->get_recon_pc()->pause(true);
     }
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);

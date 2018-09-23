@@ -64,15 +64,18 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
 
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_ed_nodes_debug, native_handles.buffer_ed_nodes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_sorted_vertices_debug, native_handles.buffer_sorted_vertices_debug, cudaGraphicsRegisterFlagsWriteDiscard));
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.buffer_correspondences_debug, native_handles.buffer_correspondences_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_rgbs, native_handles.pbo_kinect_rgbs, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_depths, native_handles.pbo_kinect_depths, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes, native_handles.pbo_kinect_silhouettes, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_normals, native_handles.pbo_kinect_normals, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow, native_handles.pbo_opticflow, cudaGraphicsRegisterFlagsReadOnly));
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes_debug, native_handles.pbo_kinect_silhouettes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_ALIGNMENT_ERROR
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_alignment_error_debug, native_handles.pbo_kinect_alignment_error_debug, cudaGraphicsRegisterFlagsWriteDiscard));
 #endif
 
     for(unsigned int i = 0; i < 4; i++)
@@ -94,6 +97,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths[i], &_dev_res.pitch_kinect_depths, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_depths_prev[i], &_dev_res.pitch_kinect_depths_prev, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_normals[i], &_dev_res.pitch_kinect_normals, _host_res.measures.depth_res.x * sizeof(float4), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error[i], &_dev_res.pitch_alignment_error, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, _host_res.measures.depth_res.x * sizeof(float2), _host_res.measures.depth_res.y));
     }
@@ -218,6 +222,7 @@ extern "C" void deinit_cuda()
     free(_host_res.vx_error_values);
     free(_host_res.vx_error_map);
     free(_host_res.silhouette);
+
     free(_host_res.kernel_gauss);
 
     cusparseDestroy(cusparse_handle);
@@ -231,17 +236,19 @@ extern "C" void deinit_cuda()
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_occupied));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_ed_nodes_debug));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_sorted_vertices_debug));
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.buffer_correspondences_debug));
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_data));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.volume_tsdf_ref_grad));
 
-    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_rgbs));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_depths));
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes));
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_silhouettes_debug));
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_kinect_alignment_error_debug));
 #endif
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow));
@@ -265,6 +272,16 @@ extern "C" void deinit_cuda()
     if(_dev_res.kinect_silhouettes != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.kinect_silhouettes));
+    }
+
+    if(_dev_res.optical_flow != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.optical_flow));
+    }
+
+    if(_dev_res.alignment_error != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.alignment_error));
     }
 
     if(_dev_res.tsdf_ref_warped != nullptr)
@@ -296,9 +313,6 @@ extern "C" void deinit_cuda()
     {
         checkCudaErrors(cudaFree(_dev_res.out_tsdf_fused));
     }
-
-    free_brick_resources();
-    free_ed_resources();
 
     cudaDeviceReset();
 }

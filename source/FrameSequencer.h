@@ -17,6 +17,7 @@ class FrameSequencer
     FrameSequencer(Type type, int frame_start, int frame_end);
     ~FrameSequencer() = default;
 
+    int current_frame();
     int next_frame();
     int next_frame_position();
     bool is_finished();

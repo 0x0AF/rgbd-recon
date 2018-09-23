@@ -130,7 +130,7 @@ float postprocess(float color, vec2 uv, int frame)
 #endif
 
 #ifdef POSTPROC_PERLIN_80
-    return color * (1.f - 0.8f * cnoise(uv * 10.* rand(uv * frame)));
+    return color * (1.f - 0.8f * cnoise(uv * 10. * rand(uv * frame)));
 #endif
 
     return color;
@@ -139,7 +139,7 @@ float postprocess(float color, vec2 uv, int frame)
 void main()
 {
     vec2 uv = v_uv;
-    //uv.y = 1. - uv.y;
+    // uv.y = 1. - uv.y;
 
     /*float rot = radians(-180.);
     uv -= .5;
@@ -149,7 +149,13 @@ void main()
 
     fragColor = vec4(0., 0., 0., 1.);
     fragColor.r = texture(texture_2d_array, vec3(uv, layer)).r;
-    //fragColor.r = linearize(fragColor.r);
+    // fragColor.r = linearize(fragColor.r);
     fragColor.r = postprocess(fragColor.r, uv, frame);
     fragColor.r = fragColor.r * (3. - 0.5) + 0.5; //* (4.5 - 0.5) + 0.5
+
+    if(fragColor.r == 3.)
+    {
+        /// Here we eliminate any chance that far plane cuts into the scene
+        fragColor.r = 10.;
+    }
 }

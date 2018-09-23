@@ -23,7 +23,7 @@ __device__ float convolutionRow(float *silhouettes_ptr, int offset)
 template <>
 __device__ float convolutionRow<-1>(float *silhouettes_ptr, int offset)
 {
-    return 0;
+    return 0.f;
 }
 
 template <int i>
@@ -35,7 +35,7 @@ __device__ float convolutionColumn(float *silhouettes_ptr, int offset, int strid
 template <>
 __device__ float convolutionColumn<-1>(float *silhouettes_ptr, int offset, int stride)
 {
-    return 0;
+    return 0.f;
 }
 
 __global__ void kernel_filter_rows(struct_device_resources dev_res, int layer, struct_measures measures)
@@ -57,12 +57,22 @@ __global__ void kernel_filter_rows(struct_device_resources dev_res, int layer, s
 
     float initial_value = sample_pitched_ptr(dev_res.kinect_silhouettes[layer], dev_res.pitch_kinect_silhouettes, ix, iy);
 
-    if(((int)(initial_value * 10)) == 10)
+    if(((int)(initial_value * 100)) == 100)
     {
         return;
     }
 
     float sum = convolutionRow<2 * KERNEL_RADIUS>(dev_res.kinect_silhouettes[layer], offset);
+
+    if(isnan(sum))
+    {
+        sum = 0.f;
+    }
+
+    if(isinf(sum))
+    {
+        sum = 0.f;
+    }
 
     __syncthreads();
 
@@ -88,12 +98,22 @@ __global__ void kernel_filter_cols(struct_device_resources dev_res, int layer, s
 
     float initial_value = sample_pitched_ptr(dev_res.kinect_silhouettes[layer], dev_res.pitch_kinect_silhouettes, ix, iy);
 
-    if(((int)(initial_value * 10)) == 10)
+    if(((int)(initial_value * 100)) == 100)
     {
         return;
     }
 
     float sum = convolutionColumn<2 * KERNEL_RADIUS>(dev_res.kinect_silhouettes[layer], offset, dev_res.pitch_kinect_silhouettes / sizeof(float));
+
+    if(isnan(sum))
+    {
+        sum = 0.f;
+    }
+
+    if(isinf(sum))
+    {
+        sum = 0.f;
+    }
 
     __syncthreads();
 

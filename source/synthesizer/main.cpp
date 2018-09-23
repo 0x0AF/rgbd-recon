@@ -137,9 +137,9 @@ int main(int, char *[])
     std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/environment.dae");
 
     Controller controller(filename_poi, filename_environment);
-    FrameSequencer sequencer(FrameSequencer::Type::INCREASING_STEP, 0, 256);
+    FrameSequencer sequencer(FrameSequencer::Type::INCREASING_STEP, 0, 32);
     Choreographer choreographer(&sequencer);
-    choreographer.set_translation({0., 0.6, 0.});
+    choreographer.set_translation({0., 0.5, 0.});
     // choreographer.set_rotation(glm::radians(90.), {0., 1., 0.});
     Renderer renderer(&controller, &choreographer, &sequencer);
 

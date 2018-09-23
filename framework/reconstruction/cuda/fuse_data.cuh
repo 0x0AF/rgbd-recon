@@ -157,9 +157,9 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     /// Warp voxel
 
-    glm::vec3 world = data_2_norm(world_voxel, measures);
-    glm::vec3 dist = world - ed_entry.position;
-    glm::vec3 warped_position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, measures), glm::vec3(0.f), glm::vec3(1.f));
+    glm::fvec3 world = data_2_norm(world_voxel, measures);
+    glm::fvec3 dist = world - ed_entry.position;
+    glm::fvec3 warped_position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, measures), glm::fvec3(0.f), glm::fvec3(1.f));
     glm::uvec3 warped_position_voxel = norm_2_data(warped_position, measures);
 
     if(!in_data_volume(warped_position_voxel, measures))
@@ -187,10 +187,10 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     /// Warp gradient
 
-    glm::vec3 gradient = glm::vec3(grad.x, grad.y, grad.z);
-    glm::vec3 gradient_vector = glm::normalize(gradient);
-    glm::vec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, ed_entry, 1.0f, measures);
-    glm::vec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
+    glm::fvec3 gradient = glm::fvec3(grad.x, grad.y, grad.z);
+    glm::fvec3 gradient_vector = glm::normalize(gradient);
+    glm::fvec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, ed_entry, 1.0f, measures);
+    glm::fvec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
 
     glm::bvec3 is_nan = glm::isnan(warped_gradient);
 
@@ -199,7 +199,7 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 #ifdef DEBUG_NANS
         printf("\nNaN in gradient warp evaluation\n");
 #endif
-        warped_gradient = glm::vec3(0.f);
+        warped_gradient = glm::fvec3(0.f);
     }
 
     // TODO: voxel collision detection
@@ -221,7 +221,7 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
                     return;
                 }
 
-                glm::vec3 diff = measures.size_voxel * (data_2_norm(warped_position_voxel, measures) - data_2_norm(vote_target, measures));
+                glm::fvec3 diff = measures.size_voxel * (data_2_norm(warped_position_voxel, measures) - data_2_norm(vote_target, measures));
                 float prediction = voxel.x + glm::dot(warped_gradient, diff);
                 float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * measures.sigma * measures.sigma));
 
@@ -281,7 +281,7 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
 
     // printf("\ndata: %.3f\n",data.x);
 
-    glm::vec3 norm_pos = data_2_norm(world, measures);
+    glm::fvec3 norm_pos = data_2_norm(world, measures);
 
     unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
 

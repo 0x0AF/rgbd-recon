@@ -21,17 +21,19 @@ __global__ void kernel_mark_ed_nodes(unsigned int ed_nodes_count, int *ed_refere
         float4 normal = dev_res.normal[vertex_position];
 
         // printf("\npos: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
+        // printf("\nnormal: (%f,%f,%f)\n", normal.x, normal.y, normal.z);
 
         glm::vec4 position = host_res.measures.mc_2_norm * glm::vec4(pos.x, pos.y, pos.z, 1.f);
 
         vx.position.x = position.x;
         vx.position.y = position.y;
         vx.position.z = position.z;
-        vx.normal = glm::vec3(normal.x, normal.y, normal.z);
+        vx.normal = glm::normalize(glm::fvec3(normal.x, normal.y, normal.z));
 
         // printf("\nvx.position: (%f,%f,%f)\n", vx.position.x, vx.position.y, vx.position.z);
+        // printf("\nvx.normal: (%.2f,%.2f,%.2f)\n", vx.normal.x, vx.normal.y, vx.normal.z);
 
-        vx.position = glm::clamp(vx.position, glm::vec3(0.f), glm::vec3(1.f));
+        vx.position = glm::clamp(vx.position, glm::fvec3(0.f), glm::fvec3(1.f));
 
         if(!in_normal_space(vx.position))
         {
@@ -235,7 +237,7 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
     struct_ed_node ed_node = dev_res.ed_graph[idx];
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
-    ed_entry.position = glm::vec3(0.f);
+    ed_entry.position = glm::fvec3(0.f);
 
     // printf("\ned_entry.vx_offset %lu, ed_entry.vx_length %u\n", ed_entry.vx_offset, ed_entry.vx_length);
 
@@ -261,15 +263,19 @@ __global__ void kernel_sample_ed_nodes(unsigned int active_ed_nodes, unsigned lo
 
         /*if(idx == 100)
         {
-            glm::vec3 vx_pos = sorted_vx_ptr[sorted_vx_ptr_offset].position;
+            glm::fvec3 vx_pos = sorted_vx_ptr[sorted_vx_ptr_offset].position;
             printf("\nposition %u, length %u: (%f,%f,%f), av (%f,%f,%f)\n", vx_position, ed_entry.vx_length, vx_pos.x, vx_pos.y, vx_pos.z, position.x, position.y, position.z);
         }*/
     }
 
     __syncthreads();
 
-    ed_node.translation = glm::vec3(0.f);
-    ed_node.rotation = glm::quat(1.f, 0.f, 0.f, 0.f);
+    ed_node.translation[0] = 0.f;
+    ed_node.translation[1] = 0.f;
+    ed_node.translation[2] = 0.f;
+    ed_node.rotation[0] = 0.f;
+    ed_node.rotation[1] = 0.f;
+    ed_node.rotation[2] = 0.f;
 
     memcpy(&dev_res.ed_graph[idx], &ed_node, sizeof(struct_ed_node));
     memcpy(&dev_res.ed_graph_meta[idx], &ed_entry, sizeof(struct_ed_meta_entry));
@@ -375,8 +381,8 @@ __global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigne
 
         // printf("\nnode pos: (%f,%f,%f)\n", node.position.x, node.position.y, node.position.z);
 
-        node.translation = ed_node.translation;
-        node.affine = ed_node.rotation;
+        node.translation = glm::fvec3(ed_node.translation[0], ed_node.translation[1], ed_node.translation[2]);
+        node.affine = glm::fquat(1.f, ed_node.rotation[0], ed_node.rotation[1], ed_node.rotation[2]);
 
         node.position = ed_meta.position;
         node.brick_id = ed_meta.brick_id;
@@ -384,6 +390,10 @@ __global__ void kernel_push_debug_ed_nodes(struct_ed_node_debug *ed_ptr, unsigne
         node.vx_offset = (unsigned int)ed_meta.vx_offset;
         node.vx_length = ed_meta.vx_length;
         node.misalignment_error = ed_meta.misalignment_error;
+        node.data_term = ed_meta.data_term;
+        node.hull_term = ed_meta.hull_term;
+        node.correspondence_term = ed_meta.correspondence_term;
+        node.regularization_term = ed_meta.regularization_term;
 
         // printf ("\nerr: %f\n", node.misalignment_error);
 
@@ -421,7 +431,7 @@ extern "C" unsigned long push_debug_sorted_vertices()
     size_t vx_bytes;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&vx_ptr, &vx_bytes, _cgr.buffer_sorted_vertices_debug));
 
-    checkCudaErrors(cudaMemcpy(&vx_ptr[0], &_dev_res.warped_sorted_vx_ptr[0], _host_res.active_ed_vx_count * sizeof(struct_vertex), cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaMemcpy(&vx_ptr[0], &_dev_res.sorted_vx_ptr[0], _host_res.active_ed_vx_count * sizeof(struct_vertex), cudaMemcpyDeviceToDevice));
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &_cgr.buffer_sorted_vertices_debug));
 

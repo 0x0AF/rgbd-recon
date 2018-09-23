@@ -80,12 +80,11 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
 
     _native_handles.buffer_ed_nodes_debug = _buffer_ed_nodes_debug->id();
     _native_handles.buffer_sorted_vertices_debug = _buffer_sorted_vertices_debug->id();
-    _native_handles.buffer_correspondences_debug = _buffer_correspondences_debug->id();
 
     _native_handles.volume_tsdf_data = _volume_tsdf_data;
     _native_handles.volume_tsdf_ref_grad = _volume_tsdf_ref_grad;
 
-    _native_handles.pbo_kinect_rgbs = _nka->getColorHandle();
+    _native_handles.pbo_kinect_normals = _nka->getNormalsHandle();
     _native_handles.pbo_kinect_depths = _nka->getDepthHandle();
     _native_handles.pbo_kinect_silhouettes = _nka->getSilhouetteHandle();
 
@@ -111,8 +110,12 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     _texture2darray_debug = globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY);
     _texture2darray_debug->image3D(0, GL_R32F, _measures.depth_res.x, _measures.depth_res.y, 4, 0, GL_RED, GL_FLOAT, (void *)nullptr);
 
-    _buffer_pbo_textures_debug->setData(_measures.depth_res.x * _measures.depth_res.y * 4 * sizeof(float), nullptr, GL_DYNAMIC_COPY);
-    _buffer_pbo_textures_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    _buffer_pbo_silhouettes_debug->setData(_measures.depth_res.x * _measures.depth_res.y * 4 * sizeof(float), nullptr, GL_DYNAMIC_COPY);
+    _buffer_pbo_silhouettes_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+
+    _buffer_pbo_alignment_debug->setData(_measures.depth_res.x * _measures.depth_res.y * 4 * sizeof(float), nullptr, GL_DYNAMIC_COPY);
+    _buffer_pbo_alignment_debug->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
 
     glBindTextureUnit(9, _texture2darray_debug->id());
@@ -120,7 +123,11 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     glBindTextureUnit(34, _volume_tsdf_ref_grad);
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-    _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_textures_debug->id();
+    _native_handles.pbo_kinect_silhouettes_debug = _buffer_pbo_silhouettes_debug->id();
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_ALIGNMENT_ERROR
+    _native_handles.pbo_kinect_alignment_error_debug = _buffer_pbo_alignment_debug->id();
 #endif
 
     _native_handles.pbo_opticflow = _nka->getFlowTextureHandle();
@@ -188,8 +195,9 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
     _vao_fsquad_debug = new VertexArray();
     _buffer_ed_nodes_debug = new Buffer();
     _buffer_sorted_vertices_debug = new Buffer();
-    _buffer_pbo_textures_debug = new Buffer();
-    _buffer_correspondences_debug = new Buffer();
+
+    _buffer_pbo_silhouettes_debug = new Buffer();
+    _buffer_pbo_alignment_debug = new Buffer();
 
     _vao_fast_mc = new VertexArray();
     _buffer_fast_mc_pos = new Buffer();
@@ -266,9 +274,6 @@ void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
 
     _buffer_sorted_vertices_debug->setData(sizeof(struct_vertex) * MAX_REFERENCE_VERTICES, nullptr, GL_STREAM_COPY);
     _buffer_sorted_vertices_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 9);
-
-    _buffer_correspondences_debug->setData(sizeof(struct_correspondence) * 4 * SIFT_MAX_CORRESPONDENCES, nullptr, GL_STREAM_COPY);
-    _buffer_correspondences_debug->bindBase(GL_SHADER_STORAGE_BUFFER, 10);
 
     for(size_t i = 0; i < MAX_REFERENCE_VERTICES; i++)
     {
@@ -429,8 +434,9 @@ ReconPerformanceCapture::~ReconPerformanceCapture()
     _buffer_fsquad_debug->destroy();
     _buffer_ed_nodes_debug->destroy();
     _buffer_sorted_vertices_debug->destroy();
-    _buffer_correspondences_debug->destroy();
-    _buffer_pbo_textures_debug->destroy();
+
+    _buffer_pbo_silhouettes_debug->destroy();
+    _buffer_pbo_alignment_debug->destroy();
 
     _texture2darray_debug->destroy();
     glDeleteTextures(1, &_volume_tsdf_data);
@@ -448,26 +454,60 @@ void ReconPerformanceCapture::drawF()
 
 void ReconPerformanceCapture::drawComparison()
 {
-    _nka->getPBOMutex().lock();
-
     update_configuration(_conf);
 
     extract_data(); // TODO: timer
 
     draw_data();
-
-    _nka->getPBOMutex().unlock();
 }
 
 void ReconPerformanceCapture::draw()
 {
-    _nka->getPBOMutex().lock();
-
     update_configuration(_conf);
 
     if(!_is_paused)
     {
         integrate_data_frame();
+
+#ifdef PIPELINE_TEXTURES_PREPROCESS
+
+        if(_conf.pipeline_preprocess_textures)
+        {
+            _conf.time_preprocess = preprocess_textures();
+
+#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
+
+            if(_conf.debug_texture_silhouettes)
+            {
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_silhouettes_debug->id());
+                glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
+                glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+            }
+#endif
+
+#ifdef PIPELINE_DEBUG_TEXTURE_ALIGNMENT_ERROR
+
+            if(_conf.debug_texture_alignment_error)
+            {
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_alignment_debug->id());
+                glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
+                glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+            }
+#endif
+        }
+#endif
 
 #ifdef PIPELINE_SAMPLE
 
@@ -489,31 +529,6 @@ void ReconPerformanceCapture::draw()
             _conf.time_sample_ed = sample_ed_nodes();
         }
 
-#endif
-
-#ifdef PIPELINE_TEXTURES_PREPROCESS
-
-        if(_conf.pipeline_preprocess_textures)
-        {
-            _conf.time_preprocess = preprocess_textures();
-
-#ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
-
-            if(_conf.debug_texture_silhouettes)
-            {
-                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
-
-                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, _buffer_pbo_textures_debug->id());
-                glBindTexture(GL_TEXTURE_2D_ARRAY, _texture2darray_debug->id());
-                glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, _measures.depth_res.x, _measures.depth_res.y, 4, GL_RED, GL_FLOAT, 0);
-                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-                glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-
-                globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
-            }
-#endif
-
-        }
 #endif
 
 #ifdef PIPELINE_ALIGN
@@ -585,6 +600,13 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 
+#ifdef PIPELINE_DEBUG_TEXTURE_ALIGNMENT_ERROR
+    if(_conf.debug_texture_alignment_error)
+    {
+        draw_debug_texture();
+    }
+#endif
+
 #ifdef PIPELINE_DEBUG_CORRESPONDENCE_FIELD
     if(_conf.debug_correspondence_field)
     {
@@ -605,8 +627,6 @@ void ReconPerformanceCapture::draw()
         draw_debug_reference_volume_warped();
     }
 #endif
-
-    _nka->getPBOMutex().unlock();
 }
 void ReconPerformanceCapture::extract_reference_mesh() { compute_isosurface(IsoSurfaceVolume::Reference); }
 void ReconPerformanceCapture::draw_data()
@@ -799,6 +819,7 @@ void ReconPerformanceCapture::draw_debug_reference_mesh()
 void ReconPerformanceCapture::draw_debug_ed_sampling()
 {
     _program_pc_debug_ed_sampling->use();
+    _program_pc_debug_ed_sampling->setUniform("mode", _conf.debug_sorted_vertices_mode);
 
     gloost::Matrix projection_matrix;
     glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix.data());
@@ -839,6 +860,7 @@ void ReconPerformanceCapture::draw_debug_sorted_vertices()
     // std::cout << vx_count << std::endl;
 
     _program_pc_debug_sorted_vertices->use();
+    _program_pc_debug_sorted_vertices->setUniform("mode", _conf.debug_sorted_vertices_mode);
 
     _vao_debug->bind();
     _vao_debug->drawArrays(GL_POINTS, 0, ed_count);
@@ -850,6 +872,8 @@ void ReconPerformanceCapture::draw_debug_sorted_vertices()
     if(_conf.debug_sorted_vertices_connections)
     {
         _program_pc_debug_sorted_vertices_connections->use();
+        _program_pc_debug_sorted_vertices_connections->setUniform("mode", _conf.debug_sorted_vertices_mode);
+        _program_pc_debug_sorted_vertices_connections->setUniform("traces", _conf.debug_sorted_vertices_traces);
 
         _vao_debug->bind();
         _vao_debug->drawArrays(GL_POINTS, 0, ed_count);

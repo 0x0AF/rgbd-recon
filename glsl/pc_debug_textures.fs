@@ -4,6 +4,51 @@
 uniform sampler2DArray texture_2d_array;
 layout(location = 0) out vec4 fragColor;
 in vec2 v_uv;
+
+float colormap_red(float x)
+{
+    if(x < 0.7)
+    {
+        return 4.0 * x - 1.5;
+    }
+    else
+    {
+        return -4.0 * x + 4.5;
+    }
+}
+
+float colormap_green(float x)
+{
+    if(x < 0.5)
+    {
+        return 4.0 * x - 0.5;
+    }
+    else
+    {
+        return -4.0 * x + 3.5;
+    }
+}
+
+float colormap_blue(float x)
+{
+    if(x < 0.3)
+    {
+        return 4.0 * x + 0.5;
+    }
+    else
+    {
+        return -4.0 * x + 2.5;
+    }
+}
+
+vec4 colormap(float x)
+{
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = clamp(colormap_blue(x), 0.0, 1.0);
+    return vec4(r, g, b, 1.0);
+}
+
 void main()
 {
     int layer = 0;
@@ -49,7 +94,7 @@ void main()
 
     float error = fragColor.r;
 
-    fragColor = vec4(error, 0., 1. - error, 1.);
+    fragColor = colormap(error);
 
     // fragColor = vec4(uv.xy, float(layer) / 4., 1.);
 }

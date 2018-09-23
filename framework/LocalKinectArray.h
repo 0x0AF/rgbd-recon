@@ -41,18 +41,16 @@ class LocalKinectArray
 {
   public:
     LocalKinectArray(std::string &file_name, std::string &file_name_flow, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile = false);
-    LocalKinectArray(std::vector<KinectCalibrationFile *> &calibs);
-
     ~LocalKinectArray();
 
     bool update(int frame_number);
+
+    void write_out_pbos();
 
     void processTextures();
     void setStartTextureUnit(unsigned _start_texture_unit);
 
     unsigned getStartTextureUnit() const;
-
-    std::vector<KinectCalibrationFile *> const &getCalibs() const;
 
     void writeCurrentTexture(std::string prefix);
     void writeBMP(std::string, std::vector<std::uint8_t> const &, unsigned int offset, unsigned int bytesPerPixel);
@@ -66,17 +64,16 @@ class LocalKinectArray
 
     int getTextureUnit(std::string const &name) const;
 
+    const unsigned int getNormalsHandle(bool textures = false);
     const unsigned int getColorHandle(bool textures = false);
     const unsigned int getDepthHandle(bool textures = false);
     const unsigned int getSilhouetteHandle(bool textures = false);
     const unsigned int getFlowTextureHandle(bool textures = false);
-    std::mutex &getPBOMutex();
 
     void readFromFiles(int frame_number);
 
   private:
     void bindToTextureUnits() const;
-    void processBackground();
     void processDepth();
 
     bool init();
@@ -86,6 +83,7 @@ class LocalKinectArray
 
     unsigned _numLayers;
 
+    globjects::ref_ptr<globjects::Buffer> _out_pbo_normals;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_colors;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_depths;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_silhouettes;
@@ -114,7 +112,6 @@ class LocalKinectArray
     double_pbo _pbo_depths;
     double_pbo _pbo_flow;
 
-    std::mutex _mutex_pbo;
     bool _running;
     bool _filter_textures;
     bool _refine_bound;

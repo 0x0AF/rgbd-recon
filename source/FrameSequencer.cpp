@@ -59,7 +59,7 @@ FrameSequencer::FrameSequencer(FrameSequencer::Type type, int frame_start, int f
 
     if(type == FrameSequencer::Type::INCREASING_STEP)
     {
-        for(int i = 1; pow(2., (double)i) < (frame_end - frame_start); i++)
+        for(int i = 0; pow(2., (double)i) <= (frame_end - frame_start); i++)
         {
             _precomp_sequence.emplace_back(frame_start);
             _precomp_sequence.emplace_back(frame_start + pow(2., (double)i));
@@ -93,4 +93,8 @@ int FrameSequencer::next_frame_position()
     }
 
     return 0;
+}
+int FrameSequencer::current_frame ()
+{
+  return _frame;
 }

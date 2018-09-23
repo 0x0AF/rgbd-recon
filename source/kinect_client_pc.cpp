@@ -206,6 +206,8 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     default:
         break;
     }
+
+    ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 }
 
 void mouse_callback(GLFWwindow *window, double xpos, double ypos) { _model->get_navi()->motion(xpos, ypos); }
@@ -219,6 +221,8 @@ void click_callback(GLFWwindow *window, int button, int action, int mods)
     int mouse_v = (int)ypos;
 
     _model->get_navi()->mouse(button, action, mouse_h, mouse_v);
+
+    ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
 }
 void scroll_callback(GLFWwindow *window, double xoffset, double yoffset)
 {

@@ -38,7 +38,7 @@ LocalKinectArray::LocalKinectArray(std::string &file_name, std::string &file_nam
       _textures_color{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_bg{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY),
                                                                                             globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_silhouette{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _fbo{new globjects::Framebuffer()}, _colorArray_back(), _colorsize(0), _depthsize(0), _pbo_colors(), _pbo_depths(),
-      _mutex_pbo(), _running(true), _filter_textures(true), _refine_bound(true), _curr_frametime{0.0}, _use_processed_depth{true}, _start_texture_unit(1), _calib_files{calibs}, _calib_vols{vols}
+      _running(true), _filter_textures(true), _refine_bound(true), _curr_frametime{0.0}, _use_processed_depth{true}, _start_texture_unit(1), _calib_files{calibs}, _calib_vols{vols}
 {
     _file_buffer = new sys::FileBuffer(file_name.c_str());
     if(!_file_buffer->open("r"))
@@ -57,6 +57,7 @@ LocalKinectArray::LocalKinectArray(std::string &file_name, std::string &file_nam
     _file_buffer_flow->setLooping(true);
 
     _out_pbo_colors = new globjects::Buffer();
+    _out_pbo_normals = new globjects::Buffer();
     _out_pbo_depths = new globjects::Buffer();
     _out_pbo_silhouettes = new globjects::Buffer();
     _out_pbo_flows = new globjects::Buffer();
@@ -153,7 +154,7 @@ bool LocalKinectArray::init()
     _textures_color->image3D(0, GL_RGBA32F, _resolution_depth.x, _resolution_depth.y, _numLayers, 0, GL_RGBA, GL_FLOAT, (void *)nullptr);
 
     _textures_quality->image3D(0, GL_LUMINANCE32F_ARB, _resolution_depth.x, _resolution_depth.y, _numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
-    _textures_normal->image3D(0, GL_RGB32F, _resolution_depth.x, _resolution_depth.y, _numLayers, 0, GL_RGB, GL_FLOAT, (void *)nullptr);
+    _textures_normal->image3D(0, GL_RGBA32F, _resolution_depth.x, _resolution_depth.y, _numLayers, 0, GL_RGBA, GL_FLOAT, (void *)nullptr);
 
     std::vector<glm::fvec2> empty_bg_tex(_resolution_depth.x * _resolution_depth.y * _numLayers, glm::fvec2{0.0f});
     _textures_bg.front->image3D(0, GL_RG32F, _resolution_depth.x, _resolution_depth.y, _numLayers, 0, GL_RG, GL_FLOAT, empty_bg_tex.data());
@@ -161,20 +162,24 @@ bool LocalKinectArray::init()
     _textures_silhouette->image3D(0, GL_R32F, _resolution_depth.x, _resolution_depth.y, _numLayers, 0, GL_RED, GL_FLOAT, (void *)nullptr);
 
     _out_pbo_colors->setData(_depthsize * _numLayers * 4, nullptr, GL_DYNAMIC_COPY);
-    _out_pbo_colors->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
-    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    _out_pbo_colors->bind(GL_PIXEL_PACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
+
+    _out_pbo_normals->setData(_depthsize * _numLayers * 4, nullptr, GL_DYNAMIC_COPY);
+    _out_pbo_normals->bind(GL_PIXEL_PACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
     _out_pbo_depths->setData(_depthsize * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
-    _out_pbo_depths->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
-    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    _out_pbo_depths->bind(GL_PIXEL_PACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
     _out_pbo_flows->setData(_depthsize * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
-    _out_pbo_flows->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
-    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    _out_pbo_flows->bind(GL_PIXEL_PACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
     _out_pbo_silhouettes->setData(_depthsize * _numLayers, nullptr, GL_DYNAMIC_COPY);
-    _out_pbo_silhouettes->bind(GL_PIXEL_UNPACK_BUFFER_ARB);
-    globjects::Buffer::unbind(GL_PIXEL_UNPACK_BUFFER_ARB);
+    _out_pbo_silhouettes->bind(GL_PIXEL_PACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
     if(_calib_files->isCompressedDepth())
     {
@@ -252,6 +257,7 @@ LocalKinectArray::~LocalKinectArray()
     _textures_silhouette->destroy();
 
     _out_pbo_colors->destroy();
+    _out_pbo_normals->destroy();
     _out_pbo_depths->destroy();
     _out_pbo_silhouettes->destroy();
     _out_pbo_flows->destroy();
@@ -261,43 +267,9 @@ bool LocalKinectArray::update(int frame_number)
 {
     readFromFiles(frame_number);
 
-    // lock pbos before checking status
-    std::unique_lock<std::mutex> lock(_mutex_pbo);
-    // skip if no new frame was received
-    if(!_pbo_colors.dirty || !_pbo_depths.dirty || !_pbo_flow.dirty)
-        return false;
-
     _colorArray->fillLayersFromPBO(_pbo_colors.get()->id());
     _depthArray_raw->fillLayersFromPBO(_pbo_depths.get()->id());
     _flowArray->fillLayersFromPBO(_pbo_flow.get()->id());
-
-    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_color->id());
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_colors->id());
-    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, GL_FLOAT, 0);
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_depth->id());
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_depths->id());
-    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RG, GL_FLOAT, 0);
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_silhouette->id());
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_silhouettes->id());
-    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, _flowArray->getGLHandle());
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_flows->id());
-    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RG, GL_FLOAT, 0);
-    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
 
     return true;
 }
@@ -730,9 +702,6 @@ void LocalKinectArray::readFromFiles(int frame_number)
     _file_buffer->gotoByte(frame_size_bytes * frame_number);
     _file_buffer_flow->gotoByte(flow_frame_size_bytes * frame_number);
 
-    // lock pbos
-    std::unique_lock<std::mutex> lock(_mutex_pbo);
-
     for(unsigned i = 0; i < _numLayers; ++i)
     {
         _file_buffer->read((byte *)_pbo_colors.pointer() + i * _colorsize, _colorsize);
@@ -744,7 +713,50 @@ void LocalKinectArray::readFromFiles(int frame_number)
     _pbo_depths.dirty = true;
     _pbo_flow.dirty = true;
 }
+void LocalKinectArray::write_out_pbos()
+{
+    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
 
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_color->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_colors->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_normal->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_normals->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_depth->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_depths->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RG, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_silhouette->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_silhouettes->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _flowArray->getGLHandle());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_flows->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RG, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    globjects::Sync::fence(GL_SYNC_GPU_COMMANDS_COMPLETE);
+}
+const unsigned int LocalKinectArray::getNormalsHandle(bool texture)
+{
+    if(texture)
+    {
+        return _textures_normal->id();
+    }
+    return _out_pbo_normals->id();
+}
 const unsigned int LocalKinectArray::getColorHandle(bool texture)
 {
     if(texture)
@@ -777,5 +789,4 @@ const unsigned int LocalKinectArray::getFlowTextureHandle(bool texture)
     }
     return _out_pbo_flows->id();
 }
-std::mutex &LocalKinectArray::getPBOMutex() { return _mutex_pbo; }
 } // namespace kinect
