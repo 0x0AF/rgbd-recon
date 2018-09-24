@@ -259,7 +259,7 @@ struct CUDA_ALIGN_8 struct_ed_meta_entry
     float hull_term;
     float correspondence_term;
     float regularization_term;
-    int neighbors[27];
+    int pad;
 };
 
 struct CUDA_ALIGN_8 struct_correspondence

@@ -94,8 +94,6 @@ __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, u
         return;
     }
 
-    __shared__ int brick_ed_cell_positions[27]; // point of error
-
     unsigned long long int ed_vx_counter = ed_reference_counter[idx];
 
     unsigned int ed_cell_id = idx % measures.brick_num_ed_cells;
@@ -104,14 +102,11 @@ __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, u
 
     if(ed_vx_counter == 0)
     {
-        brick_ed_cell_positions[ed_cell_id] = -1;
         return;
     }
 
     unsigned int ed_position = atomicAdd(active_ed_nodes, 1u);
     unsigned long long int ed_vx_position = atomicAdd(active_ed_vx, ed_vx_counter);
-
-    brick_ed_cell_positions[ed_cell_id] = ed_position;
 
     __syncthreads();
 
@@ -122,11 +117,6 @@ __global__ void kernel_retrieve_active_ed_nodes(unsigned int *active_ed_nodes, u
     ed_meta.vx_offset = ed_vx_position;
     ed_meta.vx_length = ed_vx_counter;
     ed_meta.misalignment_error = 0.f;
-
-    for(unsigned int i = 0; i < 27; i++)
-    {
-        ed_meta.neighbors[i] = brick_ed_cell_positions[i];
-    }
 
     memcpy(&dev_res.ed_graph_meta[ed_position], &ed_meta, sizeof(struct_ed_meta_entry));
 }

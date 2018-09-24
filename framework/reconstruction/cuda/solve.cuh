@@ -18,6 +18,167 @@
 
 #endif
 
+CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_device_resources &dev_res, struct_host_resources &host_res)
+{
+    float residual = 0.f;
+
+    glm::vec3 translation(ed_node.translation[0], ed_node.translation[1], ed_node.translation[2]);
+
+#pragma unroll
+    for(unsigned int i = 0; i < host_res.active_ed_nodes_count; i++)
+    {
+        struct_ed_node neighbor_node = dev_res.ed_graph[i];
+        struct_ed_meta_entry neighbor_node_meta = dev_res.ed_graph_meta[i];
+
+        float dist = glm::length(neighbor_node_meta.position - ed_entry.position);
+
+        if(dist > host_res.measures.size_brick)
+        {
+            continue;
+        }
+
+        glm::vec3 neighbor_translation(neighbor_node.translation[0], neighbor_node.translation[1], neighbor_node.translation[2]);
+        glm::fquat neighbor_rotation(1.f, neighbor_node.rotation[0], neighbor_node.rotation[1], neighbor_node.rotation[2]);
+
+        float residual_component = 0.f;
+
+        glm::fvec3 diff = ed_entry.position - neighbor_node_meta.position;
+
+#ifdef FAST_QUAT_OPS
+        residual_component = glm::length(qtransform(neighbor_rotation, diff) + neighbor_node_meta.position + neighbor_translation - ed_entry.position - translation);
+#else
+        residual_component = glm::length(glm::mat3_cast(neighbor_rotation) * diff + neighbor_node_meta.position + neighbor_translation - ed_entry.position - translation);
+#endif
+
+#ifdef ED_NODES_ROBUSTIFY
+        residual_component = glm::sqrt(robustify(glm::pow(residual_component, 2.f)));
+#endif
+
+        if(isnan(residual_component))
+        {
+#ifdef DEBUG_NANS
+            printf("\nresidual_component is NaN!\n");
+#endif
+
+            residual_component = 0.f;
+        }
+
+        if(isinf(residual_component))
+        {
+#ifdef DEBUG_NANS
+            printf("\nresidual_component is Inf!\n");
+#endif
+
+            residual_component = 0.f;
+        }
+
+        residual += residual_component;
+    }
+
+    if(isnan(residual))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual is NaN!\n");
+#endif
+
+        residual = 0.f;
+    }
+
+    if(isinf(residual))
+    {
+#ifdef DEBUG_NANS
+        printf("\nresidual is Inf!\n");
+#endif
+
+        residual = 0.f;
+    }
+
+    return host_res.configuration.weight_regularization * residual;
+}
+
+__device__ float evaluate_ed_partial_derivative(int component, struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_device_resources &dev_res, struct_host_resources &host_res)
+{
+    float pd = 0.f;
+
+    struct_ed_node ed_node_new;
+    memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
+
+    float ds = derivative_step(component, host_res.measures);
+    shift_component(ed_node_new, component, ds);
+
+    float ed_res_pos = evaluate_ed_residual(ed_node_new, ed_entry, dev_res, host_res);
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(ed_res_pos))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        ed_res_pos = 0.f;
+    }
+
+    shift_component(ed_node_new, component, ds);
+
+    float ed_res_pos_pos = evaluate_ed_residual(ed_node_new, ed_entry, dev_res, host_res);
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(ed_res_pos_pos))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        ed_res_pos_pos = 0.f;
+    }
+
+    shift_component(ed_node_new, component, -3.f * ds);
+
+    float ed_res_neg = evaluate_ed_residual(ed_node_new, ed_entry, dev_res, host_res);
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(ed_res_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        ed_res_neg = 0.f;
+    }
+
+    shift_component(ed_node_new, component, -1.f * ds);
+
+    float ed_res_neg_neg = evaluate_ed_residual(ed_node_new, ed_entry, dev_res, host_res);
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(ed_res_neg_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        ed_res_neg_neg = 0.f;
+    }
+
+    ds *= 12.f;
+    pd = (-ed_res_pos_pos + 8.f * ed_res_pos - 8.f * ed_res_neg + ed_res_neg_neg) / ds;
+
+    if(isnan(pd))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_pds[%u] is NaN!\n", component);
+#endif
+
+        pd = 0.f;
+    }
+
+    return pd;
+}
+
 __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -242,7 +403,7 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
     ed_entry.data_term = data_term;
     ed_entry.hull_term = hull_term;
     ed_entry.correspondence_term = correspondence_term;
-    ed_entry.regularization_term = evaluate_ed_node_residual(dev_res.ed_graph[idx], ed_entry, dev_res, host_res.measures);
+    ed_entry.regularization_term = evaluate_ed_residual(dev_res.ed_graph[idx], ed_entry, dev_res, host_res);
 
     // printf("\nreg: %f\n", ed_entry.regularization_term);
     // printf("\nhull: %f\n", ed_entry.hull_term);
@@ -254,7 +415,8 @@ __global__ void kernel_reject_misaligned_deformations(unsigned int active_ed_nod
 
 __device__ float evaluate_vx_residual(struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res, struct_host_resources &host_res)
 {
-    /*return glm::length(glm::fvec3(0.5f, 0.64f, 0.36f) - vx.position);*/
+    // return host_res.configuration.weight_data * glm::length(glm::fvec3(0.5f, 0.64f, 0.36f) - vx.position);
+    // return host_res.configuration.weight_data * glm::abs(0.64f - vx.position.y);
 
     float vx_residual = 0.f;
 
@@ -299,7 +461,7 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 #ifdef EVALUATE_ED_REGULARIZATION
     struct_ed_node ed_node = dev_res.ed_graph[idx];
 
-    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    float ed_residual = evaluate_ed_residual(ed_node, ed_entry, dev_res, host_res);
 
     if(isnan(ed_residual))
     {
@@ -343,7 +505,7 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     struct_ed_node ed_node = dev_res.ed_graph_step[idx];
 
 #ifdef EVALUATE_ED_REGULARIZATION
-    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    float ed_residual = evaluate_ed_residual(ed_node, ed_entry, dev_res, host_res);
 
     if(isnan(ed_residual))
     {
@@ -393,82 +555,6 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
 __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res,
                                                 struct_host_resources &host_res)
 {
-    /*float pd = 0.f;
-
-    struct_ed_node ed_node_new;
-    memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
-
-    struct_vertex warped_vx;
-    memset(&warped_vx, 0, sizeof(struct_vertex));
-
-    struct_projection warped_vx_proj;
-    memset(&warped_vx_proj, 0, sizeof(struct_projection));
-
-    glm::fvec3 dist = vx.position - ed_entry.position;
-
-    float ds = derivative_step(component, host_res.measures);
-    shift_component(ed_node_new, component, ds);
-
-    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    warped_vx.normal = vx.normal; /// Per-step approximation
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
-        warped_vx_proj.projection[i].x = projection.x;
-        warped_vx_proj.projection[i].y = projection.y;
-    }
-
-    float vx_res_pos = evaluate_vx_residual(warped_vx, warped_vx_proj, dev_res, host_res);
-
-    // printf("\nvx_residual: %f\n", vx_residual);
-
-    if(isnan(vx_res_pos))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_residual is NaN!\n");
-#endif
-
-        vx_res_pos = 0.f;
-    }
-
-    shift_component(ed_node_new, component, -2.f * ds);
-
-    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    warped_vx.normal = vx.normal; /// Per-step approximation
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
-        warped_vx_proj.projection[i].x = projection.x;
-        warped_vx_proj.projection[i].y = projection.y;
-    }
-
-    float vx_res_neg = evaluate_vx_residual(warped_vx, warped_vx_proj, dev_res, host_res);
-
-    // printf("\nvx_residual: %f\n", vx_residual);
-
-    if(isnan(vx_res_neg))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_residual is NaN!\n");
-#endif
-
-        vx_res_neg = 0.f;
-    }
-
-    ds *= 2.f;
-    pd = vx_res_pos / ds - vx_res_neg / ds;
-
-    if(isnan(pd))
-    {
-#ifdef DEBUG_NANS
-        printf("\nvx_pds[%u] is NaN!\n", component);
-#endif
-
-        pd = 0.f;
-    }
-
-    return pd;*/
-
     float pd = 0.f;
 
     struct_ed_node ed_node_new;
@@ -519,7 +605,43 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
         vx_res_pos = 0.f;
     }
 
-    shift_component(ed_node_new, component, -2.f * ds);
+    shift_component(ed_node_new, component, ds);
+
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
+    warped_vx.normal = vx.normal; /// Per-step approximation
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+        warped_vx_proj.projection[i].x = projection.x;
+        warped_vx_proj.projection[i].y = projection.y;
+    }
+
+    float vx_res_pos_pos = 0.f;
+
+#ifdef EVALUATE_DATA
+    vx_res_pos_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_proj /* per-step approximation */, dev_res, host_res.measures);
+#endif
+
+#ifdef EVALUATE_VISUAL_HULL
+    vx_res_pos_pos += host_res.configuration.weight_hull * evaluate_hull_residual(warped_vx_proj, dev_res, host_res.measures);
+#endif
+
+#ifdef EVALUATE_CORRESPONDENCE_FIELD
+    vx_res_pos_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx_proj, dev_res, host_res.measures);
+#endif
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(vx_res_pos_pos))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        vx_res_pos_pos = 0.f;
+    }
+
+    shift_component(ed_node_new, component, -3.f * ds);
 
     warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
     warped_vx.normal = vx.normal; /// Per-step approximation
@@ -555,8 +677,44 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
         vx_res_neg = 0.f;
     }
 
-    ds *= 2.f;
-    pd = vx_res_pos / ds - vx_res_neg / ds;
+    shift_component(ed_node_new, component, -1.f * ds);
+
+    warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
+    warped_vx.normal = vx.normal; /// Per-step approximation
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+        warped_vx_proj.projection[i].x = projection.x;
+        warped_vx_proj.projection[i].y = projection.y;
+    }
+
+    float vx_res_neg_neg = 0.f;
+
+#ifdef EVALUATE_DATA
+    vx_res_neg_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_proj /* per-step approximation */, dev_res, host_res.measures);
+#endif
+
+#ifdef EVALUATE_VISUAL_HULL
+    vx_res_neg_neg += host_res.configuration.weight_hull * evaluate_hull_residual(warped_vx_proj, dev_res, host_res.measures);
+#endif
+
+#ifdef EVALUATE_CORRESPONDENCE_FIELD
+    vx_res_neg_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx_proj, dev_res, host_res.measures);
+#endif
+
+    // printf("\nvx_residual: %f\n", vx_residual);
+
+    if(isnan(vx_res_neg_neg))
+    {
+#ifdef DEBUG_NANS
+        printf("\nvx_residual is NaN!\n");
+#endif
+
+        vx_res_neg_neg = 0.f;
+    }
+
+    ds *= 12.f;
+    pd = (-vx_res_pos_pos + 8.f * vx_res_pos - 8.f * vx_res_neg + vx_res_neg_neg) / ds;
 
     if(isnan(pd))
     {
@@ -591,12 +749,19 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
     unsigned int component = idx % ED_COMPONENT_COUNT;
 
 #ifdef EVALUATE_ED_REGULARIZATION
+
+    __shared__ float ed_residual;
+
+    if(component == 0)
+    {
+        ed_residual = evaluate_ed_residual(ed_node, ed_entry, dev_res, host_res);
+    }
+
     __shared__ float ed_pds[ED_COMPONENT_COUNT];
 
-    struct_ed_node ed_node_new;
-    memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
+    ed_pds[component] = evaluate_ed_partial_derivative(component, ed_node, ed_entry, dev_res, host_res);
 
-    float ed_residual = host_res.configuration.weight_regularization * evaluate_ed_node_residual(ed_node, ed_entry, dev_res, measures);
+    __syncthreads();
 
     if(isnan(ed_residual))
     {
@@ -606,8 +771,6 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         ed_residual = 0.f;
     }
-
-    ed_pds[component] = host_res.configuration.weight_regularization * evaluate_ed_pd(ed_node_new, ed_entry, component, dev_res, measures);
 
     if(isnan(ed_pds[component]))
     {
@@ -631,7 +794,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
         jtf_value = 0.f;
     }
 
-    shared_jtf_block[component] = jtf_value;
+    atomicAdd(&shared_jtf_block[component], jtf_value);
 
     for(unsigned int component_k = 0; component_k < ED_COMPONENT_COUNT; component_k++)
     {
@@ -648,7 +811,7 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
             jtj_value = 0.f;
         }
 
-        shared_jtj_coo_val_block[jtj_pos] = jtj_value;
+        atomicAdd(&shared_jtj_coo_val_block[jtj_pos], jtj_value);
     }
 #endif
 
@@ -1519,7 +1682,7 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
     calculate_statistics(md, step);
 
-    printf("\nMean deviation from expected deformation: %.2f%\n", md[0] * 100.f);
+    printf("\nMean deviation from expected deformation: %.2f%\n", 100.f * md[0]);
 
     checkCudaErrors(cudaFree(md));
 

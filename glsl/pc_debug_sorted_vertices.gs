@@ -87,7 +87,7 @@ void main()
     if(mode == 4)
     {
         pass_Error = ed_node.regularization_term;
-        pass_Range = 27.f;
+        pass_Range = 80.f;
     }
 
     gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
@@ -129,7 +129,7 @@ void main()
         if(mode == 4)
         {
             pass_Error = ed_node.regularization_term;
-            pass_Range = 27.f;
+            pass_Range = 80.f;
         }
 
         vec3 dist = vertex.position - ed_node.position;

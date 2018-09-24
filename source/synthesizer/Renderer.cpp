@@ -33,9 +33,9 @@ void Renderer::draw()
         // glm::fvec4 rotation = _choreographer->get_rotation(frame);
 
         set_identity_matrix(_model_matrix, 4);
-        translate(0.5f + translation.x, 0.7f + translation.y, -0.5f + translation.z);
+        translate(0.5f + translation.x, 0.8f + translation.y, -0.5f + translation.z);
         // rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
-        scale(0.1f, 0.1f, 0.1f);
+        scale(0.2f, 0.2f, 0.2f);
     }
 
     /// Geometry pass
@@ -314,7 +314,7 @@ void Renderer::draw()
         globjects::Program::release();
     }
 }
-Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSequencer * sequencer)
+Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSequencer *sequencer)
 {
     _controller = controller;
     _choreographer = choreographer;

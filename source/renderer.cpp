@@ -47,7 +47,7 @@ renderer::renderer()
 {
     _model = &model::get_instance();
     _io = &model::get_io();
-    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 32);
+    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 1);
 }
 renderer::~renderer()
 {
