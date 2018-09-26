@@ -32,7 +32,7 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
 
         float dist = glm::length(neighbor_node_meta.position - ed_entry.position);
 
-        if(dist > host_res.measures.size_brick)
+        if(dist > 2.f * host_res.measures.size_ed_cell)
         {
             continue;
         }
@@ -57,7 +57,7 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
         if(isnan(residual_component))
         {
 #ifdef DEBUG_NANS
-            printf("\nresidual_component is NaN!\n");
+            printf("\ned residual component is NaN!\n");
 #endif
 
             residual_component = 0.f;
@@ -66,7 +66,7 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
         if(isinf(residual_component))
         {
 #ifdef DEBUG_NANS
-            printf("\nresidual_component is Inf!\n");
+            printf("\ned residual component is Inf!\n");
 #endif
 
             residual_component = 0.f;
@@ -78,7 +78,7 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
     if(isnan(residual))
     {
 #ifdef DEBUG_NANS
-        printf("\nresidual is NaN!\n");
+        printf("\ned residual is NaN!\n");
 #endif
 
         residual = 0.f;
@@ -87,7 +87,7 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
     if(isinf(residual))
     {
 #ifdef DEBUG_NANS
-        printf("\nresidual is Inf!\n");
+        printf("\ned residual is Inf!\n");
 #endif
 
         residual = 0.f;
@@ -560,19 +560,32 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     struct_ed_node ed_node_new;
     memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
 
-    struct_vertex warped_vx;
-    memset(&warped_vx, 0, sizeof(struct_vertex));
-
-    struct_projection warped_vx_proj;
-    memset(&warped_vx_proj, 0, sizeof(struct_projection));
+    struct_vertex prev_warped_vx;
+    struct_projection prev_warped_vx_proj;
+    memset(&prev_warped_vx, 0, sizeof(struct_vertex));
+    memset(&prev_warped_vx_proj, 0, sizeof(struct_projection));
 
     glm::fvec3 dist = vx.position - ed_entry.position;
+
+    prev_warped_vx.position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
+    prev_warped_vx.normal = glm::clamp(warp_normal(vx.normal, ed_node, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], prev_warped_vx.position);
+        prev_warped_vx_proj.projection[i].x = projection.x;
+        prev_warped_vx_proj.projection[i].y = projection.y;
+    }
+
+    struct_vertex warped_vx;
+    struct_projection warped_vx_proj;
+    memset(&warped_vx, 0, sizeof(struct_vertex));
+    memset(&warped_vx_proj, 0, sizeof(struct_projection));
 
     float ds = derivative_step(component, host_res.measures);
     shift_component(ed_node_new, component, ds);
 
     warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    warped_vx.normal = vx.normal; /// Per-step approximation
+    warped_vx.normal = prev_warped_vx.normal; /// Per-step approximation
     for(unsigned int i = 0; i < 4; i++)
     {
         float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
@@ -583,7 +596,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_pos = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -608,7 +621,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     shift_component(ed_node_new, component, ds);
 
     warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    warped_vx.normal = vx.normal; /// Per-step approximation
+    warped_vx.normal = prev_warped_vx.normal; /// Per-step approximation
     for(unsigned int i = 0; i < 4; i++)
     {
         float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
@@ -619,7 +632,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_pos_pos = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_pos_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_pos_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -891,6 +904,8 @@ __global__ void kernel_jtj_jtf(unsigned long long int active_ed_vx_count, unsign
 
         __syncthreads();
     }
+
+    __syncthreads();
 
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 
@@ -1576,8 +1591,8 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
     map_tsdf_volumes();
     map_kinect_textures();
 
-    const unsigned int max_iterations = _host_res.configuration.solver_lma_steps;
-    unsigned int iterations = 0u;
+    const unsigned int max_steps = _host_res.configuration.solver_lma_steps;
+    unsigned int steps = 0u;
     float mu = _host_res.configuration.solver_mu;
     float initial_misalignment_energy, solution_misalignment_energy;
     int singularity = 0;
@@ -1585,7 +1600,7 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
     project_vertices();
     evaluate_misalignment_energy(initial_misalignment_energy);
 
-    while(iterations < max_iterations)
+    while(steps < max_steps)
     {
         clean_pcg_resources();
         cudaDeviceSynchronize();
@@ -1641,16 +1656,17 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
             printf("\naccepted step, initial E: % f, solution E: %f\n", initial_misalignment_energy, solution_misalignment_energy);
 #endif
 
-            /*int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
+            int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
             float one = 1.f;
             cublasSaxpy(cublas_handle, N, &one, (float *)_dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
-            cudaDeviceSynchronize();*/
+            cudaDeviceSynchronize();
 
             mu -= _host_res.configuration.solver_mu_step;
             initial_misalignment_energy = solution_misalignment_energy;
 #ifdef VERBOSE
             printf("\nmu lowered: %f\n", mu);
 #endif
+            steps++;
         }
         else
         {
@@ -1664,13 +1680,14 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 #endif
         }
 
-        iterations++;
+        if(mu < 0.f)
+        {
+#ifdef VERBOSE
+            printf("\nmu crossed zero: %f\n", mu);
+#endif
+            break;
+        }
     }
-
-    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
-    float one = 1.f;
-    cublasSaxpy(cublas_handle, N, &one, (float *)_dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
-    cudaDeviceSynchronize();
 
 #ifdef UNIT_TEST_NRA
 

@@ -176,6 +176,7 @@ struct struct_device_resources
     /// TSDF volumes (R <- TSDF, G <- Weight)
     float2 *tsdf_ref = nullptr;
     float2 *tsdf_ref_warped = nullptr;
+    float1 *tsdf_ref_warped_marks = nullptr;
     float2 *tsdf_fused = nullptr;
 
     /// 8-bit TSDF volumes for surface extraction

@@ -47,7 +47,7 @@ renderer::renderer()
 {
     _model = &model::get_instance();
     _io = &model::get_io();
-    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 1);
+    _sequencer = new FrameSequencer(FrameSequencer::Type::INCREASING_STEP, 0, 64);
 }
 renderer::~renderer()
 {
@@ -194,16 +194,16 @@ void renderer::update_gui()
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 100.0f, "%.5f");
         ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.f, 1.0f, "%.5f");
         ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.f, 1.0f, "%.5f");
-        ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.f, 1.0f, "%.5f");
+        ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.f, 100.0f, "%.5f");
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Mu", &_model->get_recon_pc()->_conf.solver_mu, 0.f, 5.f, "%.5f");
-        ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.01f, 1.0f, "%.5f");
-        ImGui::SliderInt("LMA Max Steps", &_model->get_recon_pc()->_conf.solver_lma_steps, 0, 100, "%.0f");
+        ImGui::SliderFloat("Starting Mu Value", &_model->get_recon_pc()->_conf.solver_mu, 0.f, 200.f, "%.5f");
+        ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.01f, 50.0f, "%.5f");
+        ImGui::SliderInt("LMA Min Steps", &_model->get_recon_pc()->_conf.solver_lma_steps, 0, 100, "%.0f");
         ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
 
         ImGui::Separator();

@@ -89,7 +89,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     _native_handles.pbo_kinect_silhouettes = _nka->getSilhouetteHandle();
 
     _measures.size_voxel = _voxel_size;
-    _measures.sigma = _voxel_size * 0.5f;
+    _measures.sigma = 1.732f * _ed_cell_size;
     _measures.size_ed_cell = _ed_cell_size;
     _measures.size_brick = _brick_size;
     _measures.size_depth_cell = 8u;
@@ -533,7 +533,7 @@ void ReconPerformanceCapture::draw()
 
 #ifdef PIPELINE_ALIGN
 
-        if(_conf.pipeline_align)
+        if(_conf.pipeline_align && _frame_number.load() != 0)
         {
             // TODO: estimate ICP rigid body fit
 

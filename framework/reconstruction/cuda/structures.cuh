@@ -39,7 +39,7 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 #endif
 
 #define VERBOSE
-#define DEBUG_NANS
+// #define DEBUG_NANS
 
 #define UNIT_TEST_NRA
 
@@ -80,8 +80,8 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 // #define DEBUG_JTF
 // #define DEBUG_H
 
-// #define SOLVER_DIRECT_CHOL
-#define SOLVER_DIRECT_QR
+#define SOLVER_DIRECT_CHOL
+// #define SOLVER_DIRECT_QR
 // #define SOLVER_CG
 // #define SOLVER_PCG
 
@@ -132,8 +132,8 @@ struct Configuration
     float weight_correspondence = 0.088f;
     float weight_regularization = 0.022f;
 
-    float solver_mu = 0.25f;
-    float solver_mu_step = 0.05f;
+    float solver_mu = 200.f;
+    float solver_mu_step = 10.f;
     int solver_lma_steps = 5;
     int solver_cg_steps = 12;
 

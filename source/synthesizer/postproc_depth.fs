@@ -156,6 +156,6 @@ void main()
     if(fragColor.r == 3.)
     {
         /// Here we eliminate any chance that far plane cuts into the scene
-        fragColor.r = 10.;
+        fragColor.r = 100.;
     }
 }

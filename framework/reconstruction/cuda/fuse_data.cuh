@@ -27,6 +27,7 @@ __global__ void kernel_clean_ref_warped(struct_host_resources host_res, struct_d
 
     float2 voxel{-0.03f, 0.f};
     memcpy(&dev_res.tsdf_ref_warped[offset], &voxel, sizeof(float2));
+    memcpy(&dev_res.tsdf_ref_warped_marks[offset], &(voxel.x), sizeof(float1));
     memcpy(&dev_res.tsdf_fused[offset], &voxel, sizeof(float2));
 }
 
@@ -69,32 +70,32 @@ __global__ void kernel_evaluate_gradient_field(struct_host_resources host_res, s
 
     if(position.x == 0)
     {
-        sampling_position.x += 1u;
+        sampling_position.x += 2u;
     }
 
     if(position.y == 0)
     {
-        sampling_position.y += 1u;
+        sampling_position.y += 2u;
     }
 
     if(position.z == 0)
     {
-        sampling_position.z += 1u;
+        sampling_position.z += 2u;
     }
 
-    if(position.x == measures.brick_dim_voxels - 1)
+    if(position.x >= measures.brick_dim_voxels - 2)
     {
-        sampling_position.x -= 1u;
+        sampling_position.x -= 2u;
     }
 
-    if(position.y == measures.brick_dim_voxels - 1)
+    if(position.y >= measures.brick_dim_voxels - 2)
     {
-        sampling_position.y -= 1u;
+        sampling_position.y -= 2u;
     }
 
-    if(position.z == measures.brick_dim_voxels - 1)
+    if(position.z >= measures.brick_dim_voxels - 2)
     {
-        sampling_position.z -= 1u;
+        sampling_position.z -= 2u;
     }
 
     // printf("\nsampling: (%u,%u,%u)\n", sampling_position.x, sampling_position.y, sampling_position.z);
@@ -111,7 +112,7 @@ __global__ void kernel_evaluate_gradient_field(struct_host_resources host_res, s
     //        printf("\nz_pos: %u, sampling: (%u,%u,%u)\n", z_pos, sampling_position.x, sampling_position.y, sampling_position.z);
     //    }
 
-    float two_voxels = 2.0f * measures.size_voxel;
+    float two_voxels = 4.0f * measures.size_voxel;
 
     gradient.x = brick_data[x_pos] / two_voxels - brick_data[x_neg] / two_voxels;
     gradient.y = brick_data[y_pos] / two_voxels - brick_data[y_neg] / two_voxels;
@@ -124,6 +125,9 @@ __global__ void kernel_evaluate_gradient_field(struct_host_resources host_res, s
     surf3Dwrite(gradient, _volume_tsdf_ref_grad, world.x * sizeof(float4), world.y, world.z);
 }
 
+/***
+ * Parallel implementation, suffers from race condition
+ *
 __global__ void kernel_warp_reference(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -149,9 +153,9 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     if(!in_data_volume(world_voxel, measures))
     {
-/*#ifdef VERBOSE
+#ifdef VERBOSE
         printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
-#endif*/
+#endif
         return;
     }
 
@@ -164,16 +168,16 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
     if(!in_data_volume(warped_position_voxel, measures))
     {
-/*#ifdef VERBOSE
+#ifdef VERBOSE
         printf("\nout of volume: warped_position_voxel(%i,%i,%i)\n", warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
-#endif*/
+#endif
         return;
     }
 
-    /*if(warped_position_voxel != world_voxel)
+    *//*if(warped_position_voxel != world_voxel)
     {
         printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
-    }*/
+    }*//*
 
     /// Retrieve SDF value
 
@@ -223,6 +227,146 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
                 glm::fvec3 diff = measures.size_voxel * (data_2_norm(warped_position_voxel, measures) - data_2_norm(vote_target, measures));
                 float prediction = voxel.x + glm::dot(warped_gradient, diff);
+                float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * measures.sigma * measures.sigma));
+
+                // printf("\nprediction: %f\n", prediction);
+                // printf("\nweight: %e, length(diff): %f\n", weight, glm::length(diff));
+
+                if(glm::isnan(prediction))
+                {
+#ifdef DEBUG_NANS
+                    printf("\nNaN in gradient-based prediction\n");
+#endif
+                    prediction = voxel.x;
+                }
+
+                float2 value = sample_ref_warped_ptr(dev_res.tsdf_ref_warped, vote_target, measures);
+
+                value.x = prediction * voxel.y * weight + value.x * value.y;
+                value.y = voxel.y * weight + value.y;
+                value.x /= value.y;
+
+                unsigned int offset = vote_target.x + vote_target.y * measures.data_volume_res.x + vote_target.z * measures.data_volume_res.x * measures.data_volume_res.y;
+
+                memcpy(&dev_res.tsdf_ref_warped[offset], &value, sizeof(float2));
+
+                __syncthreads();
+            }
+        }
+    }
+
+    float2 value = dev_res.tsdf_ref_warped[offset];
+    dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(value.x);
+}*/
+
+__global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mark_smallest_sdf, struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    /// Retrieve ED node
+
+    unsigned int ed_node_offset = ed_node_cell_index / measures.ed_cell_num_voxels;
+
+    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
+
+    /// Retrieve voxel position
+
+    unsigned int voxel_id = ed_node_cell_index % measures.ed_cell_num_voxels;
+
+    glm::uvec3 world_voxel =
+        index_3d(ed_entry.brick_id, measures) * measures.brick_dim_voxels + ed_cell_3d(ed_entry.ed_cell_id, measures) * measures.ed_cell_dim_voxels + ed_cell_voxel_3d(voxel_id, measures);
+
+    if(!in_data_volume(world_voxel, measures))
+    {
+#ifdef VERBOSE
+        printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
+#endif
+        return;
+    }
+
+    /// Warp voxel
+
+    glm::fvec3 world = data_2_norm(world_voxel, measures);
+    glm::fvec3 dist = world - ed_entry.position;
+    glm::fvec3 warped_position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, measures), glm::fvec3(0.f), glm::fvec3(1.f));
+    glm::uvec3 warped_position_voxel = norm_2_data(warped_position, measures);
+
+    if(!in_data_volume(warped_position_voxel, measures))
+    {
+#ifdef VERBOSE
+        printf("\nout of volume: warped_position_voxel(%i,%i,%i)\n", warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
+#endif
+        return;
+    }
+
+    /*if(warped_position_voxel != world_voxel)
+    {
+        printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
+    }*/
+
+    /// Retrieve SDF value
+
+    unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
+    float2 voxel = dev_res.tsdf_ref[offset];
+
+    /// Retrieve gradient
+
+    float4 grad;
+    surf3Dread(&grad, _volume_tsdf_ref_grad, world_voxel.x * sizeof(float4), world_voxel.y, world_voxel.z);
+
+    /// Warp gradient
+
+    glm::fvec3 gradient = glm::fvec3(grad.x, grad.y, grad.z);
+    glm::fvec3 gradient_vector = glm::normalize(gradient);
+    glm::fvec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, ed_entry, 1.0f, measures);
+    glm::fvec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
+
+    glm::bvec3 is_nan = glm::isnan(warped_gradient);
+
+    if(is_nan.x || is_nan.y || is_nan.z)
+    {
+#ifdef DEBUG_NANS
+        printf("\nNaN in gradient warp evaluation\n");
+#endif
+        warped_gradient = glm::fvec3(0.f);
+    }
+
+    /// Write prediction to 27-neighborhood
+
+    for(int i = 0; i < 3; i++)
+    {
+        for(int j = 0; j < 3; j++)
+        {
+            for(int k = 0; k < 3; k++)
+            {
+                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 1, j - 1, k - 1));
+
+                if(!in_data_volume(vote_target, measures))
+                {
+                    continue;
+                }
+
+                if(mark_smallest_sdf)
+                {
+                    unsigned int offset = vote_target.x + vote_target.y * measures.data_volume_res.x + vote_target.z * measures.data_volume_res.x * measures.data_volume_res.y;
+                    float1 mark = sample_ref_warped_marks_ptr(dev_res.tsdf_ref_warped_marks, vote_target, measures);
+                    if(glm::abs(mark.x) > glm::abs(voxel.x))
+                    {
+                        mark.x = voxel.x;
+                        memcpy(&dev_res.tsdf_ref_warped_marks[offset], &mark, sizeof(float1));
+                    }
+
+                    __syncthreads();
+                    continue;
+                }
+
+                float1 mark = sample_ref_warped_marks_ptr(dev_res.tsdf_ref_warped_marks, vote_target, measures);
+                if(glm::abs(voxel.x - mark.x) > 0.01f /* TODO: figure out threshold */)
+                {
+                    continue;
+                }
+
+                glm::fvec3 diff = measures.size_voxel * (data_2_norm(warped_position_voxel, measures) - data_2_norm(vote_target, measures));
+                float prediction = voxel.x + glm::dot(diff, warped_gradient);
                 float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * measures.sigma * measures.sigma));
 
                 // printf("\nprediction: %f\n", prediction);
@@ -347,9 +491,9 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
 
     if(!in_data_volume(world_voxel, measures))
     {
-/*#ifdef VERBOSE
-        printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
-#endif*/
+        /*#ifdef VERBOSE
+                printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
+        #endif*/
         return;
     }
 
@@ -385,9 +529,23 @@ extern "C" double fuse_data()
     getLastCudaError("kernel_clean_ref_warped");
     cudaDeviceSynchronize();
 
-    kernel_warp_reference<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    for(int i = 0; i < _host_res.active_ed_nodes_count * _host_res.measures.ed_cell_num_voxels; i++)
+    {
+        kernel_warp_reference_single_ed<<<1, 1>>>(i, true, _host_res, _dev_res, _host_res.measures);
+        getLastCudaError("kernel_warp_reference");
+        cudaDeviceSynchronize();
+    }
+
+    for(int i = 0; i < _host_res.active_ed_nodes_count * _host_res.measures.ed_cell_num_voxels; i++)
+    {
+        kernel_warp_reference_single_ed<<<1, 1>>>(i, false, _host_res, _dev_res, _host_res.measures);
+        getLastCudaError("kernel_warp_reference");
+        cudaDeviceSynchronize();
+    }
+
+    /*kernel_warp_reference<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_warp_reference");
-    cudaDeviceSynchronize();
+    cudaDeviceSynchronize();*/
 
     kernel_fuse_data<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_fuse_data");

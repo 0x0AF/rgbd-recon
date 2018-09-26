@@ -32,10 +32,12 @@ void Renderer::draw()
         glm::fvec3 translation = _choreographer->get_translation(frame);
         // glm::fvec4 rotation = _choreographer->get_rotation(frame);
 
+        float step = (float)frame / (float)_sequencer->length();
+
         set_identity_matrix(_model_matrix, 4);
         translate(0.5f + translation.x, 0.8f + translation.y, -0.5f + translation.z);
         // rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
-        scale(0.2f, 0.2f, 0.2f);
+        scale(0.2f, 0.4f, 0.2f);
     }
 
     /// Geometry pass

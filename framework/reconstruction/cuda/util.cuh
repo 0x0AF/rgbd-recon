@@ -63,6 +63,11 @@ __device__ float2 sample_ref_warped_ptr(float2 *ref_warped_ptr, glm::uvec3 &pos,
     return ref_warped_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
 }
 
+__device__ float1 sample_ref_warped_marks_ptr(float1 *ref_warped_marks_ptr, glm::uvec3 &pos, struct_measures measures)
+{
+  return ref_warped_marks_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
+}
+
 __device__ float2 sample_opticflow(cudaTextureObject_t &opticflow_tex, glm::vec2 &pos) { return tex2D<float2>(opticflow_tex, pos.x, pos.y); }
 __device__ float1 sample_silhouette(cudaTextureObject_t &silhouette_tex, glm::vec2 &pos) { return tex2D<float1>(silhouette_tex, pos.x, pos.y); }
 __device__ float1 sample_depth(cudaTextureObject_t &depth_tex, glm::vec2 &pos) { return tex2D<float1>(depth_tex, pos.x, pos.y); }
@@ -295,7 +300,7 @@ __device__ bool sample_depth_projection(glm::fvec3 &depth_projection, int layer,
     return true;
 }
 
-__device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_projection &projection, struct_device_resources &dev_res, struct_measures &measures)
 {
     float residual = 0.f;
 
@@ -312,15 +317,21 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
     {
         // printf("\nsampling depth maps: (%.2f,%.2f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
 
-        if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
+        if(projection.projection[i].x >= 1.0f || projection.projection[i].y >= 1.0f)
         {
 #ifdef VERBOSE
-            printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+            printf("\nprojected out of depth map: (%u,%u)\n", projection.projection[i].x, projection.projection[i].y);
 #endif
             continue;
         }
 
-        float4 kinect_normal = sample_normals(dev_res.normals_tex[i], warped_projection.projection[i]);
+        float4 kinect_normal = sample_normals(dev_res.normals_tex[i], projection.projection[i]);
+
+        if(kinect_normal.x == 0.f)
+        {
+            continue;
+        }
+
         glm::fvec3 kinect_normal_normalized = glm::normalize(glm::fvec3(kinect_normal.x, kinect_normal.y, kinect_normal.z));
 
         /*printf("\nnormal: (%.2f,%.2f,%.2f), kinect normal: (%.2f,%.2f,%.2f)\n", warped_vertex.normal.x, warped_vertex.normal.y, warped_vertex.normal.z, kinect_normal_normalized.x,
@@ -330,14 +341,13 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         // printf("\nnormals alignment: %.3f\n", normals_alignment);
 
-        if(normals_alignment < 0.71f)
+        if(normals_alignment < 0.f)
         {
-            return residual;
+            continue;
         }
 
         glm::fvec3 extracted_position;
-
-        if(!sample_depth_projection(extracted_position, i, warped_projection.projection[i], dev_res, measures))
+        if(!sample_depth_projection(extracted_position, i, projection.projection[i], dev_res, measures))
         {
             continue;
         }
@@ -359,7 +369,7 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
         if(isnan(residual_component))
         {
 #ifdef DEBUG_NANS
-            printf("\nresidual_component is NaN!\n");
+            printf("\ndata residual component is NaN!\n");
 #endif
 
             residual_component = 0.f;
@@ -384,7 +394,7 @@ CUDA_HOST_DEVICE float derivative_step(const int partial_derivative_index, struc
     case 3:
     case 4:
     case 5:
-        step = 0.083f * glm::pi<float>(); // small quaternion twists
+        step = 0.05f; // small quaternion twists
         break;
     default:
         printf("\nfatal sampling error: wrong ed component id\n");
@@ -454,7 +464,7 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
         if(isnan(residual_component))
         {
 #ifdef DEBUG_NANS
-            printf("\nresidual_component is NaN!\n");
+            printf("\nhull residual component is NaN!\n");
 #endif
 
             residual_component = 0.f;
@@ -463,7 +473,7 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
         residual += residual_component;
     }
 
-    residual /= 4.f;
+    // residual /= 4.f;
 
     //    if(residual == 4.0f)
     //    {
@@ -498,7 +508,7 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_proje
         if(isnan(residual_component))
         {
 #ifdef DEBUG_NANS
-            printf("\nresidual_component is NaN!\n");
+            printf("\ncorrespondence residual component is NaN!\n");
 #endif
 
             residual_component = 0.f;

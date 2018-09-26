@@ -136,7 +136,7 @@ void main()
 
         if(traces == 0)
         {
-            gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position, 1.0);
+            gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vol_to_world * vec4(ed_node.position + ed_node.translation, 1.0);
         }
 
         if(traces == 1)
