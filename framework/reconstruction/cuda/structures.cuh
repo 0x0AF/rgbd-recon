@@ -41,7 +41,7 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 #define VERBOSE
 // #define DEBUG_NANS
 
-#define UNIT_TEST_NRA
+// #define UNIT_TEST_NRA
 
 #define PIPELINE_DEBUG_TEXTURE_SILHOUETTES
 #define PIPELINE_DEBUG_TEXTURE_ALIGNMENT_ERROR
@@ -79,9 +79,10 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 // #define DEBUG_JTJ_PUSH_ORDERED_INTEGERS
 // #define DEBUG_JTF
 // #define DEBUG_H
+#define DEBUG_CONVERGENCE
 
-#define SOLVER_DIRECT_CHOL
-// #define SOLVER_DIRECT_QR
+#define SOLVER_DIRECT_QR
+// #define SOLVER_DIRECT_CHOL
 // #define SOLVER_CG
 // #define SOLVER_PCG
 
@@ -128,13 +129,13 @@ struct Configuration
     int textures_silhouettes_iterations = 100;
 
     float weight_data = 1.f;
-    float weight_hull = 0.044f;
-    float weight_correspondence = 0.088f;
-    float weight_regularization = 0.022f;
+    float weight_hull = 0.25f;
+    float weight_correspondence = 0.9f;
+    float weight_regularization = 0.01f;
 
-    float solver_mu = 200.f;
-    float solver_mu_step = 10.f;
-    int solver_lma_steps = 5;
+    float solver_mu = 1000.f;
+    float solver_mu_step = 50.f;
+    int solver_lma_max_iter = 10;
     int solver_cg_steps = 12;
 
     float rejection_threshold = 0.01f;

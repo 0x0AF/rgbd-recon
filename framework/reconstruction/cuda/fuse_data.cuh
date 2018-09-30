@@ -70,32 +70,32 @@ __global__ void kernel_evaluate_gradient_field(struct_host_resources host_res, s
 
     if(position.x == 0)
     {
-        sampling_position.x += 2u;
+        sampling_position.x += 1u;
     }
 
     if(position.y == 0)
     {
-        sampling_position.y += 2u;
+        sampling_position.y += 1u;
     }
 
     if(position.z == 0)
     {
-        sampling_position.z += 2u;
+        sampling_position.z += 1u;
     }
 
-    if(position.x >= measures.brick_dim_voxels - 2)
+    if(position.x >= measures.brick_dim_voxels - 1)
     {
-        sampling_position.x -= 2u;
+        sampling_position.x -= 1u;
     }
 
-    if(position.y >= measures.brick_dim_voxels - 2)
+    if(position.y >= measures.brick_dim_voxels - 1)
     {
-        sampling_position.y -= 2u;
+        sampling_position.y -= 1u;
     }
 
-    if(position.z >= measures.brick_dim_voxels - 2)
+    if(position.z >= measures.brick_dim_voxels - 1)
     {
-        sampling_position.z -= 2u;
+        sampling_position.z -= 1u;
     }
 
     // printf("\nsampling: (%u,%u,%u)\n", sampling_position.x, sampling_position.y, sampling_position.z);
@@ -112,11 +112,18 @@ __global__ void kernel_evaluate_gradient_field(struct_host_resources host_res, s
     //        printf("\nz_pos: %u, sampling: (%u,%u,%u)\n", z_pos, sampling_position.x, sampling_position.y, sampling_position.z);
     //    }
 
-    float two_voxels = 4.0f * measures.size_voxel;
+    float two_voxels = 2.0f * measures.size_voxel;
 
     gradient.x = brick_data[x_pos] / two_voxels - brick_data[x_neg] / two_voxels;
     gradient.y = brick_data[y_pos] / two_voxels - brick_data[y_neg] / two_voxels;
     gradient.z = brick_data[z_pos] / two_voxels - brick_data[z_neg] / two_voxels;
+
+    bool is_grad_nan = glm::isnan(gradient.x) || glm::isnan(gradient.y) || glm::isnan(gradient.z);
+
+    if(is_grad_nan)
+    {
+        gradient = float4{0.f, 0.f, 0.f, 0.f};
+    }
 
     /// Write gradient
 
@@ -268,6 +275,11 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
     struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
 
+    if(ed_entry.misalignment_error > host_res.configuration.rejection_threshold)
+    {
+        return;
+    }
+
     /// Retrieve voxel position
 
     unsigned int voxel_id = ed_node_cell_index % measures.ed_cell_num_voxels;
@@ -310,19 +322,40 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
 
     /// Retrieve gradient
 
-    float4 grad;
-    surf3Dread(&grad, _volume_tsdf_ref_grad, world_voxel.x * sizeof(float4), world_voxel.y, world_voxel.z);
+    glm::fvec3 gradient = glm::fvec3(0.f);
+
+    for(int i = 0; i < 3; i++)
+    {
+        for(int j = 0; j < 3; j++)
+        {
+            for(int k = 0; k < 3; k++)
+            {
+                float4 grad;
+                surf3Dread(&grad, _volume_tsdf_ref_grad, (world_voxel.x + i - 1) * sizeof(float4), (world_voxel.y + j - 1), (world_voxel.z + k - 1));
+
+                bool is_grad_nan = glm::isnan(grad.x) || glm::isnan(grad.y) || glm::isnan(grad.z);
+
+                if(is_grad_nan)
+                {
+                    grad = float4{0.f, 0.f, 0.f, 0.f};
+                }
+
+                gradient += glm::fvec3(grad.x, grad.y, grad.z);
+            }
+        }
+    }
+
+    gradient /= 27.f;
 
     /// Warp gradient
 
-    glm::fvec3 gradient = glm::fvec3(grad.x, grad.y, grad.z);
     glm::fvec3 gradient_vector = glm::normalize(gradient);
     glm::fvec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, ed_entry, 1.0f, measures);
     glm::fvec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
 
-    glm::bvec3 is_nan = glm::isnan(warped_gradient);
+    bool is_nan = isnan(warped_gradient.x) || isnan(warped_gradient.y) || isnan(warped_gradient.z);
 
-    if(is_nan.x || is_nan.y || is_nan.z)
+    if(is_nan)
     {
 #ifdef DEBUG_NANS
         printf("\nNaN in gradient warp evaluation\n");
@@ -332,16 +365,17 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
 
     /// Write prediction to 27-neighborhood
 
-    for(int i = 0; i < 3; i++)
+    for(int i = 0; i < 5; i++)
     {
-        for(int j = 0; j < 3; j++)
+        for(int j = 0; j < 5; j++)
         {
-            for(int k = 0; k < 3; k++)
+            for(int k = 0; k < 5; k++)
             {
-                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 1, j - 1, k - 1));
+                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 2, j - 2, k - 2));
 
                 if(!in_data_volume(vote_target, measures))
                 {
+                    __syncthreads();
                     continue;
                 }
 
@@ -360,19 +394,22 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
                 }
 
                 float1 mark = sample_ref_warped_marks_ptr(dev_res.tsdf_ref_warped_marks, vote_target, measures);
-                if(glm::abs(voxel.x - mark.x) > 0.01f /* TODO: figure out threshold */)
+                if(glm::abs(voxel.x - mark.x) > 0.001f /* TODO: figure out threshold */)
                 {
+                    __syncthreads();
                     continue;
                 }
 
-                glm::fvec3 diff = measures.size_voxel * (data_2_norm(warped_position_voxel, measures) - data_2_norm(vote_target, measures));
-                float prediction = voxel.x + glm::dot(diff, warped_gradient);
+                glm::fvec3 diff = glm::fvec3(glm::ivec3(warped_position_voxel) - glm::ivec3(vote_target)) * measures.size_voxel;
+                float prediction = voxel.x - glm::dot(diff, warped_gradient);
                 float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * measures.sigma * measures.sigma));
 
+                // printf("\noriginal: %.3f, diff: (%.3f,%.3f,%.3f), grad: (%.3f,%.3f,%.3f), prediction:%.3f\n", voxel.x, diff.x, diff.y, diff.z, warped_gradient.x, warped_gradient.y,
+                // warped_gradient.z, prediction);
                 // printf("\nprediction: %f\n", prediction);
                 // printf("\nweight: %e, length(diff): %f\n", weight, glm::length(diff));
 
-                if(glm::isnan(prediction))
+                if(isnan(prediction))
                 {
 #ifdef DEBUG_NANS
                     printf("\nNaN in gradient-based prediction\n");
@@ -394,9 +431,6 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
             }
         }
     }
-
-    float2 value = dev_res.tsdf_ref_warped[offset];
-    dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(value.x);
 }
 
 __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
@@ -430,6 +464,7 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
     unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
 
     float2 ref_warped = dev_res.tsdf_ref_warped[offset];
+    dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(ref_warped.x);
 
     if(glm::abs(ref_warped.x) < 0.03f)
     {

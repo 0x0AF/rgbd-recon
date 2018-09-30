@@ -65,12 +65,13 @@ __device__ float2 sample_ref_warped_ptr(float2 *ref_warped_ptr, glm::uvec3 &pos,
 
 __device__ float1 sample_ref_warped_marks_ptr(float1 *ref_warped_marks_ptr, glm::uvec3 &pos, struct_measures measures)
 {
-  return ref_warped_marks_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
+    return ref_warped_marks_ptr[pos.x + pos.y * measures.data_volume_res.x + pos.z * measures.data_volume_res.x * measures.data_volume_res.y];
 }
 
 __device__ float2 sample_opticflow(cudaTextureObject_t &opticflow_tex, glm::vec2 &pos) { return tex2D<float2>(opticflow_tex, pos.x, pos.y); }
 __device__ float1 sample_silhouette(cudaTextureObject_t &silhouette_tex, glm::vec2 &pos) { return tex2D<float1>(silhouette_tex, pos.x, pos.y); }
 __device__ float1 sample_depth(cudaTextureObject_t &depth_tex, glm::vec2 &pos) { return tex2D<float1>(depth_tex, pos.x, pos.y); }
+__device__ float1 sample_prev_depth(cudaTextureObject_t &depth_tex_prev, glm::vec2 &pos) { return tex2D<float1>(depth_tex_prev, pos.x, pos.y); }
 __device__ float4 sample_normals(cudaTextureObject_t &normals_tex, glm::vec2 &pos) { return tex2D<float4>(normals_tex, pos.x, pos.y); }
 __device__ float1 sample_error(cudaTextureObject_t &alignment_error_tex, glm::vec2 &pos) { return tex2D<float1>(alignment_error_tex, pos.x, pos.y); }
 __device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::fvec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
@@ -246,6 +247,58 @@ __device__ float evaluate_vx_misalignment(struct_vertex &warped_vertex, struct_m
     surf3Dread(&data, _volume_tsdf_data, wp_voxel_space.x * sizeof(float2), wp_voxel_space.y, wp_voxel_space.z);
 
     return glm::abs(data.x);
+}
+
+__device__ bool sample_prev_depth_projection(glm::fvec3 &depth_projection, int layer, glm::vec2 projection, struct_device_resources dev_res, struct_measures measures)
+{
+    float depth = sample_prev_depth(dev_res.depth_tex_prev[layer], projection).x;
+
+    // printf("\ndepth (%f,%f) = %f\n", warped_projection.projection[layer].x, warped_projection.projection[layer].y, depth);
+
+    if(depth == 0)
+    {
+        return false;
+    }
+
+    // printf("\ndepth %f\n", depth);
+
+    glm::fvec3 coordinate = glm::fvec3(projection.x, projection.y, depth);
+
+    if(!in_normal_space(coordinate))
+    {
+        /*#ifdef VERBOSE
+                    printf("\nprojected out of direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+        #endif*/
+        return false;
+    }
+
+    // printf("\nsampling direct calibration volume: (%f,%f,%f)\n", coordinate.x, coordinate.y, coordinate.z);
+
+    float4 projected = sample_cv_xyz(dev_res.cv_xyz_tex[layer], coordinate);
+
+    // printf("\nprojected (%f,%f,%f,%f)\n", projected.x, projected.y, projected.z, projected.w);
+
+    //        if(depth_voxel_space == 45u)
+    //        {
+    //            printf("\nprojected (x,y, depth): (%u,%u,%u) = (%f,%f,%f)\n", pixel.x, pixel.y, depth_voxel_space, projected.x, projected.y, projected.z);
+    //        }
+
+    glm::fvec3 extracted_position = glm::fvec3(projected.x, projected.y, projected.z);
+    extracted_position = bbox_transform_position(extracted_position, measures);
+
+    // printf("\nextracted_position (%.2f, %.2f, %.2f)\n", extracted_position.x, extracted_position.y, extracted_position.z);
+
+    if(!in_normal_space(extracted_position))
+    {
+        return false;
+    }
+
+    //        printf("\nextracted_position (%.2f, %.2f, %.2f): (%.2f,%.2f,%.2f) = (%.2f,%.2f,%.2f)\n", coordinate.x, coordinate.y, coordinate.z, warped_position.x, warped_position.y,
+    //        warped_position.z, extracted_position.x, extracted_position.y, extracted_position.z);
+
+    depth_projection = extracted_position;
+
+    return true;
 }
 
 __device__ bool sample_depth_projection(glm::fvec3 &depth_projection, int layer, glm::vec2 projection, struct_device_resources dev_res, struct_measures measures)
@@ -483,12 +536,25 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
     return residual;
 }
 
-__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_projection &projection, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_vertex &reference_vertex, struct_projection &projection, struct_device_resources &dev_res, struct_measures &measures)
 {
     float residual = 0.f;
 
     for(int layer = 0; layer < 4; layer++)
     {
+        glm::fvec3 backprojected_position;
+        if(!sample_prev_depth_projection(backprojected_position, layer, projection.projection[layer], dev_res, measures))
+        {
+            continue;
+        }
+
+        glm::vec3 diff = backprojected_position - reference_vertex.position;
+
+        if(glm::length(diff) > 0.03f || glm::length(diff) == 0.f)
+        {
+            continue;
+        }
+
         float2 flow = sample_opticflow(dev_res.optical_flow_tex[layer], projection.projection[layer]);
 
         // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);

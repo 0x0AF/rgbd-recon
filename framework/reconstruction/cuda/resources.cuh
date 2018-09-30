@@ -146,6 +146,7 @@ struct struct_device_resources
 
     /// JTJ sparse pointers
     float *jtj_vals = nullptr;
+    float *jtj_mu_vals = nullptr;
     int *jtj_rows = nullptr;
     int *jtj_rows_csr = nullptr;
     int *jtj_cols = nullptr;
@@ -647,6 +648,12 @@ __host__ void free_pcg_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
+    if(_dev_res.jtj_mu_vals != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.jtj_mu_vals));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
     if(_dev_res.jtj_rows != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.jtj_rows));
@@ -723,11 +730,14 @@ __host__ void allocate_pcg_resources()
     checkCudaErrors(cudaMalloc(&_dev_res.jtf, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.h, JTJ_ROWS * sizeof(float)));
 
+#ifdef SOLVER_CG
     checkCudaErrors(cudaMalloc(&_dev_res.pcg_p, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.pcg_omega, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.pcg_Ax, JTJ_ROWS * sizeof(float)));
+#endif
 
     checkCudaErrors(cudaMalloc(&_dev_res.jtj_vals, JTJ_NNZ * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&_dev_res.jtj_mu_vals, JTJ_NNZ * sizeof(float)));
     checkCudaErrors(cudaMalloc(&_dev_res.jtj_rows, JTJ_NNZ * sizeof(int)));
     checkCudaErrors(cudaMalloc(&_dev_res.jtj_rows_csr, JTJ_NNZ * sizeof(int)));
     checkCudaErrors(cudaMalloc(&_dev_res.jtj_cols, JTJ_NNZ * sizeof(int)));
@@ -762,11 +772,14 @@ __host__ void clean_pcg_resources()
     checkCudaErrors(cudaMemset(_dev_res.jtf, 0, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.h, 0, JTJ_ROWS * sizeof(float)));
 
+#ifdef SOLVER_CG
     checkCudaErrors(cudaMemset(_dev_res.pcg_p, 0, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.pcg_omega, 0, JTJ_ROWS * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.pcg_Ax, 0, JTJ_ROWS * sizeof(float)));
+#endif
 
     checkCudaErrors(cudaMemset(_dev_res.jtj_vals, 0, JTJ_NNZ * sizeof(float)));
+    checkCudaErrors(cudaMemset(_dev_res.jtj_mu_vals, 0, JTJ_NNZ * sizeof(float)));
     checkCudaErrors(cudaMemset(_dev_res.jtj_rows, 0, JTJ_NNZ * sizeof(int)));
     checkCudaErrors(cudaMemset(_dev_res.jtj_rows_csr, 0, JTJ_NNZ * sizeof(int)));
     checkCudaErrors(cudaMemset(_dev_res.jtj_cols, 0, JTJ_NNZ * sizeof(int)));

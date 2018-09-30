@@ -30,7 +30,7 @@ if (CMAKE_VERSION VERSION_LESS 2.8.11)
     include_directories("${gtest_SOURCE_DIR}/include")
 endif ()
 
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; –dlink -use_fast_math -O3 -gencode arch=compute_61,code=sm_61 -lcusparse -lcublas -lcusolver)
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; –dlink --ftz=true --prec-div=true --prec-sqrt=true --fmad=true -O3 -gencode arch=compute_61,code=sm_61 -lcusparse -lcublas -lcusolver)
 
 add_executable(kinect_client_pc kinect_client_pc.cpp renderer.cpp renderer.h model.cpp model.h FrameSequencer.h FrameSequencer.cpp)
 
