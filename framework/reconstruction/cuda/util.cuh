@@ -370,10 +370,10 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
     {
         // printf("\nsampling depth maps: (%.2f,%.2f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
 
-        if(projection.projection[i].x >= 1.0f || projection.projection[i].y >= 1.0f)
+        if(projection.projection[i].x < 0.f || projection.projection[i].y < 0.f)
         {
 #ifdef VERBOSE
-            printf("\nprojected out of depth map: (%u,%u)\n", projection.projection[i].x, projection.projection[i].y);
+            printf("\nprojected out of depth map: (%f,%f)\n", projection.projection[i].x, projection.projection[i].y);
 #endif
             continue;
         }
@@ -500,11 +500,12 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
 
     for(int i = 0; i < 4; i++)
     {
-        if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
+        if(warped_projection.projection[i].x < 0.f || warped_projection.projection[i].y < 0.f)
         {
 #ifdef VERBOSE
-            printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+            printf("\nprojected out of depth map: (%f,%f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
 #endif
+            residual += 1.f;
             continue;
         }
 
@@ -542,6 +543,14 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
 
     for(int layer = 0; layer < 4; layer++)
     {
+        if(projection.projection[layer].x < 0.f || projection.projection[layer].y < 0.f)
+        {
+#ifdef VERBOSE
+            printf("\nprojected out of optical flow map: (%f,%f)\n", projection.projection[layer].x, projection.projection[layer].y);
+#endif
+            continue;
+        }
+
         glm::fvec3 backprojected_position;
         if(!sample_prev_depth_projection(backprojected_position, layer, projection.projection[layer], dev_res, measures))
         {

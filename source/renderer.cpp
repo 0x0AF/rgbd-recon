@@ -208,7 +208,7 @@ void renderer::update_gui()
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.3f, "%.5f");
+        ImGui::SliderFloat("Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.03f, "%.5f");
     }
     if(ImGui::CollapsingHeader("Settings"))
     {

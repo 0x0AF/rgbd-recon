@@ -502,6 +502,103 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
     }
 }
 
+__global__ void kernel_override_ref_warp(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_bricks_count * measures.brick_num_voxels)
+    {
+        return;
+    }
+
+    unsigned int brick_id = dev_res.bricks_dense_index[idx / measures.brick_num_voxels];
+    unsigned int pos_id = idx % measures.brick_num_voxels;
+
+    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 position = position_3d(pos_id, measures);
+    glm::uvec3 world = brick + position;
+
+    if(!in_data_volume(world, measures))
+    {
+        return;
+    }
+
+    float2 data;
+    surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+
+    // printf("\ndata: %.3f\n",data.x);
+
+    unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_IDENTICAL
+    dev_res.tsdf_ref_warped[offset] = data;
+#endif
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_COMPLEMENTARY
+    if(world.x > measures.data_volume_res.x / 2)
+    {
+        dev_res.tsdf_ref_warped[offset] = data;
+    }
+    else
+    {
+        dev_res.tsdf_ref_warped[offset] = float2{-0.03, 0.f};
+    }
+#endif
+}
+
+__global__ void kernel_compare_fused(float *error, struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_bricks_count * measures.brick_num_voxels)
+    {
+        return;
+    }
+
+    unsigned int brick_id = dev_res.bricks_dense_index[idx / measures.brick_num_voxels];
+    unsigned int pos_id = idx % measures.brick_num_voxels;
+
+    glm::uvec3 brick = index_3d(brick_id, measures) * measures.brick_dim_voxels;
+    glm::uvec3 position = position_3d(pos_id, measures);
+    glm::uvec3 world = brick + position;
+
+    if(!in_data_volume(world, measures))
+    {
+        return;
+    }
+
+    float2 data;
+    surf3Dread(&data, _volume_tsdf_data, world.x * sizeof(float2), world.y, world.z);
+
+    // printf("\ndata: %.3f\n",data.x);
+
+    unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
+    float2 fused = dev_res.tsdf_fused[offset];
+    float2 ref_warped = dev_res.tsdf_ref_warped[offset];
+
+    float value_difference = 0.f;
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_IDENTICAL
+    value_difference = glm::abs(data.x - fused.x) + glm::abs(ref_warped.x - fused.x);
+#endif
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_COMPLEMENTARY
+    if(world.x > measures.data_volume_res.x / 2)
+    {
+        value_difference = glm::abs(ref_warped.x - fused.x);
+    }
+    else
+    {
+        value_difference = glm::abs(data.x - fused.x);
+    }
+#endif
+
+    if(!isnan(value_difference))
+    {
+        atomicAdd(error, value_difference);
+    }
+}
+
 __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -546,6 +643,144 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
     }
 }
 
+__device__ static float atomicFloatMax(float *address, float val)
+{
+    int *address_as_i = (int *)address;
+    int old = *address_as_i, assumed;
+    do
+    {
+        assumed = old;
+        old = ::atomicCAS(address_as_i, assumed, __float_as_int(::fmaxf(val, __int_as_float(assumed))));
+    } while(assumed != old);
+    return __int_as_float(old);
+}
+
+__global__ void kernel_calculate_warped_reference_metrics(bool calculate_stdev, float *metrics, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        return;
+    }
+
+    float mean = 0.f;
+
+    if(calculate_stdev)
+    {
+        mean = glm::abs(metrics[1]) / host_res.active_ed_vx_count;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+#pragma unroll
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        unsigned int address = ed_entry.vx_offset + vx_idx;
+        struct_vertex vx = dev_res.warped_sorted_vx_ptr[address];
+
+        glm::ivec3 world = norm_2_data(vx.position, host_res.measures);
+
+        unsigned int offset = world.x + world.y * host_res.measures.data_volume_res.x + world.z * host_res.measures.data_volume_res.x * host_res.measures.data_volume_res.y;
+        float2 ref_warped = dev_res.tsdf_ref_warped[offset];
+
+        float value = glm::abs(ref_warped.x);
+
+        if(!isnan(value))
+        {
+            if(!calculate_stdev)
+            {
+                // max
+                atomicFloatMax(&metrics[0], value);
+
+                // mean
+                atomicAdd(&metrics[1], glm::abs(ref_warped.x));
+            }
+            else
+            {
+                value -= mean;
+                value = value * value;
+
+                // printf("\n value: %.3f, mean: %.3f\n", value, mean);
+
+                // stdev
+                atomicAdd(&metrics[2], value);
+            }
+        }
+    }
+}
+
+__host__ void calculate_warped_reference_metrics(float *metrics)
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_calculate_warped_reference_metrics, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+
+    kernel_calculate_warped_reference_metrics<<<grid_size, block_size>>>(false, metrics, _host_res.active_ed_nodes_count, _dev_res, _host_res);
+    getLastCudaError("kernel_calculate_warped_reference_metrics failed");
+    cudaDeviceSynchronize();
+
+    kernel_calculate_warped_reference_metrics<<<grid_size, block_size>>>(true, metrics, _host_res.active_ed_nodes_count, _dev_res, _host_res);
+    getLastCudaError("kernel_calculate_warped_reference_metrics failed");
+    cudaDeviceSynchronize();
+}
+
+__global__ void kernel_calculate_alignment_map_error(float *error, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+        return;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+
+#pragma unroll
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        // printf("\ned_node + vertex match\n");
+
+        struct_projection warped_projection = dev_res.warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+
+        for(int i = 0; i < 4; i++)
+        {
+            float alignment_error_vx = dev_res.warped_sorted_vx_error[i][ed_entry.vx_offset + vx_idx];
+            float silhouette = sample_silhouette(dev_res.silhouette_tex[i], warped_projection.projection[i]).x;
+            float alignment_error_texture = sample_error(dev_res.alignment_error_tex[i], warped_projection.projection[i]).x;
+
+            bool is_valid_silhouette = (silhouette == 1.f);
+
+            if(!is_valid_silhouette)
+            {
+                continue;
+            }
+
+            float value_difference = glm::abs(alignment_error_vx - alignment_error_texture);
+
+            if(!glm::isnan(value_difference))
+            {
+                atomicAdd(error, value_difference);
+            }
+        }
+    }
+}
+
+__host__ void calculate_alignment_map_error(float *error)
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_calculate_alignment_map_error, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_calculate_alignment_map_error<<<grid_size, block_size>>>(error, _host_res.active_ed_nodes_count, _dev_res, _host_res);
+    getLastCudaError("kernel_calculate_alignment_statistics failed");
+    cudaDeviceSynchronize();
+}
+
 extern "C" double fuse_data()
 {
     checkCudaErrors(cudaMemset(_dev_res.out_tsdf_warped_ref, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
@@ -582,9 +817,105 @@ extern "C" double fuse_data()
     getLastCudaError("kernel_warp_reference");
     cudaDeviceSynchronize();*/
 
+#ifdef UNIT_TEST_REF_WARP
+
+    float *metrics = nullptr;
+    checkCudaErrors(cudaMalloc(&metrics, 3 * sizeof(float)));
+    checkCudaErrors(cudaMemset(metrics, 0, 3 * sizeof(float)));
+
+    calculate_warped_reference_metrics(metrics);
+
+    float max_distance = 0.f;
+    float mean_distance = 0.f;
+    float standard_deviation = 0.f;
+    cudaMemcpy(&max_distance, &metrics[0], sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&mean_distance, &metrics[1], sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&standard_deviation, &metrics[2], sizeof(float), cudaMemcpyDeviceToHost);
+
+    mean_distance /= (float)_host_res.active_ed_vx_count;
+    standard_deviation /= (float)(_host_res.active_ed_vx_count - 1);
+    standard_deviation = glm::sqrt(standard_deviation);
+
+    printf("\nWarped reference mesh match: <.>: %.3f, max: %.3f, sigma: %.3f\n", mean_distance, max_distance, standard_deviation);
+
+    checkCudaErrors(cudaFree(metrics));
+
+#endif
+
+#ifdef UNIT_TEST_ALIGNMENT_ERROR_MAP
+
+    float error = 0.f;
+    float *d_error = nullptr;
+    checkCudaErrors(cudaMalloc(&d_error, sizeof(float)));
+    checkCudaErrors(cudaMemset(d_error, 0, sizeof(float)));
+
+    calculate_alignment_map_error(d_error);
+
+    checkCudaErrors(cudaMemcpy(&error, d_error, sizeof(float), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaFree(d_error));
+
+    error /= (float)_host_res.active_ed_vx_count;
+    error /= 4.f;
+
+    printf("\nalignment map resampling error: %.3f\n", error);
+
+#endif
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_IDENTICAL
+
+    kernel_override_ref_warp<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
+
+#endif
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_COMPLEMENTARY
+
+    kernel_override_ref_warp<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
+
+#endif
+
     kernel_fuse_data<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_fuse_data");
     cudaDeviceSynchronize();
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_IDENTICAL
+
+    float *d_error = nullptr;
+    checkCudaErrors(cudaMalloc(&d_error, sizeof(float)));
+    checkCudaErrors(cudaMemset(d_error, 0, sizeof(float)));
+
+    kernel_compare_fused<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(d_error, _host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
+
+    float error = 0.f;
+    checkCudaErrors(cudaMemcpy(&error, d_error, sizeof(float), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaFree(d_error));
+
+    printf("\nidentical volumes blending error: %.3f\n", error);
+
+#endif
+
+#ifdef UNIT_TEST_ERROR_INFORMED_BLENDING_COMPLEMENTARY
+
+    float *d_error = nullptr;
+    checkCudaErrors(cudaMalloc(&d_error, sizeof(float)));
+    checkCudaErrors(cudaMemset(d_error, 0, sizeof(float)));
+
+    kernel_compare_fused<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(d_error, _host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_data");
+    cudaDeviceSynchronize();
+
+    float error = 0.f;
+    checkCudaErrors(cudaMemcpy(&error, d_error, sizeof(float), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaFree(d_error));
+
+    printf("\nidentical volumes blending error: %.3f\n", error);
+
+#endif
 
     kernel_refresh_misaligned<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_warp_reference");

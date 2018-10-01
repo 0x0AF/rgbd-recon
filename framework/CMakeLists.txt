@@ -5,6 +5,8 @@ file(GLOB_RECURSE FRAMEWORK_HEADER *.hpp)
 
 source_group("Inline Files" FILES ${FRAMEWORK_INLINE})
 
+set(CUDA_NVCC_FLAGS –dlink -use_fast_math -O3 -gencode arch=compute_61,code=sm_61 -lcusparse -lcublas -lcusolver)
+
 add_library(framework STATIC ${FRAMEWORK_SOURCE} ${FRAMEWORK_SOURCE_CUDA} ${FRAMEWORK_INLINE} ${FRAMEWORK_HEADER})
 
 set_target_properties(framework PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

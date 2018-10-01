@@ -235,6 +235,7 @@ __global__ void kernel_project_warped(unsigned int active_ed_nodes_count, struct
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
+
             vx_projection.projection[i].x = projection.x;
             vx_projection.projection[i].y = projection.y;
         }
@@ -315,6 +316,11 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
             //        warped_position.z, extracted_position.x, extracted_position.y, extracted_position.z);
 
             glm::fvec3 diff = warped_vertex.position - extracted_position;
+
+            if(glm::length(diff) > 0.03f || glm::length(diff) == 0.f)
+            {
+                continue;
+            }
 
             float vx_error = glm::length(diff);
 
@@ -549,6 +555,7 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
+
             vx_projection.projection[i].x = projection.x;
             vx_projection.projection[i].y = projection.y;
         }
@@ -764,9 +771,6 @@ __global__ void kernel_jtj_mu(const float mu, struct_device_resources dev_res, s
         // printf("\ned_node_offset overshot: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
         return;
     }
-
-    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
-    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
 
     unsigned int component = idx % ED_COMPONENT_COUNT;
 
@@ -1443,6 +1447,60 @@ __host__ void evaluate_step_misalignment_energy(float &misalignment_energy, cons
     cudaFree(device_misalignment_energy);
 }
 
+__global__ void kernel_calculate_alignment_statistics(float *mean_deviation, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        return;
+    }
+
+    struct_ed_node ed_node = dev_res.ed_graph[idx];
+
+    glm::fvec3 translation(ed_node.translation[0], ed_node.translation[1], ed_node.translation[2]);
+
+    glm::bvec3 ed_nan = glm::isnan(translation);
+
+    if(ed_nan.x || ed_nan.y || ed_nan.z)
+    {
+        printf("\nNaN in deformation estimation\n");
+        translation = glm::fvec3(0.f);
+    }
+
+    glm::fvec3 step_translation = glm::fvec3(0.0714f, 0.f, 0.0714f);
+
+    // printf("\nstep_translation: (%.2f,%.2f,%.2f)\n", step_translation.x, step_translation.y, step_translation.z);
+
+    float deviation = glm::length(translation - step_translation);
+
+    // printf("\ned translation: (%.2f,%.2f,%.2f)\n", translation.x, translation.y, translation.z);
+
+    if(glm::isnan(deviation))
+    {
+        printf("\nNaN in deviation\n");
+        deviation = 0.f;
+    }
+    else
+    {
+        atomicAdd(mean_deviation, deviation);
+    }
+
+    /*dev_res.ed_graph[idx].translation = glm::fvec3(0., 0.2, 0.);
+    dev_res.ed_graph[idx].rotation = glm::fquat(0., 0., 0., 0.);*/
+}
+
+__host__ void calculate_alignment_statistics(float *mad)
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_calculate_alignment_statistics, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_calculate_alignment_statistics<<<grid_size, block_size>>>(mad, _host_res.active_ed_nodes_count, _dev_res, _host_res);
+    getLastCudaError("kernel_calculate_alignment_statistics failed");
+    cudaDeviceSynchronize();
+}
+
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Interpolation_traits_2.h>
@@ -1494,6 +1552,12 @@ __host__ void evaluate_alignment_error()
         normalize_alignment_error_functor<float> nf(*iter);
         thrust::transform(d_ptr, d_ptr + _host_res.active_ed_vx_count, d_ptr, nf);
 
+#ifdef UNIT_TEST_ALIGNMENT_ERROR_MAP
+
+        thrust::copy(d_ptr, d_ptr + _host_res.active_ed_vx_count, &_dev_res.warped_sorted_vx_error[i][0]);
+
+#endif
+
         Delaunay_triangulation T;
         std::map<Point, Coord_type, K::Less_xy_2> function_values;
         typedef CGAL::Data_access<std::map<Point, Coord_type, K::Less_xy_2>> Value_access;
@@ -1505,24 +1569,6 @@ __host__ void evaluate_alignment_error()
 
         memset(_host_res.silhouette, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
         checkCudaErrors(cudaMemcpy(_host_res.silhouette, &_dev_res.kinect_silhouettes[i][0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float), cudaMemcpyDeviceToHost));
-
-        /// Initialize scatter with error
-
-        K::Point_2 lb(0.f, 0.f);
-        T.insert(lb);
-        function_values.insert(std::make_pair(lb, 1.f));
-
-        K::Point_2 rt(1.f, 1.f);
-        T.insert(rt);
-        function_values.insert(std::make_pair(rt, 1.f));
-
-        K::Point_2 lt(0.f, 1.f);
-        T.insert(lt);
-        function_values.insert(std::make_pair(lt, 1.f));
-
-        K::Point_2 rb(1.f, 0.f);
-        T.insert(rb);
-        function_values.insert(std::make_pair(rb, 1.f));
 
         /// Populate scatter data
 
@@ -1544,7 +1590,7 @@ __host__ void evaluate_alignment_error()
                 K::Point_2 p(x / ((float)_host_res.measures.depth_res.x), y / ((float)_host_res.measures.depth_res.y));
                 std::vector<std::pair<Point, Coord_type>> coords;
                 Coord_type norm = CGAL::natural_neighbor_coordinates_2(T, p, std::back_inserter(coords)).second;
-                Coord_type res = CGAL::linear_interpolation(coords.begin(), coords.end(), norm, Value_access(function_values));
+                float res = (float)CGAL::linear_interpolation(coords.begin(), coords.end(), norm, Value_access(function_values));
 
                 bool is_valid_silhouette = _host_res.silhouette[x + y * _host_res.measures.depth_res.x] == 1.f;
                 _host_res.vx_error_map[x + y * _host_res.measures.depth_res.x] = is_valid_silhouette ? res : 1.f;
@@ -1555,6 +1601,8 @@ __host__ void evaluate_alignment_error()
                                      _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyHostToDevice));
         checkCudaErrors(cudaDeviceSynchronize());
     }
+
+    free(vx_projections);
 }
 
 __host__ void reject_misaligned_deformations(int &misaligned_vx)
@@ -1606,59 +1654,6 @@ __host__ void apply_warp()
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
     kernel_warp<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
-    cudaDeviceSynchronize();
-}
-
-__global__ void kernel_calculate_statistics(float *mean_deviation, float step, unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_host_resources host_res)
-{
-    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
-
-    if(idx >= active_ed_nodes_count)
-    {
-        return;
-    }
-
-    struct_ed_node ed_node = dev_res.ed_graph[idx];
-
-    glm::fvec3 translation(ed_node.translation[0], ed_node.translation[1], ed_node.translation[2]);
-
-    glm::bvec3 ed_nan = glm::isnan(translation);
-
-    if(ed_nan.x || ed_nan.y || ed_nan.z)
-    {
-        printf("\nNaN in deformation estimation\n");
-        translation = glm::fvec3(0.f);
-    }
-
-    glm::fvec3 step_translation = glm::fvec3(0., 0.2f, 0.) * step;
-
-    // printf("\nstep_translation: (%.2f,%.2f,%.2f)\n", step_translation.x, step_translation.y, step_translation.z);
-
-    float deviation = glm::length(translation - step_translation) / glm::length(step_translation) / (float)active_ed_nodes_count;
-
-    // printf("\ned translation: (%.2f,%.2f,%.2f)\n", ed_node.translation.x, ed_node.translation.y, ed_node.translation.z);
-    // printf("\nad: %.2f\n", absolute_deviation);
-
-    if(glm::isnan(deviation))
-    {
-        printf("\nNaN in deviation\n");
-        deviation = 0.f;
-    }
-
-    atomicAdd(mean_deviation, deviation);
-
-    /*dev_res.ed_graph[idx].translation = glm::fvec3(0., 0.2, 0.);
-    dev_res.ed_graph[idx].rotation = glm::fquat(0., 0., 0., 0.);*/
-}
-
-__host__ void calculate_statistics(float *mad, float step)
-{
-    int block_size;
-    int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_calculate_statistics, 0, 0);
-    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_calculate_statistics<<<grid_size, block_size>>>(mad, step, _host_res.active_ed_nodes_count, _dev_res, _host_res);
-    getLastCudaError("kernel_calculate_statistics failed");
     cudaDeviceSynchronize();
 }
 
@@ -1788,18 +1783,20 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 #ifdef REJECT_MISALIGNED
             int misaligned_vx;
             reject_misaligned_deformations(misaligned_vx);
-#endif
             misaligned_vx_share = (float)misaligned_vx / (float)_host_res.active_ed_vx_count;
 
-            printf("misaligned_vx_share: %.3f", misaligned_vx_share * 100.f);
+#ifdef VERBOSE
+            printf("\nmisaligned_vx_share: %.3f\n", misaligned_vx_share * 100.f);
+#endif
 
-            if(misaligned_vx_share < 0.1f)
+            if(misaligned_vx_share < 0.2f)
             {
 #ifdef VERBOSE
                 printf("\nmisalignment vx count criterion satisfied: %.3f\n", misaligned_vx_share * 100.f);
 #endif
                 break;
             }
+#endif
         }
         else
         {
@@ -1841,19 +1838,21 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
     fs.close();
 #endif
 
+#ifndef UNIT_TEST_ERROR_INFORMED_BLENDING_COMPLEMENTARY
     evaluate_alignment_error();
+#endif
 
 #ifdef UNIT_TEST_NRA
 
-    float step = (float)_host_res.configuration.frame / 1.f;
-
     float *md = nullptr;
-    checkCudaErrors(cudaMallocManaged(&md, sizeof(float)));
-    md[0] = 0.f;
+    checkCudaErrors(cudaMalloc(&md, sizeof(float)));
+    checkCudaErrors(cudaMemset(md, 0, sizeof(float)));
 
-    calculate_statistics(md, step);
+    calculate_alignment_statistics(md);
 
-    printf("\nMean deviation from expected deformation: %.2f%\n", 100.f * md[0]);
+    float mad = 0.f;
+    cudaMemcpy(&mad, &md[0], sizeof(float), cudaMemcpyDeviceToHost);
+    printf("\nMean deviation from expected deformation: %.3f%\n", 100.f * mad / (float)_host_res.active_ed_nodes_count / glm::length(glm::fvec3(0.0714f, 0.f, 0.0714f)));
 
     checkCudaErrors(cudaFree(md));
 
