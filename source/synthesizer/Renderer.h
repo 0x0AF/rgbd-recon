@@ -121,6 +121,7 @@ class Renderer
     globjects::Framebuffer *_fbo, *_fbo_grayscale, *_fbo_color, *_fbo_depth;
     globjects::Texture *_texture_optical_flow;
     globjects::Texture *_texture_clouds;
+    globjects::Texture *_texture_clouds_earth;
     globjects::Texture *_texture_color;
     globjects::Texture *_texture_grayscale;
     globjects::Texture *_texture_depth;

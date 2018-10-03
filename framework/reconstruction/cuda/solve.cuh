@@ -185,6 +185,102 @@ __device__ float evaluate_ed_partial_derivative(int component, struct_ed_node &e
     return pd;
 }
 
+__global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        return;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+    glm::fvec3 average_translation{0.f, 0.f, 0.f};
+    int translations = 0;
+
+#pragma unroll
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        unsigned int address = ed_entry.vx_offset + vx_idx;
+        struct_vertex vx = dev_res.sorted_vx_ptr[address];
+
+        struct_projection vx_projection = dev_res.sorted_vx_projections[address];
+        for(unsigned int i = 0; i < 4; i++)
+        {
+            float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
+
+            vx_projection.projection[i].x = projection.x;
+            vx_projection.projection[i].y = projection.y;
+        }
+
+        for(int layer = 0; layer < 4; layer++)
+        {
+            if(vx_projection.projection[layer].x < 0.f || vx_projection.projection[layer].y < 0.f)
+            {
+#ifdef VERBOSE
+                printf("\nprojected out of optical flow map: (%f,%f)\n", vx_projection.projection[layer].x, vx_projection.projection[layer].y);
+#endif
+                continue;
+            }
+
+            glm::fvec3 backprojected_position;
+            if(!sample_prev_depth_projection(backprojected_position, layer, vx_projection.projection[layer], dev_res, measures))
+            {
+                continue;
+            }
+
+            glm::vec3 diff = backprojected_position - vx.position;
+
+            if(glm::length(diff) > 0.03f)
+            {
+                continue;
+            }
+
+            float2 flow = sample_opticflow(dev_res.optical_flow_tex[layer], vx_projection.projection[layer]);
+
+            // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);
+
+            glm::vec2 new_projection = vx_projection.projection[layer] - glm::vec2(flow.x / ((float)measures.depth_res.x), flow.y / ((float)measures.depth_res.y));
+
+            glm::fvec3 flow_position;
+            if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, measures))
+            {
+                continue;
+            }
+
+            glm::fvec3 optical_flow_vector = flow_position - vx.position;
+
+            bool is_nan = isnan(optical_flow_vector.x) || isnan(optical_flow_vector.y) || isnan(optical_flow_vector.z);
+
+            if(is_nan)
+            {
+#ifdef DEBUG_NANS
+                printf("\nNaN in optical flow guess evaluation\n");
+#endif
+                optical_flow_vector = glm::fvec3(0.f);
+            }
+
+            average_translation += optical_flow_vector;
+            translations++;
+        }
+    }
+
+    average_translation /= (float)translations;
+
+    bool is_nan = isnan(average_translation.x) || isnan(average_translation.y) || isnan(average_translation.z);
+
+    if(is_nan)
+    {
+#ifdef DEBUG_NANS
+        printf("\nNaN in optical flow guess evaluation\n");
+#endif
+        average_translation = glm::fvec3(0.f);
+    }
+
+    memcpy(&dev_res.h[idx * ED_COMPONENT_COUNT], &average_translation, 3 * sizeof(float));
+}
+
 __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -1417,7 +1513,7 @@ __host__ void evaluate_misalignment_energy(float &misalignment_energy)
     cudaFree(device_misalignment_energy);
 }
 
-__host__ void evaluate_step_misalignment_energy(float &misalignment_energy, const float mu)
+__host__ void evaluate_step_misalignment_energy(float &misalignment_energy)
 {
     float *device_misalignment_energy = nullptr;
     cudaMallocManaged(&device_misalignment_energy, sizeof(float));
@@ -1624,6 +1720,21 @@ __host__ void reject_misaligned_deformations(int &misaligned_vx)
     checkCudaErrors(cudaFree(d_misaligned_vx));
 }
 
+#ifdef INITIAL_GUESS_OPTICFLOW
+
+__host__ void calculate_opticflow_guess()
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_warp, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_calculate_opticflow_guess<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+}
+
+#endif
+
 __host__ void project_vertices()
 {
     int block_size;
@@ -1673,7 +1784,33 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
     int singularity = 0;
 
     project_vertices();
+
+#ifdef INITIAL_GUESS_OPTICFLOW
+
+    /// Clean step h
+    clean_pcg_resources();
+
+    /// Fill step h with initial guess from optical flow
+    calculate_opticflow_guess();
+
+    /// Calculate initial energy after guess
+    evaluate_step_misalignment_energy(initial_misalignment_energy);
+
+    /// Update ED graph
+    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
+    float one = 1.f;
+    cublasSaxpy(cublas_handle, N, &one, (float *)_dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
+    cudaDeviceSynchronize();
+
+    /// Apply deformations
+    apply_warp();
+    project_warped_vertices();
+
+#else
+
     evaluate_misalignment_energy(initial_misalignment_energy);
+
+#endif
 
 #ifdef DEBUG_CONVERGENCE
     std::ofstream fs("data_" + std::to_string(_host_res.configuration.weight_data) + "hull_" + std::to_string(_host_res.configuration.weight_hull) + "corr_" +
@@ -1741,7 +1878,7 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
 #endif
 
-        evaluate_step_misalignment_energy(solution_misalignment_energy, mu);
+        evaluate_step_misalignment_energy(solution_misalignment_energy);
 
 #ifdef VERBOSE
         printf("\ninitial E per vx: %.3f, solution E per vx: %.3f\n", initial_misalignment_energy / _host_res.active_ed_vx_count, solution_misalignment_energy / _host_res.active_ed_vx_count);

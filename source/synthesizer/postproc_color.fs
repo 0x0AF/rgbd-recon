@@ -100,37 +100,6 @@ float cnoise(vec2 P)
     return 2.3 * n_xy;
 }
 
-// #define POSTPROC_SP_20
-
-vec4 postprocess(vec4 color, vec2 uv)
-{
-#ifdef POSTPROC_SP_20
-    return color * (1.f - 0.2f * rand(uv));
-#endif
-
-#ifdef POSTPROC_SP_80
-    return color * (1.f - 0.8f * rand(uv));
-#endif
-
-#ifdef POSTPROC_PERIODIC_20
-    return color * (1.f - 0.2f * pnoise(uv * 10., vec2(1., 1.)));
-#endif
-
-#ifdef POSTPROC_PERIODIC_80
-    return color * (1.f - 0.8f * pnoise(uv * 10., vec2(1., 1.)));
-#endif
-
-#ifdef POSTPROC_PERLIN_20
-    return color * (1.f - 0.2f * cnoise(uv * 10.));
-#endif
-
-#ifdef POSTPROC_PERLIN_80
-    return color * (1.f - 0.8f * cnoise(uv * 10.));
-#endif
-
-    return color;
-}
-
 void main()
 {
     vec2 uv = v_uv;
@@ -147,5 +116,4 @@ void main()
     {
         fragColor = vec4(texture(clouds, vec2(uv) * 0.5).r, 0., 0., 1.);
     }
-    fragColor = postprocess(fragColor, uv.xy);
 }

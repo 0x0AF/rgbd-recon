@@ -268,6 +268,11 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
 
 __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mark_smallest_sdf, struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
 {
+    if(ed_node_cell_index >= host_res.active_ed_nodes_count * measures.ed_cell_num_voxels)
+    {
+        return;
+    }
+
     /// Retrieve ED node
 
     unsigned int ed_node_offset = ed_node_cell_index / measures.ed_cell_num_voxels;
@@ -330,8 +335,18 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
         {
             for(int k = 0; k < 3; k++)
             {
+                glm::uvec3 grad_voxel((world_voxel.x + i - 1), (world_voxel.y + j - 1), (world_voxel.z + k - 1));
+
+                if(!in_data_volume(grad_voxel, measures))
+                {
+#ifdef VERBOSE
+                    printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
+#endif
+                    return;
+                }
+
                 float4 grad;
-                surf3Dread(&grad, _volume_tsdf_ref_grad, (world_voxel.x + i - 1) * sizeof(float4), (world_voxel.y + j - 1), (world_voxel.z + k - 1));
+                surf3Dread(&grad, _volume_tsdf_ref_grad, (grad_voxel.x) * sizeof(float4), (grad_voxel.y), (grad_voxel.z));
 
                 bool is_grad_nan = glm::isnan(grad.x) || glm::isnan(grad.y) || glm::isnan(grad.z);
 
