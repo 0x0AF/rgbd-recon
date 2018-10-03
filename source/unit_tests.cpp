@@ -32,9 +32,9 @@ using namespace gl;
 #include <globjects/Shader.h>
 #include <globjects/globjects.h>
 
-#include <cuda_runtime.h>
+#include "/usr/local/cuda/include/cuda_runtime.h"
 #include <glm/gtx/string_cast.hpp>
-#include <vector_types.h>
+#include "/usr/local/cuda/include/vector_types.h"
 
 extern "C" unsigned int test_identify_brick_id(const glm::vec3 position, struct_measures &measures);
 extern "C" unsigned int test_identify_ed_cell_id(const glm::vec3 position, struct_measures &measures);

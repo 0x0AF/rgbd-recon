@@ -21,8 +21,6 @@
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
-#include <glbinding-aux/ContextInfo.h>
-#include <glbinding-aux/types_to_string.h>
 #include <glbinding/Version.h>
 #include <glbinding/gl/gl.h>
 

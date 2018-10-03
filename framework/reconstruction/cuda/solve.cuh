@@ -1558,10 +1558,6 @@ __host__ void evaluate_alignment_error()
 
 #endif
 
-        Delaunay_triangulation T;
-        std::map<Point, Coord_type, K::Less_xy_2> function_values;
-        typedef CGAL::Data_access<std::map<Point, Coord_type, K::Less_xy_2>> Value_access;
-
         /// Copy device resources to host pointers
 
         memset(_host_res.vx_error_values, 0, _host_res.active_ed_vx_count * sizeof(float));
@@ -1570,10 +1566,20 @@ __host__ void evaluate_alignment_error()
         memset(_host_res.silhouette, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
         checkCudaErrors(cudaMemcpy(_host_res.silhouette, &_dev_res.kinect_silhouettes[i][0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float), cudaMemcpyDeviceToHost));
 
+#ifdef ALIGNMENT_ERROR_TRIANGULATION
+
+        Delaunay_triangulation T;
+        std::map<Point, Coord_type, K::Less_xy_2> function_values;
+        typedef CGAL::Data_access<std::map<Point, Coord_type, K::Less_xy_2>> Value_access;
+
         /// Populate scatter data
 
         for(int vx = 0; vx < _host_res.active_ed_vx_count; vx++)
         {
+            if(vx_projections[vx].projection[i].x < 0.f || vx_projections[vx].projection[i].y < 0.f){
+                continue;
+            }
+
             K::Point_2 p(vx_projections[vx].projection[i].x, vx_projections[vx].projection[i].y);
             T.insert(p);
             function_values.insert(std::make_pair(p, _host_res.vx_error_values[vx]));
@@ -1592,10 +1598,52 @@ __host__ void evaluate_alignment_error()
                 Coord_type norm = CGAL::natural_neighbor_coordinates_2(T, p, std::back_inserter(coords)).second;
                 float res = (float)CGAL::linear_interpolation(coords.begin(), coords.end(), norm, Value_access(function_values));
 
-                bool is_valid_silhouette = _host_res.silhouette[x + y * _host_res.measures.depth_res.x] == 1.f;
+                bool is_valid_silhouette = (_host_res.silhouette[x + y * _host_res.measures.depth_res.x] == 1.f);
                 _host_res.vx_error_map[x + y * _host_res.measures.depth_res.x] = is_valid_silhouette ? res : 1.f;
             }
         }
+
+#else
+
+	/// Evaluate the map
+
+        memset(_host_res.vx_error_map, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
+
+        for(int x = 0; x < _host_res.measures.depth_res.x; x++)
+        {
+            for(int y = 0; y < _host_res.measures.depth_res.y; y++)
+            {
+                _host_res.vx_error_map[x + y * _host_res.measures.depth_res.x] = 1.f;
+            }
+        }
+
+        for(int vx = 0; vx < _host_res.active_ed_vx_count; vx++)
+        {
+            glm::ivec2 proj(vx_projections[vx].projection[i].x * _host_res.measures.depth_res.x, vx_projections[vx].projection[i].y * _host_res.measures.depth_res.y);
+
+            if(proj.x < 0 || proj.y < 0){
+                continue;
+            }
+
+            float res = _host_res.vx_error_values[vx];
+            float curr_value = _host_res.vx_error_map[proj.x + proj.y * _host_res.measures.depth_res.x];
+            bool is_valid_silhouette = (_host_res.silhouette[proj.x + proj.y * _host_res.measures.depth_res.x] == 1.f);
+	    if(!is_valid_silhouette){
+	        continue;
+	    }
+
+            if(res == 0.f){
+                continue;
+            }
+
+            if(curr_value == 1.f){
+                _host_res.vx_error_map[proj.x + proj.y * _host_res.measures.depth_res.x] = res;
+            }else{
+                _host_res.vx_error_map[proj.x + proj.y * _host_res.measures.depth_res.x] = res / 2.f + curr_value / 2.f;
+            }
+        }
+
+#endif
 
         checkCudaErrors(cudaMemcpy2D(&_dev_res.alignment_error[i][0], _dev_res.pitch_alignment_error, &_host_res.vx_error_map[0], _host_res.measures.depth_res.x * sizeof(float),
                                      _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y, cudaMemcpyHostToDevice));

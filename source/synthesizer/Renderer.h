@@ -38,7 +38,7 @@
 #include "../FrameSequencer.h"
 #include "FileBuffer.hpp"
 
-#include <vector_types.h>
+#include "/usr/local/cuda/include/vector_types.h"
 
 #define MatricesUniBufferSize sizeof(float) * 16 * 3
 #define ProjMatrixOffset 0

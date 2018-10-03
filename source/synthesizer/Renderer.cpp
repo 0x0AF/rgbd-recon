@@ -2,7 +2,7 @@
 #include "Controller.h"
 #include <reconstruction/cuda/clouds.h>
 
-#include <cuda_runtime.h>
+#include "/usr/local/cuda/include/cuda_runtime.h"
 
 #include <globjects/Sync.h>
 
@@ -322,7 +322,7 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
     _choreographer = choreographer;
     _sequencer = sequencer;
 
-    _fb = new FileBuffer(std::string("/home/xaf/Desktop/MSc/data/synthetic_rgbd/record.stream").c_str());
+    _fb = new FileBuffer(std::string("/home/fusion_4d/Desktop/data/synthetic_rgbd/record.stream").c_str());
     if(!_fb->open("w", 0))
     {
         std::cerr << "error opening "
@@ -330,7 +330,7 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
                   << " exiting..." << std::endl;
     }
 
-    _fb_of = new FileBuffer(std::string("/home/xaf/Desktop/MSc/data/synthetic_rgbd/record.flow").c_str());
+    _fb_of = new FileBuffer(std::string("/home/fusion_4d/Desktop/data/synthetic_rgbd/record.flow").c_str());
     if(!_fb_of->open("w", 0))
     {
         std::cerr << "error opening "
@@ -436,24 +436,24 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
     gl::glBindTextureUnit(9, _texture_optical_flow->id());
 
     _program_debug_texture = new globjects::Program();
-    _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
-    _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/debug_texture.fs"));
+    _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/textured_quad.vs"));
+    _program_debug_texture->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/debug_texture.fs"));
 
     _program_postproc_color = new globjects::Program();
-    _program_postproc_color->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
-    _program_postproc_color->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/postproc_color.fs"));
+    _program_postproc_color->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/textured_quad.vs"));
+    _program_postproc_color->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/postproc_color.fs"));
     _program_postproc_color->setUniform("texture_2d_array", 4);
 
     _program_postproc_depth = new globjects::Program();
-    _program_postproc_depth->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/textured_quad.vs"));
-    _program_postproc_depth->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/postproc_depth.fs"));
+    _program_postproc_depth->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/textured_quad.vs"));
+    _program_postproc_depth->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/postproc_depth.fs"));
     _program_postproc_depth->setUniform("texture_2d_array", 5);
 
     _program = new globjects::Program();
     _program->use();
 
-    _program->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/rgbd.vs"));
-    _program->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/xaf/Desktop/MSc/impl/rgbd-recon/source/synthesizer/rgbd.fs"));
+    _program->attach(globjects::Shader::fromFile((gl::GLenum)GL_VERTEX_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/rgbd.vs"));
+    _program->attach(globjects::Shader::fromFile((gl::GLenum)GL_FRAGMENT_SHADER, "/home/fusion_4d/Desktop/rgbd-recon/source/synthesizer/rgbd.fs"));
 
     _program->bindFragDataLocation(0, "out_color");
 

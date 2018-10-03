@@ -21,7 +21,7 @@ using namespace gl;
 #include <globjects/base/File.h>
 #include <globjects/logging.h>
 
-#include "squish.h"
+#include "/home/fusion_4d/Desktop/rgbd-recon/external/squish/squish.h"
 #include <zmq.h>
 #include <zmq.hpp>
 

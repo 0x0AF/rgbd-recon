@@ -29,9 +29,9 @@ using namespace gl;
 #include <globjects/Shader.h>
 #include <globjects/globjects.h>
 
-#include <cuda_runtime.h>
+#include "/usr/local/cuda/include/cuda_runtime.h"
 #include <globjects/Sync.h>
-#include <vector_types.h>
+#include "/usr/local/cuda/include/vector_types.h"
 
 extern "C" double copy_reference();
 extern "C" double perform_brick_indexing();
