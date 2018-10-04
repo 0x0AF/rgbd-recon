@@ -139,7 +139,7 @@ int main(int, char *[])
     Controller controller(filename_poi, filename_environment);
     FrameSequencer sequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 20);
     Choreographer choreographer(&sequencer);
-    choreographer.set_translation({0.2, 0., 0.2});
+    choreographer.set_translation({0.3, 0., 0.3});
     // choreographer.set_rotation(glm::radians(90.), {0., 1., 0.});
     Renderer renderer(&controller, &choreographer, &sequencer);
 

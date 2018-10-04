@@ -490,6 +490,11 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], norm_pos);
             glm::vec2 voxel_proj = glm::vec2(projection.x, projection.y);
 
+            if(voxel_proj.x < 0.f || voxel_proj.y < 0.f)
+            {
+                aggregated_average_error += 0.25f;
+            }
+
             float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
             aggregated_average_error += alignment_error / 4.f;
         }
@@ -938,6 +943,11 @@ extern "C" double fuse_data()
 
     unmap_error_texture();
     unmap_tsdf_volumes();
+
+    /// Save a copy of an ED graph for reference
+    cudaMemcpy(_dev_res.prev_ed_graph, _dev_res.ed_graph, _host_res.active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(_dev_res.prev_ed_graph_meta, _dev_res.ed_graph_meta, _host_res.active_ed_nodes_count * sizeof(struct_ed_meta_entry), cudaMemcpyDeviceToDevice);
+    _host_res.prev_frame_ed_nodes_count = _host_res.active_ed_nodes_count;
 
     checkCudaErrors(cudaThreadSynchronize());
     return timer.read();

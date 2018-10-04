@@ -51,7 +51,9 @@ void main()
 
     out_color = (color * intensity) + amb;*/
 
-    out_color = vec4(texture(clouds_earth, TexCoord).r, texture(clouds_earth, TexCoord).r, texture(clouds_earth, TexCoord).r, 1.);
+    vec3 intensity_rgb = (n * 0.5 + 0.5) * (0.5 + texture(clouds_earth, TexCoord).r * 0.5 + texture(clouds, TexCoord).r * 0.);
+
+    out_color = vec4(intensity_rgb, 1.);
 
     // out_color = vec4(1.0f, 0.f, 0.f, 1.f);
 

@@ -144,6 +144,18 @@ struct struct_device_resources
     /// Warped ED-sorted vertex projections
     struct_projection *warped_sorted_vx_projections = nullptr;
 
+    /// Embedded deformation graph (previous frame)
+    struct_ed_node *prev_ed_graph = nullptr;
+
+    /// Embedded deformation graph meta data (previous frame)
+    struct_ed_meta_entry *prev_ed_graph_meta = nullptr;
+
+    /// Warped ED-sorted (previous frame deformation) vertex pointer
+    struct_vertex *prev_frame_warped_sorted_vx_ptr = nullptr;
+
+    /// Warped ED-sorted (previous frame deformation) vertex projections
+    struct_projection *prev_frame_warped_sorted_vx_projections = nullptr;
+
     /// JTJ sparse pointers
     float *jtj_vals = nullptr;
     float *jtj_mu_vals = nullptr;
@@ -204,7 +216,7 @@ struct struct_host_resources
     unsigned int active_ed_nodes_count = 0u;
     unsigned long active_ed_vx_count = 0u;
 
-    unsigned int valid_correspondences = 0u;
+    unsigned int prev_frame_ed_nodes_count = 0u;
 
     uint3 grid_size;
     uint3 grid_size_shift;
@@ -600,6 +612,12 @@ __host__ void free_ed_resources()
         checkCudaErrors(cudaDeviceSynchronize());
     }
 
+    if(_dev_res.prev_frame_warped_sorted_vx_ptr != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.prev_frame_warped_sorted_vx_ptr));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
     for(int i = 0; i < 4; i++)
     {
         if(_dev_res.warped_sorted_vx_error[i] != nullptr)
@@ -630,6 +648,18 @@ __host__ void free_ed_resources()
     if(_dev_res.ed_graph_meta)
     {
         checkCudaErrors(cudaFree(_dev_res.ed_graph_meta));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.prev_ed_graph != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.prev_ed_graph));
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+
+    if(_dev_res.prev_ed_graph_meta)
+    {
+        checkCudaErrors(cudaFree(_dev_res.prev_ed_graph_meta));
         checkCudaErrors(cudaDeviceSynchronize());
     }
 }
@@ -708,8 +738,10 @@ __host__ void allocate_ed_resources()
     checkCudaErrors(cudaMalloc(&_dev_res.unsorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMalloc(&_dev_res.prev_frame_warped_sorted_vx_ptr, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMalloc(&_dev_res.sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
     checkCudaErrors(cudaMalloc(&_dev_res.warped_sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
+    checkCudaErrors(cudaMalloc(&_dev_res.prev_frame_warped_sorted_vx_projections, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
     for(int i = 0; i < 4; i++)
     {
@@ -719,6 +751,9 @@ __host__ void allocate_ed_resources()
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_step, MAX_ED_CELLS * sizeof(struct_ed_node)));
     checkCudaErrors(cudaMalloc(&_dev_res.ed_graph_meta, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
+
+    checkCudaErrors(cudaMalloc(&_dev_res.prev_ed_graph, MAX_ED_CELLS * sizeof(struct_ed_node)));
+    checkCudaErrors(cudaMalloc(&_dev_res.prev_ed_graph_meta, MAX_ED_CELLS * sizeof(struct_ed_meta_entry)));
 }
 
 __host__ void allocate_pcg_resources()
@@ -750,8 +785,10 @@ __host__ void clean_ed_resources()
     checkCudaErrors(cudaMemset(_dev_res.unsorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMemset(_dev_res.sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
+    checkCudaErrors(cudaMemset(_dev_res.prev_frame_warped_sorted_vx_ptr, 0, MAX_REFERENCE_VERTICES * sizeof(struct_vertex)));
     checkCudaErrors(cudaMemset(_dev_res.sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
     checkCudaErrors(cudaMemset(_dev_res.warped_sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
+    checkCudaErrors(cudaMemset(_dev_res.prev_frame_warped_sorted_vx_projections, 0, MAX_REFERENCE_VERTICES * sizeof(struct_projection)));
 
     for(int i = 0; i < 4; i++)
     {

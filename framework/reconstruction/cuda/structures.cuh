@@ -87,6 +87,8 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 // #define DEBUG_H
 // #define DEBUG_CONVERGENCE
 
+#define OUTPUT_PLY_SEQUENCE
+
 #define SOLVER_DIRECT_QR
 // #define SOLVER_DIRECT_CHOL
 // #define SOLVER_CG

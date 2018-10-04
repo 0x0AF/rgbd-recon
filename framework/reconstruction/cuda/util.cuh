@@ -537,22 +537,22 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
     return residual;
 }
 
-__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_vertex &reference_vertex, struct_projection &projection, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_vertex &reference_vertex, struct_projection &reference_vertex_projection, struct_device_resources &dev_res, struct_measures &measures)
 {
     float residual = 0.f;
 
     for(int layer = 0; layer < 4; layer++)
     {
-        if(projection.projection[layer].x < 0.f || projection.projection[layer].y < 0.f)
+        if(reference_vertex_projection.projection[layer].x < 0.f || reference_vertex_projection.projection[layer].y < 0.f)
         {
 #ifdef VERBOSE
-            printf("\nprojected out of optical flow map: (%f,%f)\n", projection.projection[layer].x, projection.projection[layer].y);
+            printf("\nprojected out of optical flow map: (%f,%f)\n", reference_vertex_projection.projection[layer].x, reference_vertex_projection.projection[layer].y);
 #endif
             continue;
         }
 
         glm::fvec3 backprojected_position;
-        if(!sample_prev_depth_projection(backprojected_position, layer, projection.projection[layer], dev_res, measures))
+        if(!sample_prev_depth_projection(backprojected_position, layer, reference_vertex_projection.projection[layer], dev_res, measures))
         {
             continue;
         }
@@ -564,11 +564,11 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
             continue;
         }
 
-        float2 flow = sample_opticflow(dev_res.optical_flow_tex[layer], projection.projection[layer]);
+        float2 flow = sample_opticflow(dev_res.optical_flow_tex[layer], reference_vertex_projection.projection[layer]);
 
         // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);
 
-        glm::vec2 new_projection = projection.projection[layer] - glm::vec2(flow.x / ((float)measures.depth_res.x), flow.y / ((float)measures.depth_res.y));
+        glm::vec2 new_projection = reference_vertex_projection.projection[layer] - glm::vec2(flow.x / ((float)measures.depth_res.x), flow.y / ((float)measures.depth_res.y));
 
         glm::fvec3 flow_position;
         if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, measures))
