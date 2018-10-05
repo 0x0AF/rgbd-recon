@@ -137,9 +137,9 @@ int main(int, char *[])
     std::string filename_environment("/home/fusion_4d/Desktop/data/synthetic_dataset/environment.dae");
 
     Controller controller(filename_poi, filename_environment);
-    FrameSequencer sequencer(FrameSequencer::Type::INCREASING_STEP, 0, 1);
+    FrameSequencer sequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 20);
     Choreographer choreographer(&sequencer);
-    choreographer.set_translation({0.05, 0., 0.05});
+    choreographer.set_translation({0.2, 0., 0.2});
     // choreographer.set_rotation(glm::radians(90.), {0., 1., 0.});
     Renderer renderer(&controller, &choreographer, &sequencer);
 

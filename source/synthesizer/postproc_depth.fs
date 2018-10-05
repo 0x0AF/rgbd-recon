@@ -105,32 +105,32 @@ float cnoise(vec2 P)
     return 2.3 * n_xy;
 }
 
-//#define POSTPROC_SP_80
+// #define POSTPROC_SP_2
 
 float postprocess(float color, vec2 uv, int frame)
 {
-#ifdef POSTPROC_SP_20
-    return color * (1.f - 0.2f * rand(uv * rand(uv * frame)));
+#ifdef POSTPROC_SP_2
+    return color * (1.f - 0.02f * rand(uv * rand(uv * frame)));
 #endif
 
-#ifdef POSTPROC_SP_80
-    return color * (1.f - 0.8f * rand(uv * rand(uv * frame)));
+#ifdef POSTPROC_SP_4
+    return color * (1.f - 0.04f * rand(uv * rand(uv * frame)));
 #endif
 
-#ifdef POSTPROC_PERIODIC_20
-    return color * (1.f - 0.2f * pnoise(uv * 10., vec2(rand(uv * frame), rand(uv * frame))));
+#ifdef POSTPROC_PERIODIC_2
+    return color * (1.f - 0.02f * pnoise(uv * 10., vec2(rand(uv * frame), rand(uv * frame))));
 #endif
 
-#ifdef POSTPROC_PERIODIC_80
-    return color * (1.f - 0.8f * pnoise(uv * 10., vec2(rand(uv * frame), rand(uv * frame))));
+#ifdef POSTPROC_PERIODIC_4
+    return color * (1.f - 0.04f * pnoise(uv * 10., vec2(rand(uv * frame), rand(uv * frame))));
 #endif
 
-#ifdef POSTPROC_PERLIN_20
-    return color * (1.f - 0.2f * cnoise(uv * 10. * rand(uv * frame)));
+#ifdef POSTPROC_PERLIN_2
+    return color * (1.f - 0.02f * cnoise(uv * 10. * rand(uv * frame)));
 #endif
 
-#ifdef POSTPROC_PERLIN_80
-    return color * (1.f - 0.8f * cnoise(uv * 10. * rand(uv * frame)));
+#ifdef POSTPROC_PERLIN_4
+    return color * (1.f - 0.04f * cnoise(uv * 10. * rand(uv * frame)));
 #endif
 
     return color;

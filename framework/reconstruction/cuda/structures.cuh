@@ -66,6 +66,8 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 
 #define MAX_REFERENCE_VERTICES 524288
 
+#define INITIAL_GUESS_OPTICFLOW
+
 #define EVALUATE_DATA
 #define EVALUATE_VISUAL_HULL
 #define EVALUATE_ED_REGULARIZATION
@@ -139,9 +141,9 @@ struct Configuration
     float weight_correspondence = 0.9f;
     float weight_regularization = 0.01f;
 
-    float solver_mu = 1000.f;
-    float solver_mu_step = 50.f;
-    int solver_lma_max_iter = 10;
+    float solver_mu = 5000.f;
+    float solver_mu_step = 100.f;
+    int solver_lma_max_iter = 5;
     int solver_cg_steps = 12;
 
     float rejection_threshold = 0.01f;

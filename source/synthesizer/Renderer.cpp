@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include "Controller.h"
+#include "clouds_earth.h"
 #include <reconstruction/cuda/clouds.h>
 
 #include "/usr/local/cuda/include/cuda_runtime.h"
@@ -35,8 +36,8 @@ void Renderer::draw()
         float step = (float)frame / (float)_sequencer->length();
 
         set_identity_matrix(_model_matrix, 4);
-        translate(0.5f + translation.x, 0.8f + translation.y, -0.5f + translation.z);
-        // rotate(90.f * (float)frame / 100.f, 0.f, 1.f, 0.f);
+        translate(0.4f + translation.x, 0.8f + translation.y, -0.4f + translation.z);
+        // rotate(45.f * step, 0.f, 1.f, 0.f);
         scale(0.2f, 0.4f, 0.2f);
     }
 
@@ -71,6 +72,7 @@ void Renderer::draw()
         _program->use();
         _program->setUniform("layer", (int)i);
         _program->setUniform("clouds", 8);
+        _program->setUniform("clouds_earth", 11);
 
         recursive_render(_controller->get_poi(), _controller->get_poi()->mRootNode);
 
@@ -428,6 +430,28 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
 
     gl::glBindTextureUnit(8, _texture_clouds->id());
 
+    float *cloud_earth = (float *)malloc(512 * 424 * sizeof(float));
+    char *cloud_earth_data_ptr = cloud_data_earth;
+
+    for(int i = 0; i < 512 * 424; i++)
+    {
+        int pixel = (((cloud_earth_data_ptr[0] - 33) << 2) | ((cloud_earth_data_ptr[1] - 33) >> 4));
+        cloud_earth[i] = ((float)pixel) / 256.f;
+
+        // printf("\npixel: %i\n", pixel);
+
+        cloud_earth_data_ptr += 4;
+    }
+
+    _texture_clouds_earth = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D);
+    _texture_clouds_earth->image2D(0, (gl::GLenum)GL_R32F, 512, 424, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, cloud_earth);
+    _texture_clouds_earth->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_clouds_earth->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
+
+    free(cloud_earth);
+
+    gl::glBindTextureUnit(11, _texture_clouds_earth->id());
+
     _texture_optical_flow = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
     _texture_optical_flow->image3D(0, (gl::GLenum)GL_RG32F, 512, 424, 4, 0, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, (void *)nullptr);
     _texture_optical_flow->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
@@ -500,6 +524,7 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
 Renderer::~Renderer()
 {
     _texture_clouds->destroy();
+    _texture_clouds_earth->destroy();
     _texture_color->destroy();
     _texture_grayscale->destroy();
     _texture_optical_flow->destroy();
