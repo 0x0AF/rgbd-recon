@@ -524,10 +524,8 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
             residual_component = 0.f;
         }
 
-        residual += residual_component;
+        residual = glm::max(residual_component, residual);
     }
-
-    // residual /= 4.f;
 
     //    if(residual == 4.0f)
     //    {

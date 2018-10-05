@@ -47,7 +47,7 @@ renderer::renderer()
 {
     _model = &model::get_instance();
     _io = &model::get_io();
-    _sequencer = new FrameSequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 20);
+    _sequencer = new FrameSequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 100);
 }
 renderer::~renderer()
 {
@@ -443,11 +443,6 @@ void renderer::draw3d()
     {
         int frame_position = _sequencer->next_frame_position();
 
-        if(_sequencer->is_finished())
-        {
-            _sequencer->rewind();
-        }
-
         _model->get_recon_pc()->_conf.frame = _sequencer->current_frame();
         _model->get_nka()->update(frame_position);
 
@@ -593,10 +588,15 @@ void renderer::draw3d()
         }
     }
 
-    if(_io->_play)
+    if((_io->_play && _sequencer->get_type() == FrameSequencer::Type::INCREASING_STEP) || (_io->_play && _sequencer->is_finished()))
     {
         _io->_play = false;
         _model->get_recon_pc()->pause(true);
+
+        if(_sequencer->is_finished())
+        {
+            _sequencer->rewind();
+        }
     }
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);

@@ -106,3 +106,7 @@ int FrameSequencer::next_frame_position()
     return 0;
 }
 int FrameSequencer::current_frame() { return _frame; }
+FrameSequencer::Type FrameSequencer::get_type ()
+{
+  return _type;
+}

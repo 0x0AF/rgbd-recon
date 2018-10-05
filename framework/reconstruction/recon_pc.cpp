@@ -40,6 +40,8 @@ extern "C" double preprocess_textures();
 extern "C" double pcg_solve();
 extern "C" double fuse_data();
 
+extern "C" double write_ply(int frame_number);
+
 extern "C" double extract_data();
 
 extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
@@ -553,6 +555,10 @@ void ReconPerformanceCapture::draw()
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
             _conf.time_fuse = fuse_data();
+
+#ifdef OUTPUT_PLY_SEQUENCE
+            write_ply((int)_frame_number.load());
+#endif
         }
 
 #endif
