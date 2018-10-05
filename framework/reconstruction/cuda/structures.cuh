@@ -89,6 +89,8 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 // #define DEBUG_H
 // #define DEBUG_CONVERGENCE
 
+// #define OUTPUT_PLY_SEQUENCE
+
 #define SOLVER_DIRECT_QR
 // #define SOLVER_DIRECT_CHOL
 // #define SOLVER_CG
@@ -137,7 +139,7 @@ struct Configuration
     int textures_silhouettes_iterations = 100;
 
     float weight_data = 1.f;
-    float weight_hull = 0.25f;
+    float weight_hull = 1.f;
     float weight_correspondence = 0.9f;
     float weight_regularization = 0.01f;
 

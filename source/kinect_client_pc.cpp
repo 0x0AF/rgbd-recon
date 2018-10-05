@@ -113,8 +113,8 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 {
     if(key == GLFW_KEY_P && action == GLFW_PRESS)
     {
-        _io->_play = true;
-        _model->get_recon_pc()->pause(false);
+        _io->_play = !_io->_play;
+        _model->get_recon_pc()->pause(!_io->_play);
     }
 
     if(action != GLFW_RELEASE)

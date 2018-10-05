@@ -203,9 +203,9 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
         unsigned int address = ed_entry.vx_offset + vx_idx;
-        struct_vertex vx = dev_res.sorted_vx_ptr[address];
+        struct_vertex vx = dev_res.prev_frame_warped_sorted_vx_ptr[address];
 
-        struct_projection vx_projection = dev_res.sorted_vx_projections[address];
+        struct_projection vx_projection = dev_res.prev_frame_warped_sorted_vx_projections[address];
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
@@ -310,6 +310,90 @@ __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device
     }
 }
 
+__global__ void kernel_project_prev_frame_warped(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= active_ed_nodes_count)
+    {
+        return;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+#pragma unroll
+    for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
+    {
+        unsigned int address = ed_entry.vx_offset + vx_idx;
+        struct_vertex vx = dev_res.prev_frame_warped_sorted_vx_ptr[address];
+
+        struct_projection vx_projection = dev_res.prev_frame_warped_sorted_vx_projections[address];
+        for(unsigned int i = 0; i < 4; i++)
+        {
+            float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
+
+            vx_projection.projection[i].x = projection.x;
+            vx_projection.projection[i].y = projection.y;
+        }
+        memcpy(&dev_res.prev_frame_warped_sorted_vx_projections[address], &vx_projection, sizeof(struct_projection));
+    }
+}
+
+__global__ void kernel_prev_frame_warp(struct_device_resources dev_res, struct_host_resources host_res)
+{
+    unsigned long long int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int vx_per_thread = (unsigned int)max(1u, (unsigned int)(host_res.active_ed_vx_count / (blockDim.x * gridDim.x)));
+
+    for(unsigned int i = 0; i < vx_per_thread; i++)
+    {
+        unsigned long long int vertex_position = idx * vx_per_thread + i;
+
+        if(vertex_position >= host_res.active_ed_vx_count)
+        {
+            return;
+        }
+
+        struct_vertex vx = dev_res.sorted_vx_ptr[vertex_position];
+
+        unsigned long long int sorted_vx_ptr_offset = 0u;
+        bool found_ed = false; // TODO: what if not?
+
+        for(unsigned int ed_position = 0; ed_position < host_res.prev_frame_ed_nodes_count; ed_position++)
+        {
+            struct_ed_meta_entry ed_entry = dev_res.prev_ed_graph_meta[ed_position];
+
+            if(ed_entry.brick_id != vx.brick_id)
+            {
+                continue;
+            }
+
+            if(ed_entry.ed_cell_id != vx.ed_cell_id)
+            {
+                continue;
+            }
+
+            struct_ed_node ed_node = dev_res.prev_ed_graph[ed_position];
+
+            glm::fvec3 dist = vx.position - ed_entry.position;
+
+            struct_vertex warped_vx;
+            memset(&warped_vx, 0, sizeof(struct_vertex));
+            warped_vx.position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
+            warped_vx.brick_id = vx.brick_id;
+            warped_vx.normal = warp_normal(vx.normal, ed_node, ed_entry, 1.f, host_res.measures);
+            warped_vx.ed_cell_id = vx.ed_cell_id;
+
+            memcpy(&dev_res.prev_frame_warped_sorted_vx_ptr[vertex_position], &warped_vx, sizeof(struct_vertex));
+
+            found_ed = true;
+
+            break;
+        }
+
+        __syncthreads();
+    }
+}
+
 __global__ void kernel_project_warped(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -394,7 +478,7 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
         {
             // printf("\nsampling depth maps: (%f,%f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
 
-            if(warped_projection.projection[i].x >= 1.0f || warped_projection.projection[i].y >= 1.0f)
+            if(warped_projection.projection[i].x < 0.f || warped_projection.projection[i].y < 0.f)
             {
                 /*#ifdef VERBOSE
                                 printf("\nprojected out of depth map: (%u,%u)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
@@ -402,33 +486,39 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
                 continue;
             }
 
+            float vx_error = 0.f;
+
             glm::fvec3 extracted_position;
             if(!sample_depth_projection(extracted_position, i, warped_projection.projection[i], dev_res, host_res.measures))
             {
-                continue;
+                vx_error = 1.f;
             }
-
-            //        printf("\nextracted_position (%.2f, %.2f, %.2f): (%.2f,%.2f,%.2f) = (%.2f,%.2f,%.2f)\n", coordinate.x, coordinate.y, coordinate.z, warped_position.x, warped_position.y,
-            //        warped_position.z, extracted_position.x, extracted_position.y, extracted_position.z);
-
-            glm::fvec3 diff = warped_vertex.position - extracted_position;
-
-            if(glm::length(diff) > 0.03f || glm::length(diff) == 0.f)
+            else
             {
-                continue;
-            }
+                //        printf("\nextracted_position (%.2f, %.2f, %.2f): (%.2f,%.2f,%.2f) = (%.2f,%.2f,%.2f)\n", coordinate.x, coordinate.y, coordinate.z, warped_position.x, warped_position.y,
+                //        warped_position.z, extracted_position.x, extracted_position.y, extracted_position.z);
 
-            float vx_error = glm::length(diff);
+                glm::fvec3 diff = warped_vertex.position - extracted_position;
 
-            // printf("\nvx_error: %f\n", vx_error);
+                if(glm::length(diff) > 0.03f)
+                {
+                    vx_error = 1.f;
+                }
+                else
+                {
+                    vx_error = glm::length(diff);
 
-            if(isnan(vx_error))
-            {
+                    // printf("\nvx_error: %f\n", vx_error);
+
+                    if(isnan(vx_error))
+                    {
 #ifdef DEBUG_NANS
-                printf("\nvx_residual is NaN!\n");
+                        printf("\nvx_residual is NaN!\n");
 #endif
 
-                vx_error = 0.f;
+                        vx_error = 0.f;
+                    }
+                }
             }
 
             dev_res.warped_sorted_vx_error[i][ed_entry.vx_offset + vx_idx] = vx_error;
@@ -504,7 +594,7 @@ __global__ void kernel_reject_misaligned_deformations(int *misaligned_vx_count, 
         energy += vx_misalignment;
         data_term += evaluate_data_residual(vx, vx_proj, dev_res, host_res.measures);
         hull_term += hull_misalignment;
-        correspondence_term += evaluate_cf_residual(vx, vx, vx_proj, dev_res, host_res.measures);
+        correspondence_term += evaluate_cf_residual(vx, dev_res.prev_frame_warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx], vx_proj, dev_res, host_res.measures);
     }
 
     energy /= (float)ed_entry.vx_length;
@@ -526,7 +616,8 @@ __global__ void kernel_reject_misaligned_deformations(int *misaligned_vx_count, 
     memcpy(&dev_res.ed_graph_meta[idx], &ed_entry, sizeof(struct_ed_meta_entry));
 }
 
-__device__ float evaluate_vx_residual(struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res, struct_host_resources &host_res)
+__device__ float evaluate_vx_residual(struct_vertex &prev_warped_vx, struct_projection &prev_warped_vx_proj, struct_vertex &ref_vx, struct_projection &ref_vx_proj, struct_device_resources &dev_res,
+                                      struct_host_resources &host_res)
 {
     // return host_res.configuration.weight_data * glm::length(glm::fvec3(0.5f, 0.64f, 0.36f) - vx.position);
     // return host_res.configuration.weight_data * glm::abs(0.64f - vx.position.y);
@@ -534,15 +625,15 @@ __device__ float evaluate_vx_residual(struct_vertex &vx, struct_projection &vx_p
     float vx_residual = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_residual += host_res.configuration.weight_data * evaluate_data_residual(vx, vx_proj, dev_res, host_res.measures);
+    vx_residual += host_res.configuration.weight_data * evaluate_data_residual(prev_warped_vx, prev_warped_vx_proj, dev_res, host_res.measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
-    vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(vx_proj, dev_res, host_res.measures);
+    vx_residual += host_res.configuration.weight_hull * evaluate_hull_residual(prev_warped_vx_proj, dev_res, host_res.measures);
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(vx, vx, vx_proj, dev_res, host_res.measures);
+    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(prev_warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -593,12 +684,14 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
-        struct_projection vx_proj = dev_res.sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+        struct_vertex vx = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection vx_proj = dev_res.warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+        struct_vertex ref_vx = dev_res.prev_frame_warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection ref_vx_proj = dev_res.prev_frame_warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = evaluate_vx_residual(vx, vx_proj, dev_res, host_res);
+        float vx_residual = evaluate_vx_residual(vx, vx_proj, ref_vx, ref_vx_proj, dev_res, host_res);
 
         atomicAdd(energy, vx_residual);
     }
@@ -647,18 +740,21 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
         warped_vx.normal = warp_normal(vx.normal, ed_node, ed_entry, 1.f, measures);
         warped_vx.ed_cell_id = vx.ed_cell_id;
 
-        struct_projection vx_projection;
+        struct_projection warped_vx_projection;
         for(unsigned int i = 0; i < 4; i++)
         {
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
 
-            vx_projection.projection[i].x = projection.x;
-            vx_projection.projection[i].y = projection.y;
+            warped_vx_projection.projection[i].x = projection.x;
+            warped_vx_projection.projection[i].y = projection.y;
         }
+
+        struct_vertex ref_vx = dev_res.prev_frame_warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection ref_vx_proj = dev_res.prev_frame_warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
-        float vx_residual = evaluate_vx_residual(warped_vx, vx_projection, dev_res, host_res);
+        float vx_residual = evaluate_vx_residual(warped_vx, warped_vx_projection, ref_vx, ref_vx_proj, dev_res, host_res);
 
         atomicAdd(energy, vx_residual);
     }
@@ -666,7 +762,8 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     // printf("\njtf[%u]\n", ed_node_offset * 10u);
 }
 
-__device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_vertex &vx, struct_projection &vx_proj, struct_device_resources &dev_res,
+__device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &ed_node, struct_ed_meta_entry &ed_entry, struct_vertex &initial_vx, struct_vertex &prev_warped_vx,
+                                                struct_projection &prev_warped_vx_proj, struct_vertex &ref_vx, struct_projection &ref_vx_proj, struct_device_resources &dev_res,
                                                 struct_host_resources &host_res)
 {
     float pd = 0.f;
@@ -674,21 +771,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     struct_ed_node ed_node_new;
     memcpy(&ed_node_new, &ed_node, sizeof(struct_ed_node));
 
-    struct_vertex prev_warped_vx;
-    struct_projection prev_warped_vx_proj;
-    memset(&prev_warped_vx, 0, sizeof(struct_vertex));
-    memset(&prev_warped_vx_proj, 0, sizeof(struct_projection));
-
-    glm::fvec3 dist = vx.position - ed_entry.position;
-
-    prev_warped_vx.position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    prev_warped_vx.normal = glm::clamp(warp_normal(vx.normal, ed_node, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    for(unsigned int i = 0; i < 4; i++)
-    {
-        float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], prev_warped_vx.position);
-        prev_warped_vx_proj.projection[i].x = projection.x;
-        prev_warped_vx_proj.projection[i].y = projection.y;
-    }
+    glm::fvec3 dist = initial_vx.position - ed_entry.position;
 
     struct_vertex warped_vx;
     struct_projection warped_vx_proj;
@@ -718,7 +801,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx, vx_proj, dev_res, host_res.measures);
+    vx_res_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -754,7 +837,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_pos_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx, vx_proj, dev_res, host_res.measures);
+    vx_res_pos_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -771,7 +854,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     shift_component(ed_node_new, component, -3.f * ds);
 
     warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    warped_vx.normal = vx.normal; /// Per-step approximation
+    warped_vx.normal = prev_warped_vx.normal; /// Per-step approximation
     for(unsigned int i = 0; i < 4; i++)
     {
         float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
@@ -782,7 +865,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_neg = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -790,7 +873,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx, vx_proj, dev_res, host_res.measures);
+    vx_res_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -807,7 +890,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     shift_component(ed_node_new, component, -1.f * ds);
 
     warped_vx.position = glm::clamp(warp_position(dist, ed_node_new, ed_entry, 1.f, host_res.measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    warped_vx.normal = vx.normal; /// Per-step approximation
+    warped_vx.normal = prev_warped_vx.normal; /// Per-step approximation
     for(unsigned int i = 0; i < 4; i++)
     {
         float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_vx.position);
@@ -818,7 +901,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_neg_neg = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_neg_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_neg_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -826,7 +909,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_neg_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, vx, vx_proj, dev_res, host_res.measures);
+    vx_res_neg_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -985,8 +1068,12 @@ __global__ void kernel_jtj_jtf(struct_device_resources dev_res, struct_host_reso
     // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
-        struct_vertex vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
-        struct_projection vx_proj = dev_res.sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+        struct_vertex warped_vx = dev_res.warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection warped_vx_proj = dev_res.warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
+
+        struct_vertex initial_vx = dev_res.sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_vertex ref_vx = dev_res.prev_frame_warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx];
+        struct_projection ref_vx_proj = dev_res.prev_frame_warped_sorted_vx_projections[ed_entry.vx_offset + vx_idx];
 
         // printf("\ned_node + vertex match\n");
 
@@ -994,12 +1081,12 @@ __global__ void kernel_jtj_jtf(struct_device_resources dev_res, struct_host_reso
 
         if(component == 0)
         {
-            vx_residual = evaluate_vx_residual(vx, vx_proj, dev_res, host_res);
+            vx_residual = evaluate_vx_residual(warped_vx, warped_vx_proj, ref_vx, ref_vx_proj, dev_res, host_res);
         }
 
         __shared__ float pds[ED_COMPONENT_COUNT];
 
-        pds[component] = evaluate_vx_partial_derivative(component, ed_node, ed_entry, vx, vx_proj, dev_res, host_res);
+        pds[component] = evaluate_vx_partial_derivative(component, ed_node, ed_entry, initial_vx, warped_vx, warped_vx_proj, ref_vx, ref_vx_proj, dev_res, host_res);
 
         __syncthreads();
 
@@ -1787,7 +1874,7 @@ __host__ void project_vertices()
 {
     int block_size;
     int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_warp, 0, 0);
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_project, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
     kernel_project<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
@@ -1798,7 +1885,7 @@ __host__ void project_warped_vertices()
 {
     int block_size;
     int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_warp, 0, 0);
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_project_warped, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
     kernel_project_warped<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
@@ -1812,6 +1899,28 @@ __host__ void apply_warp()
     cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_warp, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
     kernel_warp<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+}
+
+__host__ void project_prev_frame_warped_vertices()
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_project_prev_frame_warped, 0, 0);
+    size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
+    kernel_project_prev_frame_warped<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count /** Not a mistake! **/, _dev_res, _host_res.measures);
+    getLastCudaError("render kernel failed");
+    cudaDeviceSynchronize();
+}
+
+__host__ void apply_prev_frame_warp()
+{
+    int block_size;
+    int min_grid_size;
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_prev_frame_warp, 0, 0);
+    size_t grid_size = (_host_res.active_ed_vx_count + block_size - 1) / block_size;
+    kernel_prev_frame_warp<<<grid_size, block_size>>>(_dev_res, _host_res);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
 }
@@ -1832,6 +1941,9 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
     int singularity = 0;
 
     project_vertices();
+
+    apply_prev_frame_warp();
+    project_prev_frame_warped_vertices();
 
 #ifdef INITIAL_GUESS_OPTICFLOW
 

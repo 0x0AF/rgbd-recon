@@ -29,7 +29,7 @@ int FrameSequencer::next_frame()
             _frame--;
         }
 
-        if(_frame == _frame_end)
+        if(_frame == (_frame_end - _frame_start) / 2)
         {
             _forward_motion = false;
         }
@@ -82,9 +82,20 @@ void FrameSequencer::rewind()
 }
 int FrameSequencer::next_frame_position()
 {
-    if(_type == FrameSequencer::Type::FULL_SEQUENCE || _type == FrameSequencer::Type::FULL_SEQUENCE_REPEAT)
+    if(_type == FrameSequencer::Type::FULL_SEQUENCE)
     {
         return next_frame();
+    }
+    if(_type == FrameSequencer::Type::FULL_SEQUENCE_REPEAT)
+    {
+        if(_forward_motion)
+        {
+            return next_frame();
+        }
+        else
+        {
+            return _frame_end - next_frame();
+        }
     }
     if(_type == FrameSequencer::Type::INCREASING_STEP)
     {
@@ -94,7 +105,8 @@ int FrameSequencer::next_frame_position()
 
     return 0;
 }
-int FrameSequencer::current_frame ()
+int FrameSequencer::current_frame() { return _frame; }
+FrameSequencer::Type FrameSequencer::get_type ()
 {
-  return _frame;
+  return _type;
 }

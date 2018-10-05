@@ -490,6 +490,11 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
             float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], norm_pos);
             glm::vec2 voxel_proj = glm::vec2(projection.x, projection.y);
 
+            if(voxel_proj.x < 0.f || voxel_proj.y < 0.f)
+            {
+                aggregated_average_error += 0.25f;
+            }
+
             float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
             aggregated_average_error += alignment_error / 4.f;
         }
@@ -796,6 +801,64 @@ __host__ void calculate_alignment_map_error(float *error)
     cudaDeviceSynchronize();
 }
 
+#ifdef OUTPUT_PLY_SEQUENCE
+
+#include "tinyply.h"
+using namespace tinyply;
+extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
+
+extern "C" double write_ply(int frame_number)
+{
+    compute_isosurface(IsoSurfaceVolume::Fused);
+
+    cudaDeviceSynchronize();
+
+    TimerGPU timer(0);
+
+    std::vector<glm::fvec4> padded_vertices(_host_res.total_verts);
+    std::vector<glm::fvec4> padded_normals(_host_res.total_verts);
+
+    checkCudaErrors(cudaMemcpy(&padded_vertices[0], &_dev_res.pos[0], _host_res.total_verts * sizeof(glm::fvec4), cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(&padded_normals[0], &_dev_res.normal[0], _host_res.total_verts * sizeof(glm::fvec4), cudaMemcpyDeviceToHost));
+
+    std::vector<glm::fvec3> vertices(_host_res.total_verts);
+    std::vector<glm::fvec3> normals(_host_res.total_verts);
+
+    for(int i = 0; i < _host_res.total_verts; i++)
+    {
+        vertices[i] = glm::fvec3(padded_vertices[i]);
+        normals[i] = glm::normalize(glm::fvec3(padded_normals[i]));
+    }
+
+    std::vector<glm::uvec3> triangles(_host_res.total_verts / 3);
+
+    for(unsigned int i = 0; i < _host_res.total_verts / 3; i++)
+    {
+        triangles[i] = glm::uvec3(i * 3, i * 3 + 1, i * 3 + 2);
+    }
+
+    std::filebuf fb_ascii;
+    fb_ascii.open("Frame_" + std::to_string(frame_number) + ".ply", std::ios::out);
+    std::ostream outstream_ascii(&fb_ascii);
+    if(outstream_ascii.fail())
+        return 0.;
+
+    PlyFile cube_file;
+
+    cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, _host_res.total_verts, reinterpret_cast<uint8_t *>(&vertices[0]), Type::INVALID, 0);
+    cube_file.add_properties_to_element("vertex", {"nx", "ny", "nz"}, Type::FLOAT32, _host_res.total_verts, reinterpret_cast<uint8_t *>(&normals[0]), Type::INVALID, 0);
+    cube_file.add_properties_to_element("face", {"vertex_indices"}, Type::UINT32, _host_res.total_verts / 3, reinterpret_cast<uint8_t *>(&triangles[0]), Type::UINT8, 3);
+
+    cube_file.get_comments().push_back("Frame: " + std::to_string(frame_number) + ", resolution: " + std::to_string(_host_res.measures.data_volume_res.x));
+
+    cube_file.write(outstream_ascii, false);
+
+    checkCudaErrors(cudaThreadSynchronize());
+    return timer.read();
+}
+
+#endif
+
 extern "C" double fuse_data()
 {
     checkCudaErrors(cudaMemset(_dev_res.out_tsdf_warped_ref, 0, _host_res.measures.data_volume_res.x * _host_res.measures.data_volume_res.y * _host_res.measures.data_volume_res.z * sizeof(uchar)));
@@ -939,6 +1002,11 @@ extern "C" double fuse_data()
     unmap_error_texture();
     unmap_tsdf_volumes();
 
+    /// Save a copy of an ED graph for reference
+    cudaMemcpy(_dev_res.prev_ed_graph, _dev_res.ed_graph, _host_res.active_ed_nodes_count * sizeof(struct_ed_node), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(_dev_res.prev_ed_graph_meta, _dev_res.ed_graph_meta, _host_res.active_ed_nodes_count * sizeof(struct_ed_meta_entry), cudaMemcpyDeviceToDevice);
+    _host_res.prev_frame_ed_nodes_count = _host_res.active_ed_nodes_count;
+
     checkCudaErrors(cudaThreadSynchronize());
     return timer.read();
 }
@@ -981,7 +1049,7 @@ extern "C" double extract_data()
     map_tsdf_volumes();
 
     kernel_copy_data<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
-    getLastCudaError("kernel_fuse_data");
+    getLastCudaError("kernel_copy_data");
     cudaDeviceSynchronize();
 
     unmap_tsdf_volumes();

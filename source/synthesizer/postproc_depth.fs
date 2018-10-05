@@ -153,9 +153,9 @@ void main()
     fragColor.r = postprocess(fragColor.r, uv, frame);
     fragColor.r = fragColor.r * (3. - 0.5) + 0.5; //* (4.5 - 0.5) + 0.5
 
-    if(fragColor.r == 3.)
+    if(fragColor.r > 2.8)
     {
         /// Here we eliminate any chance that far plane cuts into the scene
-        fragColor.r = 100.;
+        fragColor.r *= 10.;
     }
 }

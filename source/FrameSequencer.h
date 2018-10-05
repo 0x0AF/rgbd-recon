@@ -24,6 +24,7 @@ class FrameSequencer
     bool is_first_frame();
     int length();
     void rewind();
+    Type get_type();
 
   private:
     std::vector<int> _precomp_sequence;
