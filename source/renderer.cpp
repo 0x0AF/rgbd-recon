@@ -47,7 +47,7 @@ renderer::renderer()
 {
     _model = &model::get_instance();
     _io = &model::get_io();
-    _sequencer = new FrameSequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 100);
+    _sequencer = new FrameSequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 10);
 }
 renderer::~renderer()
 {

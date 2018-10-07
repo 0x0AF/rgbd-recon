@@ -461,6 +461,13 @@ void ReconPerformanceCapture::drawComparison()
     extract_data(); // TODO: timer
 
     draw_data();
+
+#ifdef OUTPUT_PLY_SEQUENCE_DATA
+    if(!_is_paused)
+    {
+        write_ply((int)_frame_number.load());
+    }
+#endif
 }
 
 void ReconPerformanceCapture::draw()
@@ -537,8 +544,6 @@ void ReconPerformanceCapture::draw()
 
         if(_conf.pipeline_align && _frame_number.load() != 0)
         {
-            // TODO: estimate ICP rigid body fit
-
             _conf.time_nra = pcg_solve();
         }
 
@@ -555,12 +560,12 @@ void ReconPerformanceCapture::draw()
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
             _conf.time_fuse = fuse_data();
-
-#ifdef OUTPUT_PLY_SEQUENCE
-            write_ply((int)_frame_number.load());
-#endif
         }
 
+#endif
+
+#ifdef OUTPUT_PLY_SEQUENCE_FUSED
+        write_ply((int)_frame_number.load());
 #endif
 
         _frame_number.store(_frame_number.load() + 1);

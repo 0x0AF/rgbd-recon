@@ -38,7 +38,7 @@ void Renderer::draw()
         set_identity_matrix(_model_matrix, 4);
         translate(0.2f + translation.x, 0.8f + translation.y, -0.6f + translation.z);
         // rotate(45.f * step, 0.f, 1.f, 0.f);
-        scale(0.15f, 0.3f, 0.15f);
+        scale(0.15f, 0.15f, 0.15f);
     }
 
     /// Geometry pass

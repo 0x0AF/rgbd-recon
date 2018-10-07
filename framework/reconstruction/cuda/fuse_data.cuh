@@ -409,7 +409,7 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
                 }
 
                 float1 mark = sample_ref_warped_marks_ptr(dev_res.tsdf_ref_warped_marks, vote_target, measures);
-                if(glm::abs(voxel.x - mark.x) > 0.001f /* TODO: figure out threshold */)
+                if(glm::abs(voxel.x - mark.x) > 0.0001f /* TODO: figure out threshold */)
                 {
                     __syncthreads();
                     continue;
@@ -492,11 +492,11 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
 
             if(voxel_proj.x < 0.f || voxel_proj.y < 0.f)
             {
-                aggregated_average_error += 0.25f;
+                aggregated_average_error = glm::max(1.f, aggregated_average_error);
             }
 
             float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
-            aggregated_average_error += alignment_error / 4.f;
+            aggregated_average_error = glm::max(aggregated_average_error, alignment_error);
         }
 
         float weight = ref_warped.y * (1.f - aggregated_average_error) + data.y;
@@ -619,6 +619,66 @@ __global__ void kernel_compare_fused(float *error, struct_host_resources host_re
     }
 }
 
+__global__ void kernel_fuse_reference(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_ed_nodes_count * measures.ed_cell_num_voxels)
+    {
+        return;
+    }
+
+    /// Retrieve ED node
+
+    unsigned int ed_node_offset = idx / measures.ed_cell_num_voxels;
+
+    struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
+
+    /// Retrieve voxel position
+
+    unsigned int voxel_id = idx % measures.ed_cell_num_voxels;
+
+    glm::uvec3 world_voxel =
+        index_3d(ed_entry.brick_id, measures) * measures.brick_dim_voxels + ed_cell_3d(ed_entry.ed_cell_id, measures) * measures.ed_cell_dim_voxels + ed_cell_voxel_3d(voxel_id, measures);
+
+    if(!in_data_volume(world_voxel, measures))
+    {
+#ifdef VERBOSE
+        printf("\nout of volume: world_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z);
+#endif
+        return;
+    }
+
+    /// Warp voxel
+
+    glm::fvec3 world = data_2_norm(world_voxel, measures);
+    glm::fvec3 dist = world - ed_entry.position;
+    glm::fvec3 warped_position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, measures), glm::fvec3(0.f), glm::fvec3(1.f));
+    glm::uvec3 warped_position_voxel = norm_2_data(warped_position, measures);
+
+    if(!in_data_volume(warped_position_voxel, measures))
+    {
+#ifdef VERBOSE
+        printf("\nout of volume: warped_position_voxel(%i,%i,%i)\n", warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
+#endif
+        return;
+    }
+
+    /*if(warped_position_voxel != world_voxel)
+    {
+        printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
+    }*/
+
+    /// Retrieve SDF value
+
+    float2 data;
+    surf3Dread(&data, _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
+
+    unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
+    dev_res.tsdf_ref[offset] = data;
+}
+
 __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -655,10 +715,11 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
     {
         unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
 
-        float2 value = dev_res.tsdf_fused[offset];
+        float2 data;
+        surf3Dread(&data, _volume_tsdf_data, world_voxel.x * sizeof(float2), world_voxel.y, world_voxel.z);
 
-        dev_res.tsdf_ref[offset] = value;
-        dev_res.out_tsdf_ref[offset] = tsdf_2_8bit(value.x);
+        dev_res.tsdf_ref[offset] = data;
+        dev_res.out_tsdf_ref[offset] = tsdf_2_8bit(data.x);
         return;
     }
 }
@@ -809,7 +870,14 @@ extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
 
 extern "C" double write_ply(int frame_number)
 {
+
+#ifdef OUTPUT_PLY_SEQUENCE_DATA
+    compute_isosurface(IsoSurfaceVolume::Data);
+#endif
+
+#ifdef OUTPUT_PLY_SEQUENCE_FUSED
     compute_isosurface(IsoSurfaceVolume::Fused);
+#endif
 
     cudaDeviceSynchronize();
 
@@ -890,10 +958,6 @@ extern "C" double fuse_data()
         getLastCudaError("kernel_warp_reference");
         cudaDeviceSynchronize();
     }
-
-    /*kernel_warp_reference<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
-    getLastCudaError("kernel_warp_reference");
-    cudaDeviceSynchronize();*/
 
 #ifdef UNIT_TEST_REF_WARP
 
@@ -995,8 +1059,12 @@ extern "C" double fuse_data()
 
 #endif
 
+    kernel_fuse_reference<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
+    getLastCudaError("kernel_fuse_reference");
+    cudaDeviceSynchronize();
+
     kernel_refresh_misaligned<<<_host_res.active_ed_nodes_count, _host_res.measures.ed_cell_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
-    getLastCudaError("kernel_warp_reference");
+    getLastCudaError("kernel_refresh_misaligned");
     cudaDeviceSynchronize();
 
     unmap_error_texture();

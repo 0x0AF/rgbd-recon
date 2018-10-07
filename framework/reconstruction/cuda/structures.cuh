@@ -90,6 +90,8 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 // #define DEBUG_CONVERGENCE
 
 // #define OUTPUT_PLY_SEQUENCE
+// #define OUTPUT_PLY_SEQUENCE_DATA
+// #define OUTPUT_PLY_SEQUENCE_FUSED
 
 #define SOLVER_DIRECT_QR
 // #define SOLVER_DIRECT_CHOL
@@ -139,13 +141,13 @@ struct Configuration
     int textures_silhouettes_iterations = 100;
 
     float weight_data = 1.f;
-    float weight_hull = 1.f;
-    float weight_correspondence = 0.9f;
+    float weight_hull = 0.7f;
+    float weight_correspondence = 0.25f;
     float weight_regularization = 0.01f;
 
     float solver_mu = 5000.f;
     float solver_mu_step = 100.f;
-    int solver_lma_max_iter = 5;
+    int solver_lma_max_iter = 20;
     int solver_cg_steps = 12;
 
     float rejection_threshold = 0.01f;

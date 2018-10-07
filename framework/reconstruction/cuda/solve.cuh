@@ -2086,7 +2086,7 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
             printf("\nmisaligned_vx_share: %.3f\n", misaligned_vx_share * 100.f);
 #endif
 
-            if(misaligned_vx_share < 0.2f)
+            if(misaligned_vx_share < 0.025f)
             {
 #ifdef VERBOSE
                 printf("\nmisalignment vx count criterion satisfied: %.3f\n", misaligned_vx_share * 100.f);
