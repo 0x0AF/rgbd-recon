@@ -24,7 +24,7 @@ uniform float cv_max_ds;
 uniform int mode;
 uniform bool processed_depth;
 
-const int kernel_size = 4; // in pixel
+const int kernel_size = 2; // in pixel
 const int kernel_end = kernel_size + 1;
 
 layout(location = 0) out vec2 out_Depth;

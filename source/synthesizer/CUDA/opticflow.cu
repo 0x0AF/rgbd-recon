@@ -64,8 +64,8 @@ struct normalize_functor
 
 extern "C" void evaluate_optical_flow(float *color_frame_previous, float *color_frame, float2 *optical_flow)
 {
-    int im_width = 512;
-    int im_height = 424;
+    int im_width = 2048;
+    int im_height = 1696;
     int32_t im_dimensions[3] = {im_width, im_height, 1};
 
     std::vector<float> norm_im_0(im_width * im_height, 0.0);

@@ -34,8 +34,8 @@
 #include <string>
 #include <vector>
 
-#include "Choreographer.h"
 #include "../FrameSequencer.h"
+#include "Choreographer.h"
 #include "FileBuffer.hpp"
 
 #include "/usr/local/cuda/include/vector_types.h"
@@ -51,7 +51,7 @@ class Controller;
 class Renderer
 {
   public:
-    Renderer(Controller *controller, Choreographer *choreographer, FrameSequencer * sequencer);
+    Renderer(Controller *controller, Choreographer *choreographer, FrameSequencer *sequencer);
     ~Renderer();
 
     void resize(int width, int height);
@@ -96,7 +96,7 @@ class Renderer
     void set_opticflow();
 
   private:
-    FileBuffer *_fb, * _fb_of;
+    FileBuffer *_fb, *_fb_of;
     unsigned char *_frame_color;
     float *_frame_grayscale;
     float *_frame_grayscale_prev;
@@ -105,7 +105,7 @@ class Renderer
 
     float2 *_of_frame;
 
-    int _mode = 0;
+    int _mode = 3;
     int _width = 1, _height = 1;
     glm::vec3 _translation{0.f}; //{8.60003f, 11.4501f, -6.89923f};
     std::vector<CameraDescriptor> _camera_descriptor;
@@ -121,13 +121,13 @@ class Renderer
     globjects::Framebuffer *_fbo, *_fbo_grayscale, *_fbo_color, *_fbo_depth;
     globjects::Texture *_texture_optical_flow;
     globjects::Texture *_texture_clouds;
-    globjects::Texture *_texture_clouds_earth;
+    globjects::Texture *_texture_poi;
     globjects::Texture *_texture_color;
     globjects::Texture *_texture_grayscale;
     globjects::Texture *_texture_depth;
     globjects::Texture *_texture_color_postproc;
     globjects::Texture *_texture_depth_postproc;
-    globjects::Texture *_texture_dummy_depth_1280, *_texture_dummy_depth_512;
+    globjects::Texture *_texture_dummy_depth_2048, *_texture_dummy_depth_1280, *_texture_dummy_depth_512;
 
     globjects::UniformBlock *_ub_matrices;
     globjects::UniformBlock *_ub_materials;

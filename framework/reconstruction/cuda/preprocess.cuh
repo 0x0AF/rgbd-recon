@@ -192,7 +192,7 @@ __global__ void kernel_copy_flow(struct_device_resources dev_res, int layer, str
     const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
     const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
 
-    if(ix >= measures.depth_res.x || iy >= measures.depth_res.y)
+    if(ix >= 2048 || iy >= 1696)
     {
         return;
     }
@@ -202,7 +202,7 @@ __global__ void kernel_copy_flow(struct_device_resources dev_res, int layer, str
         return;
     }
 
-    const int offset = ix + iy * measures.depth_res.x + layer * measures.depth_res.x * measures.depth_res.y;
+    const int offset = ix + iy * 2048 + layer * 2048 * 1696;
 
     float2 value = dev_res.mapped_pbo_opticflow[offset];
 
@@ -226,13 +226,15 @@ __global__ void kernel_copy_flow(struct_device_resources dev_res, int layer, str
         value.y = 0.f;
     }
 
+    // printf("\n(x,y): (%f,%f)\n", value.x, value.y);
+
     write_pitched_ptr(value, dev_res.optical_flow[layer], dev_res.pitch_optical_flow, ix, iy);
 }
 
 __host__ void preprocess_flow()
 {
     dim3 threads(8, 8);
-    dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
+    dim3 blocks(iDivUp(2048, threads.x), iDivUp(1696, threads.y));
 
     for(int layer = 0; layer < 4; layer++)
     {

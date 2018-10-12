@@ -127,8 +127,8 @@ bool LocalKinectArray::init()
 
     _pbo_depths = double_pbo{_depthsize * _numLayers};
 
-    _pbo_flow = double_pbo{_depthsize * _numLayers * 2};
-    _flowArray = std::unique_ptr<TextureArray>{new TextureArray(512, 424, 4, GL_RG32F, GL_RG, GL_FLOAT)};
+    _pbo_flow = double_pbo{2048 * 1696 * sizeof(float) * _numLayers * 2};
+    _flowArray = std::unique_ptr<TextureArray>{new TextureArray(2048, 1696, 4, GL_RG32F, GL_RG, GL_FLOAT)};
     _flowArray->setMAGMINFilter(GL_LINEAR);
 
     /* kinect color: GL_RGB32F, GL_RGB, GL_FLOAT*/
@@ -173,7 +173,7 @@ bool LocalKinectArray::init()
     _out_pbo_depths->bind(GL_PIXEL_PACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
-    _out_pbo_flows->setData(_depthsize * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
+    _out_pbo_flows->setData(2048 * 1696 * sizeof(float) * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
     _out_pbo_flows->bind(GL_PIXEL_PACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
@@ -696,7 +696,7 @@ void LocalKinectArray::writeBMP(std::string filename, std::vector<std::uint8_t> 
 void LocalKinectArray::readFromFiles(int frame_number)
 {
     const size_t frame_size_bytes((_colorsize + _depthsize) * _numLayers);
-    const size_t flow_size_bytes = 512 * 424 * 2 * sizeof(float);
+    const size_t flow_size_bytes = 2048 * 1696 * 2 * sizeof(float);
     const size_t flow_frame_size_bytes = flow_size_bytes * _numLayers;
 
     _file_buffer->gotoByte(frame_size_bytes * frame_number);

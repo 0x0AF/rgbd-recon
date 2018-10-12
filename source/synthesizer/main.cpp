@@ -132,14 +132,15 @@ int main(int, char *[])
     // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/breakers.obj");
     // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/lion-simple.obj");
     // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/cube.obj");
-    std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/sphere.obj");
+    // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/sphere.obj");
+    std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/uv_unwrapped_egg.obj");
     // std::string filename_environment("/home/fusion_4d/Desktop/data/synthetic_dataset/emptyworldground.dae");
     std::string filename_environment("/home/fusion_4d/Desktop/data/synthetic_dataset/environment.dae");
 
     Controller controller(filename_poi, filename_environment);
     FrameSequencer sequencer(FrameSequencer::Type::INCREASING_STEP, 0, 1);
     Choreographer choreographer(&sequencer);
-    choreographer.set_translation({0.03575, 0., 0.03575});
+    choreographer.set_translation({0.05, 0., 0.05});
     // choreographer.set_rotation(glm::radians(90.), {0., 1., 0.});
     Renderer renderer(&controller, &choreographer, &sequencer);
 

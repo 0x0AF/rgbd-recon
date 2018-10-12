@@ -1,6 +1,5 @@
 #include "Renderer.h"
 #include "Controller.h"
-#include "clouds_earth.h"
 #include <reconstruction/cuda/clouds.h>
 
 #include "/usr/local/cuda/include/cuda_runtime.h"
@@ -38,7 +37,7 @@ void Renderer::draw()
         set_identity_matrix(_model_matrix, 4);
         translate(0.5f + translation.x, 0.6f + translation.y, -0.5f + translation.z);
         // rotate(45.f * step, 0.f, 1.f, 0.f);
-        scale(0.2f, 0.4f, 0.2f);
+        scale(0.3f, 0.3f, 0.3f);
     }
 
     /// Geometry pass
@@ -51,7 +50,7 @@ void Renderer::draw()
         _fbo->attachTextureLayer((gl::GLenum)GL_COLOR_ATTACHMENT0, _texture_color, 0, i);
         _fbo->attachTextureLayer((gl::GLenum)GL_DEPTH_ATTACHMENT, _texture_depth, 0, i);
 
-        glViewport(0, 0, 512, 424);
+        glViewport(0, 0, 2048, 1696);
 
         if(GL_FRAMEBUFFER_COMPLETE != _fbo->checkStatus())
         {
@@ -72,7 +71,7 @@ void Renderer::draw()
         _program->use();
         _program->setUniform("layer", (int)i);
         _program->setUniform("clouds", 8);
-        _program->setUniform("clouds_earth", 11);
+        _program->setUniform("texture_poi", 11);
 
         recursive_render(_controller->get_poi(), _controller->get_poi()->mRootNode);
 
@@ -83,15 +82,17 @@ void Renderer::draw()
 
     /// OpticFlow pass
 
+    glEnable(GL_MULTISAMPLE);
+
     for(unsigned i = 0; i < 4; i++)
     {
         _fbo_grayscale->bind();
 
         _fbo_grayscale->setDrawBuffers({(gl::GLenum)GL_COLOR_ATTACHMENT0, (gl::GLenum)GL_DEPTH_ATTACHMENT});
         _fbo_grayscale->attachTextureLayer((gl::GLenum)GL_COLOR_ATTACHMENT0, _texture_grayscale, 0, i);
-        _fbo_grayscale->attachTextureLayer((gl::GLenum)GL_DEPTH_ATTACHMENT, _texture_dummy_depth_512, 0, i);
+        _fbo_grayscale->attachTextureLayer((gl::GLenum)GL_DEPTH_ATTACHMENT, _texture_dummy_depth_2048, 0, i);
 
-        glViewport(0, 0, 512, 424);
+        glViewport(0, 0, 2048, 1696);
 
         if(GL_FRAMEBUFFER_COMPLETE != _fbo_grayscale->checkStatus())
         {
@@ -124,6 +125,8 @@ void Renderer::draw()
     }
 
     /// Color postprocess pass
+
+    glEnable(GL_MULTISAMPLE);
 
     for(unsigned i = 0; i < 4; i++)
     {
@@ -217,9 +220,9 @@ void Renderer::draw()
 
 #ifdef WRITE_OPTICFLOW
 
-    size_t size_grayscale = 512 * 424 * sizeof(float);
+    size_t size_grayscale = 2048 * 1696 * sizeof(float);
     size_t framesize_grayscale = 4 * size_grayscale;
-    size_t size_opticflow = 512 * 424 * 2 * sizeof(float);
+    size_t size_opticflow = 2048 * 1696 * 2 * sizeof(float);
     size_t framesize_opticflow = 4 * size_opticflow;
 
     if(_sequencer->is_first_frame())
@@ -229,7 +232,7 @@ void Renderer::draw()
 
     for(int layer = 0; layer < 4; layer++)
     {
-        evaluate_optical_flow(_frame_grayscale + 512 * 424 * layer, _frame_grayscale_prev + 512 * 424 * layer, _of_frame);
+        evaluate_optical_flow(_frame_grayscale + 2048 * 1696 * layer, _frame_grayscale_prev + 2048 * 1696 * layer, _of_frame);
 
         /*for(int i = 0; i < 512 * 424; i++)
         {
@@ -239,14 +242,14 @@ void Renderer::draw()
             }
         }*/
 
-        memcpy(_of_frame_concat + 512 * 424 * layer, _of_frame, size_opticflow);
+        memcpy(_of_frame_concat + 2048 * 1696 * layer, _of_frame, size_opticflow);
     }
 
     memcpy(_frame_grayscale_prev, _frame_grayscale, framesize_grayscale);
 
     _fb_of->write((byte *)_of_frame_concat, framesize_opticflow);
 
-    _texture_optical_flow->subImage3D(0, 0, 0, 0, 512, 424, 4, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, _of_frame_concat);
+    _texture_optical_flow->subImage3D(0, 0, 0, 0, 2048, 1696, 4, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, _of_frame_concat);
 
 #endif
 
@@ -340,14 +343,14 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
                   << " exiting..." << std::endl;
     }
 
-    _of_frame = (float2 *)malloc((512 * 424) * 2 * sizeof(float));
-    memset(_of_frame, 0, (512 * 424) * 2 * sizeof(float));
+    _of_frame = (float2 *)malloc((2048 * 1696) * 2 * sizeof(float));
+    memset(_of_frame, 0, (2048 * 1696) * 2 * sizeof(float));
 
     _frame_color = (unsigned char *)malloc(4 * (1280 * 1080) * 3 * sizeof(unsigned char));
-    _frame_grayscale = (float *)malloc(4 * (512 * 424) * sizeof(float));
-    _frame_grayscale_prev = (float *)malloc(4 * (512 * 424) * sizeof(float));
+    _frame_grayscale = (float *)malloc(4 * (2048 * 1696) * sizeof(float));
+    _frame_grayscale_prev = (float *)malloc(4 * (2048 * 1696) * sizeof(float));
     _frame_depth = (float *)malloc(4 * (512 * 424) * sizeof(float));
-    _of_frame_concat = (float2 *)malloc(4 * (512 * 424) * 2 * sizeof(float));
+    _of_frame_concat = (float2 *)malloc(4 * (2048 * 1696) * 2 * sizeof(float));
     _vao_fsquad_debug = new globjects::VertexArray();
 
     const std::array<glm::vec2, 4> raw{{glm::vec2(1.f, -1.f), glm::vec2(1.f, 1.f), glm::vec2(-1.f, -1.f), glm::vec2(-1.f, 1.f)}};
@@ -367,17 +370,17 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
     _fbo_depth = new globjects::Framebuffer();
 
     _texture_color = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
-    _texture_color->image3D(0, (gl::GLenum)GL_RGB8, 512, 424, 4, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, (void *)nullptr);
+    _texture_color->image3D(0, (gl::GLenum)GL_RGB8, 2048, 1696, 4, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, (void *)nullptr);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
     _texture_color->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
 
     _texture_grayscale = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
-    _texture_grayscale->image3D(0, (gl::GLenum)GL_LUMINANCE32F_ARB, 512, 424, 4, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_grayscale->image3D(0, (gl::GLenum)GL_LUMINANCE32F_ARB, 2048, 1696, 4, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, (void *)nullptr);
     _texture_grayscale->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
     _texture_grayscale->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
 
     _texture_depth = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
-    _texture_depth->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 512, 424, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_depth->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 2048, 1696, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
     _texture_depth->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_NEAREST);
     _texture_depth->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_NEAREST);
 
@@ -390,6 +393,11 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
     _texture_depth_postproc->image3D(0, (gl::GLenum)GL_LUMINANCE32F_ARB, 512, 424, 4, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, (void *)nullptr);
     _texture_depth_postproc->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_NEAREST);
     _texture_depth_postproc->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_NEAREST);
+
+    _texture_dummy_depth_2048 = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
+    _texture_dummy_depth_2048->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 2048, 1696, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_dummy_depth_2048->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_NEAREST);
+    _texture_dummy_depth_2048->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_NEAREST);
 
     _texture_dummy_depth_1280 = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
     _texture_dummy_depth_1280->image3D(0, (gl::GLenum)GL_DEPTH_COMPONENT16, 1280, 1080, 4, 0, (gl::GLenum)GL_DEPTH_COMPONENT, (gl::GLenum)GL_FLOAT, (void *)nullptr);
@@ -430,30 +438,28 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
 
     gl::glBindTextureUnit(8, _texture_clouds->id());
 
-    float *cloud_earth = (float *)malloc(512 * 424 * sizeof(float));
-    char *cloud_earth_data_ptr = cloud_data_earth;
+    unsigned char *texture_poi = (unsigned char *)malloc(2048 * 2048 * sizeof(char) * 3);
 
-    for(int i = 0; i < 512 * 424; i++)
+    std::ifstream file("/home/fusion_4d/Desktop/data/synthetic_dataset/of_texture_2048.rgb", std::ios::in | std::ios::binary | std::ios::ate);
+    if(file.is_open())
     {
-        int pixel = (((cloud_earth_data_ptr[0] - 33) << 2) | ((cloud_earth_data_ptr[1] - 33) >> 4));
-        cloud_earth[i] = ((float)pixel) / 256.f;
-
-        // printf("\npixel: %i\n", pixel);
-
-        cloud_earth_data_ptr += 4;
+        int size = file.tellg();
+        file.seekg(0, std::ios::beg);
+        file.read((char *)texture_poi, size);
+        file.close();
     }
 
-    _texture_clouds_earth = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D);
-    _texture_clouds_earth->image2D(0, (gl::GLenum)GL_R32F, 512, 424, 0, (gl::GLenum)GL_RED, (gl::GLenum)GL_FLOAT, cloud_earth);
-    _texture_clouds_earth->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
-    _texture_clouds_earth->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_poi = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D);
+    _texture_poi->image2D(0, (gl::GLenum)GL_RGB8, 2048, 2048, 0, (gl::GLenum)GL_RGB, (gl::GLenum)GL_UNSIGNED_BYTE, texture_poi);
+    _texture_poi->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
+    _texture_poi->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
 
-    free(cloud_earth);
+    free(texture_poi);
 
-    gl::glBindTextureUnit(11, _texture_clouds_earth->id());
+    gl::glBindTextureUnit(11, _texture_poi->id());
 
     _texture_optical_flow = globjects::Texture::createDefault((gl::GLenum)GL_TEXTURE_2D_ARRAY);
-    _texture_optical_flow->image3D(0, (gl::GLenum)GL_RG32F, 512, 424, 4, 0, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, (void *)nullptr);
+    _texture_optical_flow->image3D(0, (gl::GLenum)GL_RG32F, 2048, 1696, 4, 0, (gl::GLenum)GL_RG, (gl::GLenum)GL_FLOAT, (void *)nullptr);
     _texture_optical_flow->setParameter((gl::GLenum)GL_TEXTURE_MIN_FILTER, (gl::GLenum)GL_LINEAR);
     _texture_optical_flow->setParameter((gl::GLenum)GL_TEXTURE_MAG_FILTER, (gl::GLenum)GL_LINEAR);
 
@@ -524,13 +530,16 @@ Renderer::Renderer(Controller *controller, Choreographer *choreographer, FrameSe
 Renderer::~Renderer()
 {
     _texture_clouds->destroy();
-    _texture_clouds_earth->destroy();
+    _texture_poi->destroy();
     _texture_color->destroy();
     _texture_grayscale->destroy();
     _texture_optical_flow->destroy();
     _texture_depth->destroy();
     _texture_color_postproc->destroy();
     _texture_depth_postproc->destroy();
+    _texture_dummy_depth_512->destroy();
+    _texture_dummy_depth_1280->destroy();
+    _texture_dummy_depth_2048->destroy();
 
     free(_of_frame);
 

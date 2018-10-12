@@ -75,6 +75,7 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 
 #define ED_NODES_ROBUSTIFY
 #define FAST_QUAT_OPS
+#define NORMAL_THRESHOLDING
 // #define JTJ_HESSIAN_DIAG
 
 // #define ALIGNMENT_ERROR_TRIANGULATION
@@ -89,9 +90,11 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 // #define DEBUG_H
 // #define DEBUG_CONVERGENCE
 
-#define OUTPUT_PLY_SEQUENCE
-#define OUTPUT_PLY_SEQUENCE_DATA
-#define OUTPUT_PLY_SEQUENCE_FUSED
+// #define OUTPUT_PLY_SEQUENCE
+// #define OUTPUT_PLY_SEQUENCE_DATA
+// #define OUTPUT_PLY_SEQUENCE_FUSED
+
+// #define OUTPUT_PLY_FLOW_CLOUD
 
 #define SOLVER_DIRECT_QR
 // #define SOLVER_DIRECT_CHOL
@@ -147,7 +150,7 @@ struct Configuration
 
     float solver_mu = 5000.f;
     float solver_mu_step = 100.f;
-    int solver_lma_max_iter = 20;
+    int solver_lma_max_iter = 5;
     int solver_cg_steps = 12;
 
     float rejection_threshold = 0.01f;

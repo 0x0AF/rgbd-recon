@@ -378,6 +378,8 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
             continue;
         }
 
+#ifdef NORMAL_THRESHOLDING
+
         float4 kinect_normal = sample_normals(dev_res.normals_tex[i], projection.projection[i]);
 
         if(kinect_normal.x == 0.f)
@@ -394,10 +396,13 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         // printf("\nnormals alignment: %.3f\n", normals_alignment);
 
-        if(normals_alignment < 0.96639f)
+
+        if(normals_alignment < 0.7071f)
         {
             continue;
         }
+
+#endif
 
         glm::fvec3 extracted_position;
         if(!sample_depth_projection(extracted_position, i, projection.projection[i], dev_res, measures))
@@ -535,7 +540,8 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
     return residual;
 }
 
-__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_vertex &reference_vertex, struct_projection &reference_vertex_projection, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_vertex &reference_vertex, struct_projection &reference_vertex_projection, struct_device_resources &dev_res,
+                                      struct_measures &measures)
 {
     float residual = 0.f;
 
@@ -549,6 +555,31 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
             continue;
         }
 
+#ifdef NORMAL_THRESHOLDING
+
+        float4 kinect_normal = sample_normals(dev_res.normals_tex[layer], reference_vertex_projection.projection[layer]);
+
+        if(kinect_normal.x == 0.f)
+        {
+            continue;
+        }
+
+        glm::fvec3 kinect_normal_normalized = glm::normalize(glm::fvec3(kinect_normal.x, kinect_normal.y, kinect_normal.z));
+
+        /*printf("\nnormal: (%.2f,%.2f,%.2f), kinect normal: (%.2f,%.2f,%.2f)\n", warped_vertex.normal.x, warped_vertex.normal.y, warped_vertex.normal.z, kinect_normal_normalized.x,
+               kinect_normal_normalized.y, kinect_normal_normalized.z);*/
+
+        float normals_alignment = glm::dot(warped_vertex.normal, kinect_normal_normalized);
+
+        // printf("\nnormals alignment: %.3f\n", normals_alignment);
+
+        if(normals_alignment < 0.7071f)
+        {
+            continue;
+        }
+
+#endif
+
         glm::fvec3 backprojected_position;
         if(!sample_prev_depth_projection(backprojected_position, layer, reference_vertex_projection.projection[layer], dev_res, measures))
         {
@@ -557,7 +588,7 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
 
         glm::vec3 diff = backprojected_position - reference_vertex.position;
 
-        if(glm::length(diff) > 0.03f || glm::length(diff) == 0.f)
+        if(glm::length(diff) > 0.005f || glm::length(diff) == 0.f)
         {
             continue;
         }
@@ -566,7 +597,7 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
 
         // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);
 
-        glm::vec2 new_projection = reference_vertex_projection.projection[layer] - glm::vec2(flow.x / ((float)measures.depth_res.x), flow.y / ((float)measures.depth_res.y));
+        glm::vec2 new_projection = reference_vertex_projection.projection[layer] - glm::vec2(flow.x / 2048.f, flow.y / 1696.f);
 
         glm::fvec3 flow_position;
         if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, measures))
@@ -575,6 +606,11 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
         }
 
         float residual_component = glm::length(flow_position - warped_vertex.position);
+
+        if(residual_component > 0.05f)
+        {
+            continue;
+        }
 
         // printf("\nresidual_component: %f\n", residual_component);
 

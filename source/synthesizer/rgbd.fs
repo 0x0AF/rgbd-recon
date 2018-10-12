@@ -12,7 +12,7 @@ layout(std140) uniform Material
 
 uniform sampler2D texUnit;
 uniform sampler2D clouds;
-uniform sampler2D clouds_earth;
+uniform sampler2D texture_poi;
 
 in vec3 Normal;
 in vec2 TexCoord;
@@ -51,8 +51,7 @@ void main()
 
     out_color = (color * intensity) + amb;*/
 
-    vec3 intensity_rgb = (n * 0.5 + 0.5) * (0.5 + texture(clouds_earth, TexCoord).r * 0.5 + texture(clouds, TexCoord).r * 0.);
-
+    vec3 intensity_rgb = texture(texture_poi, TexCoord).rgb;// (n * 0.5 + 0.5) * (0.5 + texture(clouds_earth, TexCoord).r * 0.5 + texture(clouds, TexCoord).r * 0.);
     out_color = vec4(intensity_rgb, 1.);
 
     // out_color = vec4(1.0f, 0.f, 0.f, 1.f);

@@ -417,8 +417,8 @@ __host__ void map_kinect_textures()
         memset(&opticflow_descr, 0, sizeof(opticflow_descr));
         opticflow_descr.resType = cudaResourceTypePitch2D;
         opticflow_descr.res.pitch2D.devPtr = _dev_res.optical_flow[i];
-        opticflow_descr.res.pitch2D.width = _host_res.measures.depth_res.x;
-        opticflow_descr.res.pitch2D.height = _host_res.measures.depth_res.y;
+        opticflow_descr.res.pitch2D.width = 2048;
+        opticflow_descr.res.pitch2D.height = 1696;
         opticflow_descr.res.pitch2D.pitchInBytes = _dev_res.pitch_optical_flow;
         opticflow_descr.res.pitch2D.desc = cudaCreateChannelDesc<float2>();
 
