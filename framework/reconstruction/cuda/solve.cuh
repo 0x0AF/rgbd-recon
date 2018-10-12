@@ -1651,7 +1651,7 @@ __global__ void kernel_calculate_alignment_statistics(float *mean_deviation, uns
         translation = glm::fvec3(0.f);
     }
 
-    glm::fvec3 step_translation = glm::fvec3(0.0714f, 0.f, 0.0714f);
+    glm::fvec3 step_translation = glm::fvec3(0.006696429f, 0.f, 0.006696429f);
 
     // printf("\nstep_translation: (%.2f,%.2f,%.2f)\n", step_translation.x, step_translation.y, step_translation.z);
 
@@ -2149,7 +2149,7 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
     float mad = 0.f;
     cudaMemcpy(&mad, &md[0], sizeof(float), cudaMemcpyDeviceToHost);
-    printf("\nMean deviation from expected deformation: %.3f%\n", 100.f * mad / (float)_host_res.active_ed_nodes_count / glm::length(glm::fvec3(0.0714f, 0.f, 0.0714f)));
+    printf("\nMean deviation from expected deformation: %.3f%\n", 100.f * mad / (float)_host_res.active_ed_nodes_count / glm::length(glm::fvec3(0.006696429f, 0.f, 0.006696429f)));
 
     checkCudaErrors(cudaFree(md));
 

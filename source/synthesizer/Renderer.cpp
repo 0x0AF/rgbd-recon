@@ -36,9 +36,9 @@ void Renderer::draw()
         float step = (float)frame / (float)_sequencer->length();
 
         set_identity_matrix(_model_matrix, 4);
-        translate(0.2f + translation.x, 0.8f + translation.y, -0.6f + translation.z);
+        translate(0.5f + translation.x, 0.6f + translation.y, -0.5f + translation.z);
         // rotate(45.f * step, 0.f, 1.f, 0.f);
-        scale(0.15f, 0.15f, 0.15f);
+        scale(0.2f, 0.4f, 0.2f);
     }
 
     /// Geometry pass

@@ -394,7 +394,7 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         // printf("\nnormals alignment: %.3f\n", normals_alignment);
 
-        if(normals_alignment < 0.f)
+        if(normals_alignment < 0.96639f)
         {
             continue;
         }

@@ -635,6 +635,11 @@ __global__ void kernel_fuse_reference(struct_host_resources host_res, struct_dev
     struct_ed_node ed_node = dev_res.ed_graph[ed_node_offset];
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[ed_node_offset];
 
+    if(ed_entry.misalignment_error >= host_res.configuration.rejection_threshold)
+    {
+        return;
+    }
+
     /// Retrieve voxel position
 
     unsigned int voxel_id = idx % measures.ed_cell_num_voxels;
@@ -711,7 +716,7 @@ __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct
 
     /// Refresh misaligned voxel
 
-    if(ed_entry.misalignment_error > host_res.configuration.rejection_threshold)
+    if(ed_entry.misalignment_error >= host_res.configuration.rejection_threshold)
     {
         unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
 
@@ -753,6 +758,9 @@ __global__ void kernel_calculate_warped_reference_metrics(bool calculate_stdev, 
     }
 
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+    if(ed_entry.misalignment_error >= host_res.configuration.rejection_threshold){
+        return;
+    }
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
@@ -868,16 +876,10 @@ __host__ void calculate_alignment_map_error(float *error)
 using namespace tinyply;
 extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
 
-extern "C" double write_ply(int frame_number)
+extern "C" double write_ply(int frame_number, IsoSurfaceVolume target)
 {
 
-#ifdef OUTPUT_PLY_SEQUENCE_DATA
-    compute_isosurface(IsoSurfaceVolume::Data);
-#endif
-
-#ifdef OUTPUT_PLY_SEQUENCE_FUSED
-    compute_isosurface(IsoSurfaceVolume::Fused);
-#endif
+    compute_isosurface(target);
 
     cudaDeviceSynchronize();
 
@@ -906,7 +908,13 @@ extern "C" double write_ply(int frame_number)
     }
 
     std::filebuf fb_ascii;
-    fb_ascii.open("Frame_" + std::to_string(frame_number) + ".ply", std::ios::out);
+
+    if(target == IsoSurfaceVolume::Data){
+        fb_ascii.open("Data_Frame_" + std::to_string(frame_number) + ".ply", std::ios::out);
+    }else if(target == IsoSurfaceVolume::Fused){
+        fb_ascii.open("Fused_Frame_" + std::to_string(frame_number) + ".ply", std::ios::out);
+    }
+
     std::ostream outstream_ascii(&fb_ascii);
     if(outstream_ascii.fail())
         return 0.;

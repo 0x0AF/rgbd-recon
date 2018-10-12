@@ -40,7 +40,7 @@ extern "C" double preprocess_textures();
 extern "C" double pcg_solve();
 extern "C" double fuse_data();
 
-extern "C" double write_ply(int frame_number);
+extern "C" double write_ply(int frame_number, IsoSurfaceVolume target);
 
 extern "C" double extract_data();
 
@@ -465,7 +465,7 @@ void ReconPerformanceCapture::drawComparison()
 #ifdef OUTPUT_PLY_SEQUENCE_DATA
     if(!_is_paused)
     {
-        write_ply((int)_frame_number.load());
+        write_ply((int)_frame_number.load(), IsoSurfaceVolume::Data);
     }
 #endif
 }
@@ -565,7 +565,7 @@ void ReconPerformanceCapture::draw()
 #endif
 
 #ifdef OUTPUT_PLY_SEQUENCE_FUSED
-        write_ply((int)_frame_number.load());
+        write_ply((int)_frame_number.load(), IsoSurfaceVolume::Fused);
 #endif
 
         _frame_number.store(_frame_number.load() + 1);
