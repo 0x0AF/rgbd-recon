@@ -409,7 +409,7 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
                 }
 
                 float1 mark = sample_ref_warped_marks_ptr(dev_res.tsdf_ref_warped_marks, vote_target, measures);
-                if(glm::abs(voxel.x - mark.x) > 0.0001f /* TODO: figure out threshold */)
+                if(glm::abs(voxel.x - mark.x) > 0.001f /* TODO: figure out threshold */)
                 {
                     __syncthreads();
                     continue;

@@ -43,10 +43,10 @@ Controller::Controller(std::string &filename_poi, std::string &filename_environm
     // printAiSceneInfo(_scene_poi);
 
     std::vector<std::string> calib_filenames(4, "");
-    calib_filenames[0] = "/home/fusion_4d/Desktop/data/synthetic_rgbd/50.yml";
-    calib_filenames[1] = "/home/fusion_4d/Desktop/data/synthetic_rgbd/51.yml";
-    calib_filenames[2] = "/home/fusion_4d/Desktop/data/synthetic_rgbd/56.yml";
-    calib_filenames[3] = "/home/fusion_4d/Desktop/data/synthetic_rgbd/57.yml";
+    calib_filenames[0] = "/home/xaf/Desktop/MSc/data/synthetic_rgbd/50.yml";
+    calib_filenames[1] = "/home/xaf/Desktop/MSc/data/synthetic_rgbd/51.yml";
+    calib_filenames[2] = "/home/xaf/Desktop/MSc/data/synthetic_rgbd/56.yml";
+    calib_filenames[3] = "/home/xaf/Desktop/MSc/data/synthetic_rgbd/57.yml";
 
     gloost::Point3 bbox_min{-0.1999f, 0.f, -1.f};
     gloost::Point3 bbox_max{1.2f, 1.4f, 0.4f};
@@ -80,7 +80,7 @@ Controller::Controller(std::string &filename_poi, std::string &filename_environm
     }*/
 
     _cv->setStartTextureUnit(12);
-    _cv->loadInverseCalibs("/home/fusion_4d/Desktop/data/synthetic_rgbd/");
+    _cv->loadInverseCalibs("/home/xaf/Desktop/MSc/data/synthetic_rgbd/");
     _cv->setStartTextureUnitInv(20);
 }
 const aiScene *Controller::get_environment() { return _scene_environment; }

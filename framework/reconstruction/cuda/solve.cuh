@@ -194,25 +194,25 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
         return;
     }
 
+    __shared__ int translations;
+
+    if(idx == 0)
+    {
+        translations = 0;
+    }
+
+    __syncthreads();
+
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
     glm::fvec3 average_translation{0.f, 0.f, 0.f};
-    int translations = 0;
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
     {
         unsigned int address = ed_entry.vx_offset + vx_idx;
         struct_vertex vx = dev_res.prev_frame_warped_sorted_vx_ptr[address];
-
         struct_projection vx_projection = dev_res.prev_frame_warped_sorted_vx_projections[address];
-        for(unsigned int i = 0; i < 4; i++)
-        {
-            float4 projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], vx.position);
-
-            vx_projection.projection[i].x = projection.x;
-            vx_projection.projection[i].y = projection.y;
-        }
 
         for(int layer = 0; layer < 4; layer++)
         {
@@ -224,6 +224,31 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
                 continue;
             }
 
+#ifdef NORMAL_THRESHOLDING
+
+            float4 kinect_normal = sample_normals(dev_res.normals_tex[layer], vx_projection.projection[layer]);
+
+            if(kinect_normal.x == 0.f)
+            {
+                continue;
+            }
+
+            glm::fvec3 kinect_normal_normalized = glm::normalize(glm::fvec3(kinect_normal.x, kinect_normal.y, kinect_normal.z));
+
+            /*printf("\nnormal: (%.2f,%.2f,%.2f), kinect normal: (%.2f,%.2f,%.2f)\n", warped_vertex.normal.x, warped_vertex.normal.y, warped_vertex.normal.z, kinect_normal_normalized.x,
+                   kinect_normal_normalized.y, kinect_normal_normalized.z);*/
+
+            float normals_alignment = glm::dot(vx.normal, kinect_normal_normalized);
+
+            // printf("\nnormals alignment: %.3f\n", normals_alignment);
+
+            if(normals_alignment < 0.7071f)
+            {
+                continue;
+            }
+
+#endif
+
             glm::fvec3 backprojected_position;
             if(!sample_prev_depth_projection(backprojected_position, layer, vx_projection.projection[layer], dev_res, measures))
             {
@@ -232,7 +257,7 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 
             glm::vec3 diff = backprojected_position - vx.position;
 
-            if(glm::length(diff) > 0.03f)
+            if(glm::length(diff) > 0.005f)
             {
                 continue;
             }
@@ -241,7 +266,7 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 
             // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);
 
-            glm::vec2 new_projection = vx_projection.projection[layer] - glm::vec2(flow.x / ((float)measures.depth_res.x), flow.y / ((float)measures.depth_res.y));
+            glm::vec2 new_projection = vx_projection.projection[layer] - glm::vec2(flow.x / 2048.f, flow.y / 1696.f);
 
             glm::fvec3 flow_position;
             if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, measures))
@@ -255,18 +280,26 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 
             if(is_nan)
             {
-#ifdef DEBUG_NANS
-                printf("\nNaN in optical flow guess evaluation\n");
-#endif
-                optical_flow_vector = glm::fvec3(0.f);
+                continue;
+            }
+
+            if(glm::length(optical_flow_vector) > 0.05f)
+            {
+                /*printf("\nof vector (%f,%f,%f), flow (%f,%f,%f), pos (%f,%f,%f)\n", optical_flow_vector.x, optical_flow_vector.y, optical_flow_vector.z, flow_position.x, flow_position.y,
+                       flow_position.z, vx.position.x, vx.position.y, vx.position.z);*/
+
+                continue;
             }
 
             average_translation += optical_flow_vector;
-            translations++;
+            atomicAdd(&translations, 1);
         }
     }
 
-    average_translation /= (float)translations;
+    /*if(glm::length(average_translation) > 0.05)
+    {
+        printf("\noffset %lu\n", ed_entry.vx_offset);
+    }*/
 
     bool is_nan = isnan(average_translation.x) || isnan(average_translation.y) || isnan(average_translation.z);
 
@@ -278,7 +311,31 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
         average_translation = glm::fvec3(0.f);
     }
 
-    memcpy(&dev_res.h[idx * ED_COMPONENT_COUNT], &average_translation, 3 * sizeof(float));
+    __shared__ float rigid_guess[4]; // 4 because of 8 byte alignment
+
+    if(idx == 0)
+    {
+        memset(rigid_guess, 0, 4 * sizeof(float));
+    }
+
+    __syncthreads();
+
+    atomicAdd(&rigid_guess[0], average_translation.x);
+    atomicAdd(&rigid_guess[1], average_translation.y);
+    atomicAdd(&rigid_guess[2], average_translation.z);
+
+    __syncthreads();
+
+    if(idx == 0)
+    {
+        rigid_guess[0] /= (float)translations;
+        rigid_guess[1] /= (float)translations;
+        rigid_guess[2] /= (float)translations;
+    }
+
+    __syncthreads();
+
+    memcpy(&dev_res.h[idx * ED_COMPONENT_COUNT], &rigid_guess, 4 * sizeof(float));
 }
 
 __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
@@ -502,7 +559,7 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
                 if(glm::length(diff) > 0.03f)
                 {
-                    vx_error = 1.f;
+                    vx_error = 0.03f;
                 }
                 else
                 {
@@ -1759,7 +1816,8 @@ __host__ void evaluate_alignment_error()
 
         for(int vx = 0; vx < _host_res.active_ed_vx_count; vx++)
         {
-            if(vx_projections[vx].projection[i].x < 0.f || vx_projections[vx].projection[i].y < 0.f){
+            if(vx_projections[vx].projection[i].x < 0.f || vx_projections[vx].projection[i].y < 0.f)
+            {
                 continue;
             }
 
@@ -1788,7 +1846,7 @@ __host__ void evaluate_alignment_error()
 
 #else
 
-	/// Evaluate the map
+        /// Evaluate the map
 
         memset(_host_res.vx_error_map, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float));
 
@@ -1804,24 +1862,30 @@ __host__ void evaluate_alignment_error()
         {
             glm::ivec2 proj(vx_projections[vx].projection[i].x * _host_res.measures.depth_res.x, vx_projections[vx].projection[i].y * _host_res.measures.depth_res.y);
 
-            if(proj.x < 0 || proj.y < 0){
+            if(proj.x < 0 || proj.y < 0)
+            {
                 continue;
             }
 
             float res = _host_res.vx_error_values[vx];
             float curr_value = _host_res.vx_error_map[proj.x + proj.y * _host_res.measures.depth_res.x];
             bool is_valid_silhouette = (_host_res.silhouette[proj.x + proj.y * _host_res.measures.depth_res.x] == 1.f);
-	    if(!is_valid_silhouette){
-	        continue;
-	    }
-
-            if(res == 0.f){
+            if(!is_valid_silhouette)
+            {
                 continue;
             }
 
-            if(curr_value == 1.f){
+            if(res == 0.f)
+            {
+                continue;
+            }
+
+            if(curr_value == 1.f)
+            {
                 _host_res.vx_error_map[proj.x + proj.y * _host_res.measures.depth_res.x] = res;
-            }else{
+            }
+            else
+            {
                 _host_res.vx_error_map[proj.x + proj.y * _host_res.measures.depth_res.x] = res / 2.f + curr_value / 2.f;
             }
         }
@@ -1866,6 +1930,218 @@ __host__ void calculate_opticflow_guess()
     kernel_calculate_opticflow_guess<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
     getLastCudaError("render kernel failed");
     cudaDeviceSynchronize();
+}
+
+#endif
+
+#ifdef OUTPUT_PLY_FLOW_CLOUD
+
+__global__ void kernel_flow_cloud(bool original, bool interpolate, unsigned int layer, glm::fvec4 *points, struct_host_resources host_res, struct_device_resources dev_res)
+{
+    const int ix = IMAD(blockDim.x, blockIdx.x, threadIdx.x);
+    const int iy = IMAD(blockDim.y, blockIdx.y, threadIdx.y);
+
+    if(ix >= host_res.measures.depth_res.x || iy >= host_res.measures.depth_res.y)
+    {
+        return;
+    }
+
+    if(iy < 0 || ix < 0)
+    {
+        return;
+    }
+
+    const int offset = ix + iy * host_res.measures.depth_res.x;
+
+    glm::vec2 projection = glm::vec2(ix / 512.f, iy / 424.f);
+
+    // printf("\nprojection: (%f,%f)\n", projection.x, projection.y);
+
+    if(original)
+    {
+        glm::fvec3 original_position;
+        if(!sample_prev_depth_projection(original_position, layer, projection, dev_res, host_res.measures))
+        {
+            return;
+        }
+
+        // printf("\noriginal position: (%f,%f,%f)\n", original_position.x, original_position.y, original_position.z);
+
+        if(!interpolate)
+        {
+            memcpy(&points[offset], &original_position, 4 * sizeof(float));
+        }
+        else
+        {
+            float2 flow = sample_opticflow(dev_res.optical_flow_tex[layer], projection);
+
+            // printf("\n(x,y): (%f,%f)\n", flow.x, flow.y);
+
+            glm::vec2 new_projection = projection - glm::vec2(flow.x / 2048.f, flow.y / 1696.f);
+
+            // printf("\nprojections: old(%f,%f), new(%f,%f)\n", projection.x, projection.y, new_projection.x, new_projection.y);
+
+            glm::fvec3 flow_position;
+            if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, host_res.measures))
+            {
+                return;
+            }
+
+            // printf("\n(x,y): (%f,%f) -> (%f,%f,%f)\n", flow.x, flow.y, flow_position.x, flow_position.y, flow_position.z);
+
+            memcpy(&points[offset], &flow_position, 4 * sizeof(float));
+        }
+    }
+    else
+    {
+        glm::fvec3 new_position;
+        if(!sample_depth_projection(new_position, layer, projection, dev_res, host_res.measures))
+        {
+            return;
+        }
+
+        memcpy(&points[offset], &new_position, 4 * sizeof(float));
+    }
+}
+
+#include "tinyply.h"
+using namespace tinyply;
+
+extern "C" void write_ply_clouds()
+{
+    dim3 threads(8, 8);
+    dim3 blocks(iDivUp(_host_res.measures.depth_res.x, threads.x), iDivUp(_host_res.measures.depth_res.y, threads.y));
+
+    glm::fvec4 *points = nullptr;
+    cudaMalloc(&points, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4);
+
+    glm::fvec4 *host_points = (glm::fvec4 *)malloc(_host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4);
+
+    std::vector<glm::fvec3> nonzero_points;
+    std::vector<uint8_t> nonzero_colors;
+
+    for(unsigned int layer = 0; layer < 4; layer++)
+    {
+        nonzero_points.clear();
+        nonzero_colors.clear();
+
+        cudaMemset(points, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4);
+
+        kernel_flow_cloud<<<blocks, threads>>>(true, false, layer, points, _host_res, _dev_res);
+        getLastCudaError("kernel_flow_cloud execution failed\n");
+
+        cudaDeviceSynchronize();
+
+        cudaMemcpy(&host_points[0], &points[0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4, cudaMemcpyDeviceToHost);
+
+        for(int i = 0; i < _host_res.measures.depth_res.x * _host_res.measures.depth_res.y; i++)
+        {
+            if(host_points[i].x != 0.f)
+            {
+                nonzero_points.emplace_back(glm::fvec3(host_points[i].x, host_points[i].y, host_points[i].z));
+                // printf("\npoint %i: (%f,%f,%f)\n", i, );
+                int x = i % _host_res.measures.depth_res.x;
+                int y = (i / _host_res.measures.depth_res.x) % _host_res.measures.depth_res.y;
+
+                nonzero_colors.emplace_back(255 * (y % 128 > 64 ? 128 - y : y) / 64.f);
+                nonzero_colors.emplace_back(layer * 64);
+                nonzero_colors.emplace_back(layer * 64);
+            }
+        }
+
+        std::filebuf fb_or;
+        fb_or.open("original_cloud_layer_" + std::to_string(layer) + ".ply", std::ios::out);
+        std::ostream outstream_or(&fb_or);
+        if(outstream_or.fail())
+            return;
+
+        PlyFile or_file;
+        or_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, nonzero_points.size(), reinterpret_cast<uint8_t *>(&nonzero_points[0]), Type::INVALID, 0);
+        or_file.add_properties_to_element("vertex", {"red", "green", "blue"}, Type::UINT8, nonzero_points.size(), reinterpret_cast<uint8_t *>(&nonzero_colors[0]), Type::INVALID, 0);
+        or_file.write(outstream_or, false);
+
+        nonzero_points.clear();
+        nonzero_colors.clear();
+
+        cudaMemset(points, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4);
+
+        kernel_flow_cloud<<<blocks, threads>>>(false, false, layer, points, _host_res, _dev_res);
+        getLastCudaError("kernel_flow_cloud execution failed\n");
+
+        cudaDeviceSynchronize();
+
+        cudaMemcpy(&host_points[0], &points[0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4, cudaMemcpyDeviceToHost);
+
+        for(int i = 0; i < _host_res.measures.depth_res.x * _host_res.measures.depth_res.y; i++)
+        {
+            if(host_points[i].x != 0.f)
+            {
+                nonzero_points.emplace_back(glm::fvec3(host_points[i].x, host_points[i].y, host_points[i].z));
+                // printf("\npoint %i: (%f,%f,%f)\n", i, );
+                int x = i % _host_res.measures.depth_res.x;
+                int y = (i / _host_res.measures.depth_res.x) % _host_res.measures.depth_res.y;
+
+                nonzero_colors.emplace_back(255 * (y % 128 > 64 ? 128 - y : y) / 64.f);
+                nonzero_colors.emplace_back(layer * 64);
+                nonzero_colors.emplace_back(layer * 64);
+            }
+        }
+
+        std::filebuf fb_nw;
+        fb_nw.open("new_cloud_layer_" + std::to_string(layer) + ".ply", std::ios::out);
+        std::ostream outstream_nw(&fb_nw);
+        if(outstream_nw.fail())
+            return;
+
+        PlyFile nw_file;
+        nw_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, nonzero_points.size(), reinterpret_cast<uint8_t *>(&nonzero_points[0]), Type::INVALID, 0);
+        nw_file.add_properties_to_element("vertex", {"red", "green", "blue"}, Type::UINT8, nonzero_points.size(), reinterpret_cast<uint8_t *>(&nonzero_colors[0]), Type::INVALID, 0);
+        nw_file.write(outstream_nw, false);
+
+        nonzero_points.clear();
+        nonzero_colors.clear();
+
+        cudaMemset(points, 0, _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4);
+
+        kernel_flow_cloud<<<blocks, threads>>>(true, true, layer, points, _host_res, _dev_res);
+        getLastCudaError("kernel_flow_cloud execution failed\n");
+
+        cudaDeviceSynchronize();
+
+        cudaMemcpy(&host_points[0], &points[0], _host_res.measures.depth_res.x * _host_res.measures.depth_res.y * sizeof(float) * 4, cudaMemcpyDeviceToHost);
+
+        for(int i = 0; i < _host_res.measures.depth_res.x * _host_res.measures.depth_res.y; i++)
+        {
+            // printf("\npoint %i: (%f,%f,%f)\n", i, host_points[i].x, host_points[i].y, host_points[i].z);
+
+            if(host_points[i].x != 0.f)
+            {
+                nonzero_points.emplace_back(glm::fvec3(host_points[i].x, host_points[i].y, host_points[i].z));
+                // printf("\npoint %i: (%f,%f,%f)\n", i, host_points[i].x, host_points[i].y, host_points[i].z);
+
+                int x = i % _host_res.measures.depth_res.x;
+                int y = (i / _host_res.measures.depth_res.x) % _host_res.measures.depth_res.y;
+
+                nonzero_colors.emplace_back(255 * (y % 128 > 64 ? 128 - y : y) / 64.f);
+                nonzero_colors.emplace_back(layer * 64);
+                nonzero_colors.emplace_back(layer * 64);
+            }
+        }
+
+        std::filebuf fb_of;
+        fb_of.open("of_cloud_layer_" + std::to_string(layer) + ".ply", std::ios::out);
+        std::ostream outstream_of(&fb_of);
+        if(outstream_of.fail())
+            return;
+
+        PlyFile of_file;
+        of_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, nonzero_points.size(), reinterpret_cast<uint8_t *>(&nonzero_points[0]), Type::INVALID, 0);
+        of_file.add_properties_to_element("vertex", {"red", "green", "blue"}, Type::UINT8, nonzero_points.size(), reinterpret_cast<uint8_t *>(&nonzero_colors[0]), Type::INVALID, 0);
+        of_file.write(outstream_of, false);
+    }
+
+    free(host_points);
+    cudaFree(points);
 }
 
 #endif
@@ -1944,6 +2220,12 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
     apply_prev_frame_warp();
     project_prev_frame_warped_vertices();
+
+#ifdef OUTPUT_PLY_FLOW_CLOUD
+
+    write_ply_clouds();
+
+#endif
 
 #ifdef INITIAL_GUESS_OPTICFLOW
 

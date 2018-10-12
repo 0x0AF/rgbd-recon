@@ -128,18 +128,19 @@ int main(int, char *[])
               << "OpenGL Vendor:   " << ContextInfo::vendor() << std::endl
               << "OpenGL Renderer: " << ContextInfo::renderer() << std::endl;
 
-    // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/model-triangulated.obj");
-    // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/breakers.obj");
-    // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/lion-simple.obj");
-    // std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/cube.obj");
-    std::string filename_poi("/home/fusion_4d/Desktop/data/synthetic_dataset/sphere.obj");
-    // std::string filename_environment("/home/fusion_4d/Desktop/data/synthetic_dataset/emptyworldground.dae");
-    std::string filename_environment("/home/fusion_4d/Desktop/data/synthetic_dataset/environment.dae");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/model-triangulated.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/breakers.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/lion-simple.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/cube.obj");
+    // std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/sphere.obj");
+    std::string filename_poi("/home/xaf/Desktop/MSc/data/synthetic_dataset/uv_unwrapped_egg.obj");
+    // std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/emptyworldground.dae");
+    std::string filename_environment("/home/xaf/Desktop/MSc/data/synthetic_dataset/environment.dae");
 
     Controller controller(filename_poi, filename_environment);
-    FrameSequencer sequencer(FrameSequencer::Type::FULL_SEQUENCE_REPEAT, 0, 10);
+    FrameSequencer sequencer(FrameSequencer::Type::INCREASING_STEP, 0, 1);
     Choreographer choreographer(&sequencer);
-    choreographer.set_translation({0.3, 0., 0.3});
+    choreographer.set_translation({0.035355f, 0., 0.035355f});
     // choreographer.set_rotation(glm::radians(90.), {0., 1., 0.});
     Renderer renderer(&controller, &choreographer, &sequencer);
 
