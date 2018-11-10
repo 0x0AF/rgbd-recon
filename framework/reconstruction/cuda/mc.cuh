@@ -165,3 +165,13 @@ extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target)
 
     return _host_res.total_verts;
 }
+
+extern "C" unsigned long int compute_isosurface_timed(IsoSurfaceVolume target)
+{
+    TimerGPU timer(0);
+
+    compute_isosurface(target);
+
+    checkCudaErrors(cudaThreadSynchronize());
+    return timer.read();
+}

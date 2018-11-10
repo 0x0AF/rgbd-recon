@@ -103,8 +103,11 @@ CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 pos, struct_measures &measures) {
 
 CUDA_HOST_DEVICE glm::uvec3 norm_2_cv_xyz(glm::fvec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::fvec3(measures.cv_xyz_res)); }
 CUDA_HOST_DEVICE glm::uvec3 norm_2_cv_xyz_inv(glm::fvec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::fvec3(measures.cv_xyz_inv_res)); }
-CUDA_HOST_DEVICE glm::uvec3 norm_2_data(glm::fvec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::fvec3(measures.data_volume_res)); }
-CUDA_HOST_DEVICE glm::fvec3 data_2_norm(glm::uvec3 pos, struct_measures &measures) { return glm::fvec3(pos) / glm::fvec3(measures.data_volume_res); }
+CUDA_HOST_DEVICE glm::uvec3 norm_2_data(glm::fvec3 pos_center, struct_measures &measures) { return glm::uvec3(pos_center * glm::fvec3(measures.data_volume_res) - glm::fvec3(0.5f)); }
+CUDA_HOST_DEVICE glm::fvec3 data_2_norm(glm::uvec3 pos, struct_measures &measures) {
+    glm::fvec3 pos_center = glm::fvec3(pos) + glm::fvec3(0.5f);
+    return pos_center / glm::fvec3(measures.data_volume_res);
+}
 
 CUDA_HOST_DEVICE uchar tsdf_2_8bit(float tsdf) { return (uchar)(255.f * (tsdf / 0.06f + 0.5f)); }
 
@@ -353,7 +356,7 @@ __device__ bool sample_depth_projection(glm::fvec3 &depth_projection, int layer,
     return true;
 }
 
-__device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_projection &projection, struct_device_resources &dev_res, struct_measures &measures)
+__device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_projection &projection, struct_device_resources &dev_res, struct_host_resources &host_res)
 {
     float residual = 0.f;
 
@@ -397,7 +400,7 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
         // printf("\nnormals alignment: %.3f\n", normals_alignment);
 
 
-        if(normals_alignment < 0.7071f)
+        if(normals_alignment < host_res.configuration.tsdf_normal_limit)
         {
             continue;
         }
@@ -405,7 +408,7 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 #endif
 
         glm::fvec3 extracted_position;
-        if(!sample_depth_projection(extracted_position, i, projection.projection[i], dev_res, measures))
+        if(!sample_depth_projection(extracted_position, i, projection.projection[i], dev_res, host_res.measures))
         {
             continue;
         }
@@ -414,7 +417,7 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         // printf("\ndiff: %f\n", glm::length(diff));
 
-        if(glm::length(diff) > 0.03f || glm::length(diff) == 0.f)
+        if(glm::length(diff) > host_res.configuration.tsdf_depth_limit || glm::length(diff) == 0.f)
         {
             continue;
         }
@@ -541,7 +544,7 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
 }
 
 __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_vertex &reference_vertex, struct_projection &reference_vertex_projection, struct_device_resources &dev_res,
-                                      struct_measures &measures)
+                                      struct_host_resources &host_res)
 {
     float residual = 0.f;
 
@@ -573,7 +576,7 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
 
         // printf("\nnormals alignment: %.3f\n", normals_alignment);
 
-        if(normals_alignment < 0.7071f)
+        if(normals_alignment < host_res.configuration.tsdf_normal_limit)
         {
             continue;
         }
@@ -581,14 +584,14 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
 #endif
 
         glm::fvec3 backprojected_position;
-        if(!sample_prev_depth_projection(backprojected_position, layer, reference_vertex_projection.projection[layer], dev_res, measures))
+        if(!sample_prev_depth_projection(backprojected_position, layer, reference_vertex_projection.projection[layer], dev_res, host_res.measures))
         {
             continue;
         }
 
         glm::vec3 diff = backprojected_position - reference_vertex.position;
 
-        if(glm::length(diff) > 0.005f || glm::length(diff) == 0.f)
+        if(glm::length(diff) > host_res.configuration.tsdf_depth_limit || glm::length(diff) == 0.f)
         {
             continue;
         }
@@ -600,14 +603,14 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
         glm::vec2 new_projection = reference_vertex_projection.projection[layer] - glm::vec2(flow.x / 2048.f, flow.y / 1696.f);
 
         glm::fvec3 flow_position;
-        if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, measures))
+        if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, host_res.measures))
         {
             continue;
         }
 
         float residual_component = glm::length(flow_position - warped_vertex.position);
 
-        if(residual_component > 0.05f)
+        if(residual_component > host_res.configuration.of_proj_max_length)
         {
             continue;
         }

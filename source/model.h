@@ -76,7 +76,7 @@ class model
         std::string _record_name = "";
         std::vector<std::pair<int, int>> _gui_texture_settings{};
 
-        float _clear_color[4] = {0.3, 0.0, 0.0, 0.3};
+        float _clear_color[4] = {1., 1., 1., 1.};
         bool _splitscreen_comparison = false;
         unsigned _stereo_mode = 0;
         float _screenWidthReal = 1.28;
@@ -109,7 +109,7 @@ class model
         bool _draw_bricks = false;
         bool _watch_errors = true;
         int _num_kinect = 1;
-        float _voxel_size = 0.00546875f; // 256: 0.00546875f; // 128: 0.0109375f; // 64: 0.021875f
+        float _voxel_size = 0.021875f; // 256: 0.00546875f; // 128: 0.0109375f; // 64: 0.021875f
         float _ed_cell_size = _voxel_size * 3;
         float _brick_size = _voxel_size * 9;
         float _tsdf_limit = 0.03f;

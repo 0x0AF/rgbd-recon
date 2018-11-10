@@ -38,7 +38,9 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
 
         float dist = glm::length(neighbor_node_meta.position - ed_entry.position);
 
-        if(dist > 2.f * host_res.measures.size_ed_cell)
+        float ed_cell_in_norm = (float)host_res.measures.ed_cell_dim_voxels / (float)host_res.measures.data_volume_res.x;
+
+        if(dist > host_res.configuration.neighborhood_multiplier_reg * ed_cell_in_norm)
         {
             continue;
         }
@@ -185,27 +187,19 @@ __device__ float evaluate_ed_partial_derivative(int component, struct_ed_node &e
     return pd;
 }
 
-__global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
+__global__ void kernel_calculate_opticflow_guess(struct_device_resources dev_res, struct_host_resources host_res)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if(idx >= active_ed_nodes_count)
+    if(idx >= host_res.active_ed_nodes_count)
     {
         return;
     }
 
-    __shared__ unsigned long long int translations;
-
-    if(threadIdx.x == 0)
-    {
-        translations = 0;
-    }
-
-    __syncthreads();
-
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
-    glm::dvec3 average_translation{0.f, 0.f, 0.f};
+    float translations = 0.f;
+    glm::fvec3 average_translation{0.f, 0.f, 0.f};
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
@@ -230,6 +224,7 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 
             if(kinect_normal.x == 0.f)
             {
+                printf("\nNormal is null\n");
                 continue;
             }
 
@@ -242,7 +237,7 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 
             // printf("\nnormals alignment: %.3f\n", normals_alignment);
 
-            if(normals_alignment < 0.7071f)
+            if(normals_alignment < host_res.configuration.tsdf_normal_limit)
             {
                 continue;
             }
@@ -250,14 +245,14 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 #endif
 
             glm::fvec3 backprojected_position;
-            if(!sample_prev_depth_projection(backprojected_position, layer, vx_projection.projection[layer], dev_res, measures))
+            if(!sample_prev_depth_projection(backprojected_position, layer, vx_projection.projection[layer], dev_res, host_res.measures))
             {
                 continue;
             }
 
             glm::vec3 diff = backprojected_position - vx.position;
 
-            if(glm::length(diff) > 0.005f)
+            if(glm::length(diff) > host_res.configuration.tsdf_depth_limit)
             {
                 continue;
             }
@@ -269,7 +264,7 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
             glm::vec2 new_projection = vx_projection.projection[layer] - glm::vec2(flow.x / 2048.f, flow.y / 1696.f);
 
             glm::fvec3 flow_position;
-            if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, measures))
+            if(!sample_depth_projection(flow_position, layer, new_projection, dev_res, host_res.measures))
             {
                 continue;
             }
@@ -280,10 +275,13 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
 
             if(is_nan)
             {
+#ifdef DEBUG_NANS
+                printf("\nNaN in optical flow guess evaluation\n");
+#endif
                 continue;
             }
 
-            if(glm::length(optical_flow_vector) > 0.05f)
+            if(glm::length(optical_flow_vector) > host_res.configuration.of_proj_max_length)
             {
                 /*printf("\nof vector (%f,%f,%f), flow (%f,%f,%f), pos (%f,%f,%f)\n", optical_flow_vector.x, optical_flow_vector.y, optical_flow_vector.z, flow_position.x, flow_position.y,
                        flow_position.z, vx.position.x, vx.position.y, vx.position.z);*/
@@ -292,7 +290,7 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
             }
 
             average_translation += optical_flow_vector;
-            atomicAdd(&translations, (unsigned long long int)1);
+            translations += 1.f;
         }
     }
 
@@ -301,49 +299,99 @@ __global__ void kernel_calculate_opticflow_guess(unsigned int active_ed_nodes_co
         printf("\noffset %lu\n", ed_entry.vx_offset);
     }*/
 
-    bool is_nan = isnan(average_translation.x) || isnan(average_translation.y) || isnan(average_translation.z);
+    if(translations > 0.f){
+        average_translation /= translations;
+
+        bool is_nan = isnan(average_translation.x) || isnan(average_translation.y) || isnan(average_translation.z);
+
+        if(is_nan)
+        {
+#ifdef DEBUG_NANS
+            printf("\nNaN in optical flow guess evaluation\n");
+#endif
+        } else {
+            float semi_rigid_guess[4]; // 4 because of 8 byte alignment
+
+            semi_rigid_guess[0] = average_translation.x;
+            semi_rigid_guess[1] = average_translation.y;
+            semi_rigid_guess[2] = average_translation.z;
+            semi_rigid_guess[3] = translations;
+
+            memcpy(&dev_res.h[idx * ED_COMPONENT_COUNT], &semi_rigid_guess[0], 4 * sizeof(float));
+        }
+    }
+}
+
+__global__ void kernel_propagate_opticflow_guess(struct_device_resources dev_res, struct_host_resources host_res)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if(idx >= host_res.active_ed_nodes_count)
+    {
+        return;
+    }
+
+    struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
+
+    /// Sync, search neighbors, calculate weighted average
+
+    float semi_rigid_guess[4]; // 4 because of 8 byte alignment
+    memcpy(&semi_rigid_guess[0], &dev_res.h[idx * ED_COMPONENT_COUNT], 4 * sizeof(float));
+
+    glm::fvec3 average_neighborhood_translation{semi_rigid_guess[0], semi_rigid_guess[1], semi_rigid_guess[2]};
+    float neighborhood_translations = semi_rigid_guess[3];
+
+#pragma unroll
+    for(unsigned int i = 0; i < host_res.active_ed_nodes_count; i++)
+    {
+        if(i == idx){
+            continue;
+        }
+
+        struct_ed_meta_entry neighbor_node_meta = dev_res.ed_graph_meta[i];
+
+        float dist = glm::length(neighbor_node_meta.position - ed_entry.position);
+
+        float ed_cell_in_norm = (float)host_res.measures.ed_cell_dim_voxels / (float)host_res.measures.data_volume_res.x;
+
+        if(dist > host_res.configuration.neighborhood_multiplier_ig * ed_cell_in_norm)
+        {
+            continue;
+        }
+
+        float neighbor_guess[4];
+        memcpy(&neighbor_guess[0], &dev_res.h[i * ED_COMPONENT_COUNT], 4 * sizeof(float));
+
+        if(neighbor_guess[3] < 1.f || isnan(neighbor_guess[0]) || isnan(neighbor_guess[1]) || isnan(neighbor_guess[2]) || isnan(neighbor_guess[3]))
+        {
+            continue;
+        }
+
+        average_neighborhood_translation.x = average_neighborhood_translation.x * neighborhood_translations + neighbor_guess[0] * neighbor_guess[3];
+        average_neighborhood_translation.y = average_neighborhood_translation.y * neighborhood_translations + neighbor_guess[1] * neighbor_guess[3];
+        average_neighborhood_translation.z = average_neighborhood_translation.z * neighborhood_translations + neighbor_guess[2] * neighbor_guess[3];
+
+        neighborhood_translations = neighborhood_translations + neighbor_guess[3];
+        average_neighborhood_translation /= neighborhood_translations;
+    }
+
+    // printf("\nOF guess: (%.3f,%.3f,%.3f)\n", average_neighborhood_translation.x, average_neighborhood_translation.y, average_neighborhood_translation.z);
+
+    bool is_nan = isnan(average_neighborhood_translation.x) || isnan(average_neighborhood_translation.y) || isnan(average_neighborhood_translation.z);
 
     if(is_nan)
     {
 #ifdef DEBUG_NANS
         printf("\nNaN in optical flow guess evaluation\n");
 #endif
-        average_translation = glm::dvec3(0.f);
+    } else {
+        semi_rigid_guess[0] = average_neighborhood_translation.x;
+        semi_rigid_guess[1] = average_neighborhood_translation.y;
+        semi_rigid_guess[2] = average_neighborhood_translation.z;
+        semi_rigid_guess[3] = 0.f;
+
+        memcpy(&dev_res.ed_graph[idx], &semi_rigid_guess[0], 4 * sizeof(float));
     }
-
-    __shared__ float rigid_guess[4]; // 4 because of 8 byte alignment
-
-    if(threadIdx.x == 0)
-    {
-        memset(rigid_guess, 0, 4 * sizeof(float));
-    }
-
-    __syncthreads();
-
-    atomicAdd(&rigid_guess[0], average_translation.x);
-    atomicAdd(&rigid_guess[1], average_translation.y);
-    atomicAdd(&rigid_guess[2], average_translation.z);
-
-    __syncthreads();
-
-    if(threadIdx.x == 0)
-    {
-        rigid_guess[0] /= (double)translations;
-        rigid_guess[1] /= (double)translations;
-        rigid_guess[2] /= (double)translations;
-    }
-
-    __syncthreads();
-
-    memcpy(&dev_res.h[idx * ED_COMPONENT_COUNT], &rigid_guess, 4 * sizeof(float));
-
-    /*float s_rigid_guess[4];
-    s_rigid_guess[0] = (float)rigid_guess[0];
-    s_rigid_guess[1] = (float)rigid_guess[1];
-    s_rigid_guess[2] = (float)rigid_guess[2];
-    s_rigid_guess[3] = (float)rigid_guess[3];
-
-    memcpy(&dev_res.h[idx * ED_COMPONENT_COUNT], &s_rigid_guess, 4 * sizeof(float));*/
 }
 
 __global__ void kernel_project(unsigned int active_ed_nodes_count, struct_device_resources dev_res, struct_measures measures)
@@ -657,9 +705,9 @@ __global__ void kernel_reject_misaligned_deformations(int *misaligned_vx_count, 
         }
 
         energy += vx_misalignment;
-        data_term += evaluate_data_residual(vx, vx_proj, dev_res, host_res.measures);
+        data_term += evaluate_data_residual(vx, vx_proj, dev_res, host_res);
         hull_term += hull_misalignment;
-        correspondence_term += evaluate_cf_residual(vx, dev_res.prev_frame_warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx], vx_proj, dev_res, host_res.measures);
+        correspondence_term += evaluate_cf_residual(vx, dev_res.prev_frame_warped_sorted_vx_ptr[ed_entry.vx_offset + vx_idx], vx_proj, dev_res, host_res);
     }
 
     energy /= (float)ed_entry.vx_length;
@@ -690,7 +738,7 @@ __device__ float evaluate_vx_residual(struct_vertex &prev_warped_vx, struct_proj
     float vx_residual = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_residual += host_res.configuration.weight_data * evaluate_data_residual(prev_warped_vx, prev_warped_vx_proj, dev_res, host_res.measures);
+    vx_residual += host_res.configuration.weight_data * evaluate_data_residual(prev_warped_vx, prev_warped_vx_proj, dev_res, host_res);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -698,7 +746,7 @@ __device__ float evaluate_vx_residual(struct_vertex &prev_warped_vx, struct_proj
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(prev_warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
+    vx_residual += host_res.configuration.weight_correspondence * evaluate_cf_residual(prev_warped_vx, ref_vx, ref_vx_proj, dev_res, host_res);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -858,7 +906,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_pos = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -866,7 +914,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
+    vx_res_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -894,7 +942,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_pos_pos = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_pos_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_pos_pos += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -902,7 +950,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_pos_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
+    vx_res_pos_pos += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -930,7 +978,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_neg = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -938,7 +986,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
+    vx_res_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -966,7 +1014,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
     float vx_res_neg_neg = 0.f;
 
 #ifdef EVALUATE_DATA
-    vx_res_neg_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res.measures);
+    vx_res_neg_neg += host_res.configuration.weight_data * evaluate_data_residual(warped_vx, prev_warped_vx_proj /* per-step approximation */, dev_res, host_res);
 #endif
 
 #ifdef EVALUATE_VISUAL_HULL
@@ -974,7 +1022,7 @@ __device__ float evaluate_vx_partial_derivative(int component, struct_ed_node &e
 #endif
 
 #ifdef EVALUATE_CORRESPONDENCE_FIELD
-    vx_res_neg_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res.measures);
+    vx_res_neg_neg += host_res.configuration.weight_correspondence * evaluate_cf_residual(warped_vx, ref_vx, ref_vx_proj, dev_res, host_res);
 #endif
 
     // printf("\nvx_residual: %f\n", vx_residual);
@@ -1233,7 +1281,12 @@ __global__ void kernel_jtj_jtf(struct_device_resources dev_res, struct_host_reso
 
 #endif
 
-    memcpy(&dev_res.jtf[idx], &shared_jtf_block[component], sizeof(float));
+    if(component % 2 ==0) {
+        memcpy(&dev_res.jtf[idx], &shared_jtf_block[component], 2 * sizeof(float));
+    }
+
+    __syncthreads();
+
     memcpy(&dev_res.jtj_vals[idx * ED_COMPONENT_COUNT], &shared_jtj_coo_val_block[component * ED_COMPONENT_COUNT], sizeof(float) * ED_COMPONENT_COUNT);
 }
 
@@ -1933,10 +1986,15 @@ __host__ void calculate_opticflow_guess()
 {
     int block_size;
     int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_warp, 0, 0);
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_calculate_opticflow_guess, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
-    kernel_calculate_opticflow_guess<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res.measures);
-    getLastCudaError("render kernel failed");
+
+    kernel_calculate_opticflow_guess<<<grid_size, block_size>>>(_dev_res, _host_res);
+    getLastCudaError("kernel_calculate_opticflow_guess failed");
+    cudaDeviceSynchronize();
+
+    kernel_propagate_opticflow_guess<<<grid_size, block_size>>>(_dev_res, _host_res);
+    getLastCudaError("kernel_propagate_opticflow_guess failed");
     cudaDeviceSynchronize();
 }
 
@@ -2239,18 +2297,13 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
 
     /// Clean step h
     clean_pcg_resources();
+    cudaDeviceSynchronize();
 
-    /// Fill step h with initial guess from optical flow
+    /// Fill ED graph with initial guess from optical flow
     calculate_opticflow_guess();
 
     /// Calculate initial energy after guess
-    evaluate_step_misalignment_energy(initial_misalignment_energy);
-
-    /// Update ED graph
-    int N = (int)_host_res.active_ed_nodes_count * ED_COMPONENT_COUNT;
-    float one = 1.f;
-    cublasSaxpy(cublas_handle, N, &one, (float *)_dev_res.h, 1, (float *)&_dev_res.ed_graph[0], 1);
-    cudaDeviceSynchronize();
+    evaluate_misalignment_energy(initial_misalignment_energy);
 
     /// Apply deformations
     apply_warp();

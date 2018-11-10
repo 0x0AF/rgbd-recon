@@ -17,9 +17,9 @@
     This file is part of the gloost framework. You can use it in parts or as
        whole under the terms of the GPL (http://www.gnu.org/licenses/#GPL).
 
-            gloost is being created by Felix Weißig and Stephan Beck
+            gloost is being created by Felix Weiï¿½ig and Stephan Beck
 
-     Felix Weißig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
+     Felix Weiï¿½ig (thesleeper@gmx.net), Stephan Beck (stephan@pixelstars.de)
 */
 
 
@@ -301,7 +301,7 @@ BoundingBox::draw()
   glPushAttrib(GL_ALL_ATTRIB_BITS);
   {
     glEnable(GL_COLOR_MATERIAL);
-    glColor4f(1.0, 1.0, 1.0, 0.75);
+    glColor4f(0.0, 0.0, 0.0, 0.75);
     // glColor4f(1.0, 1.0, 1.0, 0.75);
     // glColor4f(1.0, 0.3, 0.3, 0.75);
 

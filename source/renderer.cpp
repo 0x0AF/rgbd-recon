@@ -136,79 +136,131 @@ void renderer::update_gui()
     }
     if(ImGui::CollapsingHeader("Performance Capture", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::SliderInt("Frame Reset", &_model->get_recon_pc()->_conf.reset_frame_count, 1, 100, "%.0f");
+        if(ImGui::CollapsingHeader("Debug Visualizations")) {
+            ImGui::Checkbox("Hide Fused Volume", &_model->get_recon_pc()->_conf.debug_hide_fused);
+            ImGui::Checkbox("Debug Texture Silhouettes", &_model->get_recon_pc()->_conf.debug_texture_silhouettes);
+            ImGui::Checkbox("Debug Texture Alignment Error", &_model->get_recon_pc()->_conf.debug_texture_alignment_error);
+            ImGui::Checkbox("Debug Reference Volume", &_model->get_recon_pc()->_conf.debug_reference_volume);
+            ImGui::Checkbox("Debug Reference Mesh", &_model->get_recon_pc()->_conf.debug_reference_mesh);
+            ImGui::Checkbox("Debug ED Sampling", &_model->get_recon_pc()->_conf.debug_ed_sampling);
+            ImGui::Checkbox("Debug Vertices", &_model->get_recon_pc()->_conf.debug_sorted_vertices);
 
-        ImGui::Separator();
+            if(_model->get_recon_pc()->_conf.debug_sorted_vertices)
+            {
+                ImGui::RadioButton("Misalignment energy", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 0);
+                ImGui::RadioButton("Data Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 1);
+                ImGui::RadioButton("Hull Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 2);
+                ImGui::RadioButton("Correspondence Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 3);
+                ImGui::RadioButton("Regularization Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 4);
 
-        ImGui::Columns(2, NULL, false);
-        ImGui::Checkbox("Volume Bricking", &_model->get_recon_pc()->_conf.use_bricks);
-        ImGui::NextColumn();
-        ImGui::Text("%.3f %% occupied", _model->get_recon_pc()->occupiedRatio() * 100.0f);
-        ImGui::Columns(1);
+                ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
+            }
 
-        if(_io->_bricking)
-        {
-            ImGui::Checkbox("Draw occupied bricks", &_model->get_recon_pc()->_conf.draw_bricks);
+            if(_model->get_recon_pc()->_conf.debug_sorted_vertices_connections)
+            {
+                ImGui::RadioButton("Debug Vertex Vectors", &_model->get_recon_pc()->_conf.debug_sorted_vertices_traces, 0);
+                ImGui::RadioButton("Debug Vertex Traces", &_model->get_recon_pc()->_conf.debug_sorted_vertices_traces, 1);
+            }
+
+            ImGui::Checkbox("Debug Gradient Field", &_model->get_recon_pc()->_conf.debug_gradient_field);
+            ImGui::Checkbox("Debug Warped Reference Volume [Surface]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_surface);
         }
 
-        ImGui::Separator();
-
-        ImGui::Checkbox("Debug Texture Silhouettes", &_model->get_recon_pc()->_conf.debug_texture_silhouettes);
-        ImGui::Checkbox("Debug Texture Alignment Error", &_model->get_recon_pc()->_conf.debug_texture_alignment_error);
-        ImGui::Checkbox("Debug Reference Volume", &_model->get_recon_pc()->_conf.debug_reference_volume);
-        ImGui::Checkbox("Debug Reference Mesh", &_model->get_recon_pc()->_conf.debug_reference_mesh);
-        ImGui::Checkbox("Debug ED Sampling", &_model->get_recon_pc()->_conf.debug_ed_sampling);
-        ImGui::Checkbox("Debug Vertices", &_model->get_recon_pc()->_conf.debug_sorted_vertices);
-
-        if(_model->get_recon_pc()->_conf.debug_sorted_vertices)
-        {
-            ImGui::RadioButton("Misalignment energy", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 0);
-            ImGui::RadioButton("Data Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 1);
-            ImGui::RadioButton("Hull Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 2);
-            ImGui::RadioButton("Correspondence Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 3);
-            ImGui::RadioButton("Regularization Term", &_model->get_recon_pc()->_conf.debug_sorted_vertices_mode, 4);
-
-            ImGui::Checkbox("Debug Vertex Connections", &_model->get_recon_pc()->_conf.debug_sorted_vertices_connections);
+        if(ImGui::CollapsingHeader("Pipeline Stages", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Pipeline Preprocess Textures", &_model->get_recon_pc()->_conf.pipeline_preprocess_textures);
+            ImGui::Checkbox("Pipeline Sample", &_model->get_recon_pc()->_conf.pipeline_sample);
+            ImGui::Checkbox("Pipeline Correspondence", &_model->get_recon_pc()->_conf.pipeline_correspondence);
+            ImGui::Checkbox("Pipeline Align", &_model->get_recon_pc()->_conf.pipeline_align);
+            ImGui::Checkbox("Pipeline Fuse", &_model->get_recon_pc()->_conf.pipeline_fuse);
         }
 
-        if(_model->get_recon_pc()->_conf.debug_sorted_vertices_connections)
-        {
-            ImGui::RadioButton("Debug Vertex Vectors", &_model->get_recon_pc()->_conf.debug_sorted_vertices_traces, 0);
-            ImGui::RadioButton("Debug Vertex Traces", &_model->get_recon_pc()->_conf.debug_sorted_vertices_traces, 1);
+        if(ImGui::CollapsingHeader("Structural Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextColored(ImVec4(0.0f,1.0f,1.0f,1.0f), "Voxel Size: %.3f", _io->_voxel_size);
+            ImGui::TextColored(ImVec4(0.0f,1.0f,1.0f,1.0f), "ED Cell Size: %.3f", _io->_ed_cell_size);
+            ImGui::TextColored(ImVec4(0.0f,1.0f,1.0f,1.0f), "Brick Size: %.3f", _io->_brick_size);
+
+            ImGui::SliderFloat("ED Neighborhood Radius Multiplier (IG)", &_model->get_recon_pc()->_conf.neighborhood_multiplier_ig, 1.f, 3.f, "%.3f");
+            ImGui::SliderFloat("ED Neighborhood Radius Multiplier (Reg.)", &_model->get_recon_pc()->_conf.neighborhood_multiplier_reg, 1.f, 3.f, "%.3f");
+            ImGui::SliderFloat("ED Neighborhood Radius Multiplier (Fus.)", &_model->get_recon_pc()->_conf.neighborhood_multiplier_fus, 1.f, 3.f, "%.3f");
+            ImGui::SliderInt("Vote-Casting Influence Region, Voxels", &_model->get_recon_pc()->_conf.influence_voxels, 0, 5);
         }
 
-        ImGui::Checkbox("Debug Gradient Field", &_model->get_recon_pc()->_conf.debug_gradient_field);
-        ImGui::Checkbox("Debug Warped Reference Volume [Surface]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_surface);
+        if(ImGui::CollapsingHeader("Filtering Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::SliderFloat("TSDF Depth Truncation", &_model->get_recon_pc()->_conf.tsdf_depth_limit, 0.001f, 0.03f, "%.5f");
+            ImGui::SliderFloat("TSDF Normal Truncation", &_model->get_recon_pc()->_conf.tsdf_normal_limit, 0.001f, 1.f, "%.5f");
+            ImGui::SliderFloat("OF Projective Candidate Max Length", &_model->get_recon_pc()->_conf.of_proj_max_length, 0.01f, 0.2f, "%.5f");
+            ImGui::SliderFloat("Surface Preservation Threshold", &_model->get_recon_pc()->_conf.surface_preservation, 0.00001f, 0.03f, "%.5f");
+        }
 
-        ImGui::Separator();
+        if(ImGui::CollapsingHeader("Solver Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 1.f, "%.5f");
+            ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.f, 1.f, "%.5f");
+            ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.f, 1.f, "%.5f");
+            ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.f, 1.f, "%.5f");
+            ImGui::SliderFloat("Starting Mu Value", &_model->get_recon_pc()->_conf.solver_mu, 0.1f, 5000.f, "%.5f");
+            ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.01f, 100.0f, "%.5f");
+            ImGui::SliderInt("LMA Max Iterations", &_model->get_recon_pc()->_conf.solver_lma_max_iter, 0, 100, "%.0f");
+            ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
+        }
 
-        ImGui::Checkbox("Pipeline Preprocess Textures", &_model->get_recon_pc()->_conf.pipeline_preprocess_textures);
-        ImGui::Checkbox("Pipeline Sample", &_model->get_recon_pc()->_conf.pipeline_sample);
-        ImGui::Checkbox("Pipeline Correspondence", &_model->get_recon_pc()->_conf.pipeline_correspondence);
-        ImGui::Checkbox("Pipeline Align", &_model->get_recon_pc()->_conf.pipeline_align);
-        ImGui::Checkbox("Pipeline Fuse", &_model->get_recon_pc()->_conf.pipeline_fuse);
+        if(ImGui::CollapsingHeader("Robustness Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::SliderFloat("ED Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.03f, "%.5f");
+            ImGui::SliderInt("Reference Volume Reset", &_model->get_recon_pc()->_conf.reset_frame_count, 1, 100, "%.0f");
+        }
 
-        ImGui::Separator();
+        if(ImGui::CollapsingHeader("Auxilliary")) {
+            ImGui::SliderInt("Smooth Silhouette Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
 
-        ImGui::SliderInt("Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
+            ImGui::Separator();
 
-        ImGui::Separator();
+            ImGui::Columns(2, NULL, false);
+            ImGui::Checkbox("Volume Bricking", &_model->get_recon_pc()->_conf.use_bricks);
+            ImGui::NextColumn();
+            ImGui::Text("%.3f %% occupied", _model->get_recon_pc()->occupiedRatio() * 100.0f);
+            ImGui::Columns(1);
 
-        ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 1.f, "%.5f");
-        ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.f, 1.f, "%.5f");
-        ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.f, 1.f, "%.5f");
-        ImGui::SliderFloat("Weight Regularization", &_model->get_recon_pc()->_conf.weight_regularization, 0.f, 1.f, "%.5f");
+            if(_io->_bricking)
+            {
+                ImGui::Checkbox("Draw occupied bricks", &_model->get_recon_pc()->_conf.draw_bricks);
+            }
 
-        ImGui::Separator();
+            if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
+            {
+                _model->get_recon_pc()->setTsdfLimit(_io->_tsdf_limit);
+            }
 
-        ImGui::SliderFloat("Starting Mu Value", &_model->get_recon_pc()->_conf.solver_mu, 0.1f, 5000.f, "%.5f");
-        ImGui::SliderFloat("Mu step", &_model->get_recon_pc()->_conf.solver_mu_step, 0.01f, 100.0f, "%.5f");
-        ImGui::SliderInt("LMA Max Iterations", &_model->get_recon_pc()->_conf.solver_lma_max_iter, 0, 100, "%.0f");
-        ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
+            if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
+            {
+                _model->get_recon_pc()->setMinVoxelsPerBrick(_io->_min_voxels);
+                _model->get_recon_pc()->updateOccupiedBricks();
+                _model->get_recon_pc()->integrate_data_frame();
+            }
 
-        ImGui::Separator();
+            ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
+        }
 
-        ImGui::SliderFloat("Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.03f, "%.5f");
+        if(ImGui::CollapsingHeader("Processing Performance"))
+        {
+            ImGui::SameLine();
+            ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
+
+            ImGui::Text("   Data volume integration");
+            ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION) / 1000000.0f);
+            ImGui::Text("   Texture processing");
+            ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_preprocess);
+            ImGui::Text("   Reference copy");
+            ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_copy_reference);
+            ImGui::Text("   Reference mesh extraction");
+            ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_extract_reference);
+            ImGui::Text("   ED graph sampling");
+            ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_sample_ed);
+            ImGui::Text("   Non-rigid alignment");
+            ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_nra);
+            ImGui::Text("   Fusion");
+            ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_fuse);
+            ImGui::Text("   Data mesh draw");
+            ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_MESH_DRAW) / 1000000.0f);
+        }
     }
     if(ImGui::CollapsingHeader("Settings"))
     {
@@ -228,54 +280,7 @@ void renderer::update_gui()
         break;
         case 1: // performance capture
         {
-            std::shared_ptr<kinect::ReconPerformanceCapture> recon_pc = std::dynamic_pointer_cast<kinect::ReconPerformanceCapture>(_model->get_recons().at(1));
 
-            if(ImGui::SliderFloat("TSDF Limit", &_io->_tsdf_limit, 0.001f, 0.03f, "%.5f"))
-            {
-                recon_pc->setTsdfLimit(_io->_tsdf_limit);
-            }
-            if(ImGui::SliderFloat("Voxel Size", &_io->_voxel_size, 0.01f, 0.08f, "%.5f"))
-            {
-                // recon_pc->setVoxelSize(_io->_voxel_size);
-                _io->_brick_size = recon_pc->getBrickSize();
-            }
-            if(ImGui::SliderFloat("Brick Size", &_io->_brick_size, 0.075f, 0.5f, "%.3f"))
-            {
-                // recon_pc->setBrickSize(_io->_brick_size);
-                _io->_brick_size = recon_pc->getBrickSize();
-            }
-            if(ImGui::SliderInt("Min Brick Voxels", &_io->_min_voxels, 0, 500, "%.0f"))
-            {
-                recon_pc->setMinVoxelsPerBrick(_io->_min_voxels);
-                recon_pc->updateOccupiedBricks();
-                recon_pc->integrate_data_frame();
-            }
-            ImGui::Checkbox("Draw TSDF", &_io->_draw_calibvis);
-
-            if(ImGui::CollapsingHeader("Processing Performance"))
-            {
-                ImGui::SameLine();
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration("draw") / 1000000.0f);
-
-                ImGui::Text("   Data volume integration");
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION) / 1000000.0f);
-                ImGui::Text("   Texture processing");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_preprocess);
-                ImGui::Text("   SIFT extraction & filtering");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_correspondence);
-                ImGui::Text("   Reference copy");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_copy_reference);
-                ImGui::Text("   Reference mesh extraction");
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION) / 1000000.0f);
-                ImGui::Text("   ED graph sampling");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_sample_ed);
-                ImGui::Text("   Non-rigid alignment");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_nra);
-                ImGui::Text("   Fusion");
-                ImGui::Text("   %.3f ms", _model->get_recon_pc()->_conf.time_fuse);
-                ImGui::Text("   Data mesh draw");
-                ImGui::Text("   %.3f ms", TimerDatabase::instance().duration(kinect::ReconPerformanceCapture::TIMER_DATA_MESH_DRAW) / 1000000.0f);
-            }
         }
         break;
         case 2: // raymarched integration

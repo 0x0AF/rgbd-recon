@@ -38,8 +38,8 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 #define CUDA_ALIGN_4
 #endif
 
-// #define VERBOSE
-// #define DEBUG_NANS
+#define VERBOSE
+#define DEBUG_NANS
 
 // #define UNIT_TEST_NRA
 // #define UNIT_TEST_REF_WARP
@@ -78,7 +78,7 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 #define NORMAL_THRESHOLDING
 // #define JTJ_HESSIAN_DIAG
 
-// #define ALIGNMENT_ERROR_TRIANGULATION
+#define ALIGNMENT_ERROR_TRIANGULATION
 
 #define REJECT_MISALIGNED
 
@@ -121,6 +121,7 @@ struct Configuration
     bool use_bricks = true;
     bool draw_bricks = false;
 
+    bool debug_hide_fused = false;
     bool debug_texture_silhouettes = false;
     bool debug_texture_alignment_error = false;
     bool debug_correspondence_field = false;
@@ -148,6 +149,16 @@ struct Configuration
     float weight_correspondence = 0.25f;
     float weight_regularization = 0.01f;
 
+    float neighborhood_multiplier_ig = 2.5f;
+    float neighborhood_multiplier_reg = 2.f;
+    float neighborhood_multiplier_fus = 2.f;
+    int   influence_voxels = 2;
+
+    float tsdf_depth_limit = 0.01f;
+    float tsdf_normal_limit = 0.7071f;
+    float of_proj_max_length = 0.05f;
+    float surface_preservation = 0.01f;
+
     float solver_mu = 5000.f;
     float solver_mu_step = 100.f;
     int solver_lma_max_iter = 5;
@@ -155,10 +166,10 @@ struct Configuration
 
     float rejection_threshold = 0.01f;
 
+    double time_extract_reference = 0.;
     double time_copy_reference = 0.;
     double time_sample_ed = 0.;
     double time_preprocess = 0.;
-    double time_correspondence = 0.;
     double time_nra = 0.;
     double time_fuse = 0.;
 };

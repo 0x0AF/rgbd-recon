@@ -45,6 +45,7 @@ extern "C" double write_ply(int frame_number, IsoSurfaceVolume target);
 extern "C" double extract_data();
 
 extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
+extern "C" double compute_isosurface_timed(IsoSurfaceVolume target);
 
 extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, struct_native_handles &native_handles);
 extern "C" void update_configuration(Configuration &configuration);
@@ -61,7 +62,6 @@ namespace kinect
 {
 using namespace globjects;
 std::string ReconPerformanceCapture::TIMER_DATA_VOLUME_INTEGRATION = "TIMER_DATA_VOLUME_INTEGRATION";
-std::string ReconPerformanceCapture::TIMER_REFERENCE_MESH_EXTRACTION = "TIMER_REFERENCE_MESH_EXTRACTION";
 std::string ReconPerformanceCapture::TIMER_DATA_MESH_DRAW = "TIMER_DATA_MESH_DRAW";
 
 ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, CalibrationFiles const &cfs, CalibVolumes const *cv, gloost::BoundingBox const &bbox, float limit, float size,
@@ -91,7 +91,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     _native_handles.pbo_kinect_silhouettes = _nka->getSilhouetteHandle();
 
     _measures.size_voxel = _voxel_size;
-    _measures.sigma = 1.732f * _ed_cell_size;
+    _measures.sigma = 1.732f * 3.f / _res_volume.x;
     _measures.size_ed_cell = _ed_cell_size;
     _measures.size_brick = _brick_size;
     _measures.size_depth_cell = 8u;
@@ -184,7 +184,6 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     init_cuda(_res_volume, _measures, _native_handles);
 
     TimerDatabase::instance().addTimer(TIMER_DATA_VOLUME_INTEGRATION);
-    TimerDatabase::instance().addTimer(TIMER_REFERENCE_MESH_EXTRACTION);
     TimerDatabase::instance().addTimer(TIMER_DATA_MESH_DRAW);
 }
 void ReconPerformanceCapture::init(float limit, float size, float ed_cell_size)
@@ -531,9 +530,7 @@ void ReconPerformanceCapture::draw()
                 _frame_number.store(0);
             }
 
-            TimerDatabase::instance().begin(TIMER_REFERENCE_MESH_EXTRACTION);
             extract_reference_mesh();
-            TimerDatabase::instance().end(TIMER_REFERENCE_MESH_EXTRACTION);
 
             _conf.time_sample_ed = sample_ed_nodes();
         }
@@ -599,7 +596,7 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 
-    if(!_conf.debug_reference_volume && !_conf.debug_warped_reference_volume_surface)
+    if(!_conf.debug_hide_fused && !_conf.debug_reference_volume && !_conf.debug_warped_reference_volume_surface)
     {
         draw_fused();
     }
@@ -639,7 +636,9 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 }
-void ReconPerformanceCapture::extract_reference_mesh() { compute_isosurface(IsoSurfaceVolume::Reference); }
+void ReconPerformanceCapture::extract_reference_mesh() {
+    compute_isosurface_timed(IsoSurfaceVolume::Reference);
+}
 void ReconPerformanceCapture::draw_data()
 {
     TimerDatabase::instance().begin(TIMER_DATA_MESH_DRAW);

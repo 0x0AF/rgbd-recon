@@ -325,7 +325,7 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
     unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
     float2 voxel = dev_res.tsdf_ref[offset];
 
-    /// Retrieve gradient
+    /// Retrieve gradient from 27-neighborhood
 
     glm::fvec3 gradient = glm::fvec3(0.f);
 
@@ -378,15 +378,17 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
         warped_gradient = glm::fvec3(0.f);
     }
 
-    /// Write prediction to 27-neighborhood
+    /// Write prediction to N-neighborhood
 
-    for(int i = 0; i < 5; i++)
+    int influenced_voxels_per_axis = 2 * host_res.configuration.influence_voxels + 1;
+
+    for(int i = 0; i < influenced_voxels_per_axis; i++)
     {
-        for(int j = 0; j < 5; j++)
+        for(int j = 0; j < influenced_voxels_per_axis; j++)
         {
-            for(int k = 0; k < 5; k++)
+            for(int k = 0; k < influenced_voxels_per_axis; k++)
             {
-                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 2, j - 2, k - 2));
+                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - host_res.configuration.influence_voxels, j - host_res.configuration.influence_voxels, k - host_res.configuration.influence_voxels));
 
                 if(!in_data_volume(vote_target, measures))
                 {
@@ -409,13 +411,13 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
                 }
 
                 float1 mark = sample_ref_warped_marks_ptr(dev_res.tsdf_ref_warped_marks, vote_target, measures);
-                if(glm::abs(voxel.x - mark.x) > 0.0001f /* TODO: figure out threshold */)
+                if(glm::abs(voxel.x - mark.x) > host_res.configuration.surface_preservation)
                 {
                     __syncthreads();
                     continue;
                 }
 
-                glm::fvec3 diff = glm::fvec3(glm::ivec3(warped_position_voxel) - glm::ivec3(vote_target)) * measures.size_voxel;
+                glm::fvec3 diff = warped_position - data_2_norm(vote_target, measures);
                 float prediction = voxel.x - glm::dot(diff, warped_gradient);
                 float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * measures.sigma * measures.sigma));
 
