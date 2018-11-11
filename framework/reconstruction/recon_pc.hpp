@@ -76,7 +76,6 @@ class ReconPerformanceCapture : public Reconstruction
     void updateOccupiedBricks();
     void drawOccupiedBricks() const;
 
-    static int TRI_TABLE[4096];
     static std::string TIMER_DATA_VOLUME_INTEGRATION, TIMER_DATA_MESH_DRAW;
 
     Configuration _conf;
@@ -108,8 +107,8 @@ class ReconPerformanceCapture : public Reconstruction
     globjects::Texture *_texture2darray_debug;
 
     globjects::Buffer *_buffer_ed_nodes_debug, *_buffer_sorted_vertices_debug, *_buffer_pbo_silhouettes_debug, *_buffer_pbo_alignment_debug;
-    globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_opticflow, *_program_pc_debug_draw_ref, *_program_pc_debug_draw_ref_grad, *_program_pc_debug_sorted_vertices,
-        *_program_pc_debug_sorted_vertices_connections, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
+    globjects::Program *_program_pc_debug_correspondences, *_program_pc_debug_textures, *_program_pc_debug_opticflow, *_program_pc_debug_draw_ref, *_program_pc_debug_draw_ref_grad,
+        *_program_pc_debug_sorted_vertices, *_program_pc_debug_sorted_vertices_connections, *_program_pc_debug_ed_sampling, *_program_pc_debug_reference;
 
     std::vector<brick> _bricks;
     std::vector<unsigned> _active_bricks;

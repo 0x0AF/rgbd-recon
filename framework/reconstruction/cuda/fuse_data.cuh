@@ -25,7 +25,7 @@ __global__ void kernel_clean_ref_warped(struct_host_resources host_res, struct_d
 
     unsigned int offset = world.x + world.y * measures.data_volume_res.x + world.z * measures.data_volume_res.x * measures.data_volume_res.y;
 
-    float2 voxel{-0.03f, 0.f};
+    float2 voxel{-host_res.configuration.tsdf_depth_limit, 0.f};
     memcpy(&dev_res.tsdf_ref_warped[offset], &voxel, sizeof(float2));
     memcpy(&dev_res.tsdf_ref_warped_marks[offset], &(voxel.x), sizeof(float1));
     memcpy(&dev_res.tsdf_fused[offset], &voxel, sizeof(float2));
@@ -181,90 +181,106 @@ __global__ void kernel_warp_reference(struct_host_resources host_res, struct_dev
         return;
     }
 
-    *//*if(warped_position_voxel != world_voxel)
+    */ /*if(warped_position_voxel != world_voxel)
     {
         printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
-    }*//*
+    }*/ /*
 
-    /// Retrieve SDF value
+                                                                                                                             /// Retrieve SDF value
 
-    unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
-    float2 voxel = dev_res.tsdf_ref[offset];
+                                                                                                                             unsigned int offset = world_voxel.x + world_voxel.y *
+                                                   measures.data_volume_res.x + world_voxel.z *
+                                                                                           measures.data_volume_res.x * measures.data_volume_res.y;
+                                                                                                                             float2 voxel = dev_res.tsdf_ref[offset];
 
-    /// Retrieve gradient
+                                                                                                                             /// Retrieve gradient
 
-    float4 grad;
-    surf3Dread(&grad, _volume_tsdf_ref_grad, world_voxel.x * sizeof(float4), world_voxel.y, world_voxel.z);
+                                                                                                                             float4 grad;
+                                                                                                                             surf3Dread(&grad, _volume_tsdf_ref_grad, world_voxel.x * sizeof(float4),
+                                                   world_voxel.y, world_voxel.z);
 
-    /// Warp gradient
+                                                                                                                             /// Warp gradient
 
-    glm::fvec3 gradient = glm::fvec3(grad.x, grad.y, grad.z);
-    glm::fvec3 gradient_vector = glm::normalize(gradient);
-    glm::fvec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node, ed_entry, 1.0f, measures);
-    glm::fvec3 warped_gradient = warped_gradient_vector * glm::length(gradient);
+                                                                                                                             glm::fvec3 gradient = glm::fvec3(grad.x, grad.y, grad.z);
+                                                                                                                             glm::fvec3 gradient_vector = glm::normalize(gradient);
+                                                                                                                             glm::fvec3 warped_gradient_vector = warp_normal(gradient_vector, ed_node,
+                                                   ed_entry, 1.0f, measures);
+                                                                                                                             glm::fvec3 warped_gradient = warped_gradient_vector *
+                                                   glm::length(gradient);
 
-    glm::bvec3 is_nan = glm::isnan(warped_gradient);
+                                                                                                                             glm::bvec3 is_nan = glm::isnan(warped_gradient);
 
-    if(is_nan.x || is_nan.y || is_nan.z)
-    {
-#ifdef DEBUG_NANS
-        printf("\nNaN in gradient warp evaluation\n");
-#endif
-        warped_gradient = glm::fvec3(0.f);
-    }
+                                                                                                                             if(is_nan.x || is_nan.y || is_nan.z)
+                                                                                                                             {
+                                                                                                                         #ifdef DEBUG_NANS
+                                                                                                                                 printf("\nNaN in gradient warp evaluation\n");
+                                                                                                                         #endif
+                                                                                                                                 warped_gradient = glm::fvec3(0.f);
+                                                                                                                             }
 
-    // TODO: voxel collision detection
+                                                                                                                             // TODO: voxel collision detection
 
-    /// Write prediction to 27-neighborhood
+                                                                                                                             /// Write prediction to 27-neighborhood
 
-    // TODO: eliminate race condition, cast vote on neighborhood
+                                                                                                                             // TODO: eliminate race condition, cast vote on neighborhood
 
-    for(int i = 1; i < 2; i++)
-    {
-        for(int j = 1; j < 2; j++)
-        {
-            for(int k = 1; k < 2; k++)
-            {
-                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 1, j - 1, k - 1));
+                                                                                                                             for(int i = 1; i < 2; i++)
+                                                                                                                             {
+                                                                                                                                 for(int j = 1; j < 2; j++)
+                                                                                                                                 {
+                                                                                                                                     for(int k = 1; k < 2; k++)
+                                                                                                                                     {
+                                                                                                                                         glm::uvec3 vote_target =
+                                                   glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - 1, j - 1, k -
+                                                                                           1));
 
-                if(!in_data_volume(vote_target, measures))
-                {
-                    return;
-                }
+                                                                                                                                         if(!in_data_volume(vote_target, measures))
+                                                                                                                                         {
+                                                                                                                                             return;
+                                                                                                                                         }
 
-                glm::fvec3 diff = measures.size_voxel * (data_2_norm(warped_position_voxel, measures) - data_2_norm(vote_target, measures));
-                float prediction = voxel.x + glm::dot(warped_gradient, diff);
-                float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * measures.sigma * measures.sigma));
+                                                                                                                                         glm::fvec3 diff = measures.size_voxel *
+                                                   (data_2_norm(warped_position_voxel, measures) -
+                                                                                           data_2_norm(vote_target, measures));
+                                                                                                                                         float prediction = voxel.x + glm::dot(warped_gradient, diff);
+                                                                                                                                         float weight = exp(-glm::length(diff) * glm::length(diff) /
+                                                   (2.0f * measures.sigma * measures.sigma));
 
-                // printf("\nprediction: %f\n", prediction);
-                // printf("\nweight: %e, length(diff): %f\n", weight, glm::length(diff));
+                                                                                                                                         // printf("\nprediction: %f\n", prediction);
+                                                                                                                                         // printf("\nweight: %e, length(diff): %f\n", weight,
+                                                   glm::length(diff));
 
-                if(glm::isnan(prediction))
-                {
-#ifdef DEBUG_NANS
-                    printf("\nNaN in gradient-based prediction\n");
-#endif
-                    prediction = voxel.x;
-                }
+                                                                                                                                         if(glm::isnan(prediction))
+                                                                                                                                         {
+                                                                                                                         #ifdef DEBUG_NANS
+                                                                                                                                             printf("\nNaN in gradient-based prediction\n");
+                                                                                                                         #endif
+                                                                                                                                             prediction = voxel.x;
+                                                                                                                                         }
 
-                float2 value = sample_ref_warped_ptr(dev_res.tsdf_ref_warped, vote_target, measures);
+                                                                                                                                         float2 value = sample_ref_warped_ptr(dev_res.tsdf_ref_warped,
+                                                   vote_target, measures);
 
-                value.x = prediction * voxel.y * weight + value.x * value.y;
-                value.y = voxel.y * weight + value.y;
-                value.x /= value.y;
+                                                                                                                                         value.x = prediction * voxel.y * weight + value.x * value.y;
+                                                                                                                                         value.y = voxel.y * weight + value.y;
+                                                                                                                                         value.x /= value.y;
 
-                unsigned int offset = vote_target.x + vote_target.y * measures.data_volume_res.x + vote_target.z * measures.data_volume_res.x * measures.data_volume_res.y;
+                                                                                                                                         unsigned int offset = vote_target.x + vote_target.y *
+                                                   measures.data_volume_res.x + vote_target.z *
+                                                                                           measures.data_volume_res.x *
+                                                                                                                         measures.data_volume_res.y;
 
-                memcpy(&dev_res.tsdf_ref_warped[offset], &value, sizeof(float2));
+                                                                                                                                         memcpy(&dev_res.tsdf_ref_warped[offset], &value,
+                                                   sizeof(float2));
 
-                __syncthreads();
-            }
-        }
-    }
+                                                                                                                                         __syncthreads();
+                                                                                                                                     }
+                                                                                                                                 }
+                                                                                                                             }
 
-    float2 value = dev_res.tsdf_ref_warped[offset];
-    dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(value.x);
-}*/
+                                                                                                                             float2 value = dev_res.tsdf_ref_warped[offset];
+                                                                                                                             dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(value.x);
+                                                                                                                         }*/
 
 __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mark_smallest_sdf, struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
 {
@@ -388,7 +404,8 @@ __global__ void kernel_warp_reference_single_ed(int ed_node_cell_index, bool mar
         {
             for(int k = 0; k < influenced_voxels_per_axis; k++)
             {
-                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) + glm::ivec3(i - host_res.configuration.influence_voxels, j - host_res.configuration.influence_voxels, k - host_res.configuration.influence_voxels));
+                glm::uvec3 vote_target = glm::uvec3(glm::ivec3(warped_position_voxel) +
+                                                    glm::ivec3(i - host_res.configuration.influence_voxels, j - host_res.configuration.influence_voxels, k - host_res.configuration.influence_voxels));
 
                 if(!in_data_volume(vote_target, measures))
                 {
@@ -483,7 +500,7 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
     float2 ref_warped = dev_res.tsdf_ref_warped[offset];
     dev_res.out_tsdf_warped_ref[offset] = tsdf_2_8bit(ref_warped.x);
 
-    if(glm::abs(ref_warped.x) < 0.03f)
+    if(glm::abs(ref_warped.x) < host_res.configuration.tsdf_depth_limit)
     {
         float aggregated_average_error = 0.f;
 
@@ -494,12 +511,14 @@ __global__ void kernel_fuse_data(struct_host_resources host_res, struct_device_r
 
             if(voxel_proj.x < 0.f || voxel_proj.y < 0.f)
             {
-                aggregated_average_error = glm::max(1.f, aggregated_average_error);
+                continue;
             }
 
             float alignment_error = sample_error(dev_res.alignment_error_tex[i], voxel_proj).x;
-            aggregated_average_error = glm::max(aggregated_average_error, alignment_error);
+            aggregated_average_error += alignment_error;
         }
+
+        aggregated_average_error /= 4.f;
 
         float weight = ref_warped.y * (1.f - aggregated_average_error) + data.y;
 
@@ -563,7 +582,7 @@ __global__ void kernel_override_ref_warp(struct_host_resources host_res, struct_
     }
     else
     {
-        dev_res.tsdf_ref_warped[offset] = float2{-0.03, 0.f};
+        dev_res.tsdf_ref_warped[offset] = float2{-host_res.configuration.tsdf_depth_limit, 0.f};
     }
 #endif
 }
@@ -662,28 +681,82 @@ __global__ void kernel_fuse_reference(struct_host_resources host_res, struct_dev
     glm::fvec3 world = data_2_norm(world_voxel, measures);
     glm::fvec3 dist = world - ed_entry.position;
     glm::fvec3 warped_position = glm::clamp(warp_position(dist, ed_node, ed_entry, 1.f, measures), glm::fvec3(0.f), glm::fvec3(1.f));
-    glm::uvec3 warped_position_voxel = norm_2_data(warped_position, measures);
-
-    if(!in_data_volume(warped_position_voxel, measures))
-    {
-#ifdef VERBOSE
-        printf("\nout of volume: warped_position_voxel(%i,%i,%i)\n", warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
-#endif
-        return;
-    }
-
-    /*if(warped_position_voxel != world_voxel)
-    {
-        printf("\nworld_voxel(%i,%i,%i), warped_voxel(%i,%i,%i)\n", world_voxel.x, world_voxel.y, world_voxel.z, warped_position_voxel.x, warped_position_voxel.y, warped_position_voxel.z);
-    }*/
-
-    /// Retrieve SDF value
-
-    float2 data;
-    surf3Dread(&data, _volume_tsdf_data, warped_position_voxel.x * sizeof(float2), warped_position_voxel.y, warped_position_voxel.z);
 
     unsigned int offset = world_voxel.x + world_voxel.y * measures.data_volume_res.x + world_voxel.z * measures.data_volume_res.x * measures.data_volume_res.y;
-    dev_res.tsdf_ref[offset] = data;
+    float2 ref_value = dev_res.tsdf_ref[offset];
+
+    /// Project center to depth maps, extract projection depth
+
+    struct_projection projection;
+    memset(&projection, 0, sizeof(struct_projection));
+    float projection_depth[4];
+    for(unsigned int i = 0; i < 4; i++)
+    {
+        float4 c_projection = sample_cv_xyz_inv(dev_res.cv_xyz_inv_tex[i], warped_position);
+
+        projection.projection[i].x = c_projection.x;
+        projection.projection[i].y = c_projection.y;
+        projection_depth[i] = c_projection.z;
+    }
+
+    for(int i = 0; i < 4; i++)
+    {
+        // printf("\nsampling depth maps: (%.2f,%.2f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+
+        if(projection.projection[i].x < 0.f || projection.projection[i].y < 0.f)
+        {
+// #ifdef VERBOSE
+//             printf("\nprojected out of depth map: (%f,%f)\n", projection.projection[i].x, projection.projection[i].y);
+// #endif
+            continue;
+        }
+
+        /// Check if occupant
+
+        float1 occupancy = sample_silhouette(dev_res.silhouette_tex[i], projection.projection[i]);
+
+        if(occupancy.x < 1.0f)
+        {
+            continue;
+        }
+
+        /// Compare to projection depth
+
+        float depth = sample_depth(dev_res.depth_tex[i], projection.projection[i]).x;
+
+        if(depth == 0)
+        {
+            continue;
+        }
+
+        float dist = projection_depth[i] - depth;
+
+        // printf("\ndepth d(%f,%f) = %f\n", projection_depth[i], depth, dist);
+
+        /// Truncate
+
+        if(dist > host_res.configuration.tsdf_depth_limit)
+        {
+            continue;
+        }
+        else if(dist < -host_res.configuration.tsdf_depth_limit)
+        {
+            dist = -host_res.configuration.tsdf_depth_limit;
+        }
+
+        /// Check out quality
+
+        float weight = glm::abs(sample_quality(dev_res.quality_tex[i], projection.projection[i]).x);
+
+        // printf("\nquality: %.5f\n", weight);
+
+        /// Integrate
+
+        ref_value.x = (ref_value.x * ref_value.y + weight * dist) / (ref_value.y + weight);
+        ref_value.y += weight;
+    }
+
+    memcpy(&dev_res.tsdf_ref[offset], &ref_value, sizeof(float2));
 }
 
 __global__ void kernel_refresh_misaligned(struct_host_resources host_res, struct_device_resources dev_res, struct_measures measures)
@@ -760,7 +833,8 @@ __global__ void kernel_calculate_warped_reference_metrics(bool calculate_stdev, 
     }
 
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
-    if(ed_entry.misalignment_error >= host_res.configuration.rejection_threshold){
+    if(ed_entry.misalignment_error >= host_res.configuration.rejection_threshold)
+    {
         return;
     }
 
@@ -829,7 +903,7 @@ __global__ void kernel_calculate_alignment_map_error(float *error, unsigned int 
 
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
-    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+// printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
@@ -880,7 +954,6 @@ extern "C" unsigned long int compute_isosurface(IsoSurfaceVolume target);
 
 extern "C" double write_ply(int frame_number, IsoSurfaceVolume target)
 {
-
     compute_isosurface(target);
 
     cudaDeviceSynchronize();
@@ -911,9 +984,12 @@ extern "C" double write_ply(int frame_number, IsoSurfaceVolume target)
 
     std::filebuf fb_ascii;
 
-    if(target == IsoSurfaceVolume::Data){
+    if(target == IsoSurfaceVolume::Data)
+    {
         fb_ascii.open("Data_Frame_" + std::to_string(frame_number) + ".ply", std::ios::out);
-    }else if(target == IsoSurfaceVolume::Fused){
+    }
+    else if(target == IsoSurfaceVolume::Fused)
+    {
         fb_ascii.open("Fused_Frame_" + std::to_string(frame_number) + ".ply", std::ios::out);
     }
 
@@ -946,6 +1022,7 @@ extern "C" double fuse_data()
 
     map_tsdf_volumes();
     map_error_texture();
+    map_kinect_textures();
 
     kernel_evaluate_gradient_field<<<_host_res.active_bricks_count, _host_res.measures.brick_num_voxels>>>(_host_res, _dev_res, _host_res.measures);
     getLastCudaError("kernel_evaluate_gradient_field");
@@ -1078,6 +1155,7 @@ extern "C" double fuse_data()
     cudaDeviceSynchronize();
 
     unmap_error_texture();
+    unmap_kinect_textures();
     unmap_tsdf_volumes();
 
     /// Save a copy of an ED graph for reference

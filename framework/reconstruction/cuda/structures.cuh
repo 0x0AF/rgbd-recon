@@ -39,7 +39,7 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 #endif
 
 #define VERBOSE
-#define DEBUG_NANS
+// #define DEBUG_NANS
 
 // #define UNIT_TEST_NRA
 // #define UNIT_TEST_REF_WARP
@@ -74,6 +74,7 @@ const unsigned ED_COMPONENT_COUNT = 6u;
 #define EVALUATE_CORRESPONDENCE_FIELD
 
 #define ED_NODES_ROBUSTIFY
+#define CORRESPONDENCE_ROBUSTIFY
 #define FAST_QUAT_OPS
 #define NORMAL_THRESHOLDING
 // #define JTJ_HESSIAN_DIAG
@@ -147,14 +148,16 @@ struct Configuration
     float weight_data = 1.f;
     float weight_hull = 0.7f;
     float weight_correspondence = 0.25f;
-    float weight_regularization = 0.01f;
+    float weight_regularization = 0.25f;
+    float kernel_width_correspondence = 0.0025f;
+    float kernel_width_regularization = 0.0005f;
 
     float neighborhood_multiplier_ig = 2.5f;
-    float neighborhood_multiplier_reg = 2.f;
+    float neighborhood_multiplier_reg = 3.f;
     float neighborhood_multiplier_fus = 2.f;
-    int   influence_voxels = 2;
+    int influence_voxels = 2;
 
-    float tsdf_depth_limit = 0.01f;
+    float tsdf_depth_limit = 0.016f;
     float tsdf_normal_limit = 0.7071f;
     float of_proj_max_length = 0.05f;
     float surface_preservation = 0.01f;
@@ -164,7 +167,7 @@ struct Configuration
     int solver_lma_max_iter = 5;
     int solver_cg_steps = 12;
 
-    float rejection_threshold = 0.01f;
+    float rejection_threshold = 0.016f;
 
     double time_extract_reference = 0.;
     double time_copy_reference = 0.;
@@ -189,6 +192,7 @@ struct struct_native_handles
     unsigned int pbo_kinect_normals;
     unsigned int pbo_kinect_silhouettes;
     unsigned int pbo_opticflow;
+    unsigned int pbo_quality;
 
     unsigned int pbo_kinect_silhouettes_debug;
     unsigned int pbo_kinect_alignment_error_debug;

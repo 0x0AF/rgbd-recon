@@ -76,7 +76,7 @@ __device__ float4 sample_normals(cudaTextureObject_t &normals_tex, glm::vec2 &po
 __device__ float1 sample_error(cudaTextureObject_t &alignment_error_tex, glm::vec2 &pos) { return tex2D<float1>(alignment_error_tex, pos.x, pos.y); }
 __device__ float4 sample_cv_xyz(cudaTextureObject_t &cv_xyz_tex, glm::fvec3 &pos) { return tex3D<float4>(cv_xyz_tex, pos.x, pos.y, pos.z); }
 __device__ float4 sample_cv_xyz_inv(cudaTextureObject_t &cv_xyz_inv_tex, glm::fvec3 &pos) { return tex3D<float4>(cv_xyz_inv_tex, pos.x, pos.y, pos.z); }
-
+__device__ float1 sample_quality(cudaTextureObject_t &quality_tex, glm::vec2 &pos) { return tex2D<float1>(quality_tex, pos.x, pos.y); }
 CUDA_HOST_DEVICE glm::fvec3 bbox_transform_position(glm::fvec3 pos, struct_measures &measures)
 {
     pos -= measures.bbox_translation;
@@ -91,26 +91,23 @@ CUDA_HOST_DEVICE glm::fvec3 bbox_transform_vector(glm::fvec3 vec, struct_measure
 }
 
 CUDA_HOST_DEVICE bool in_normal_space(glm::fvec3 pos) { return pos.x < 1.f && pos.y < 1.f && pos.z < 1.f && pos.x >= 0.f && pos.y >= 0.f && pos.z >= 0.f; }
-
 CUDA_HOST_DEVICE bool in_data_volume(glm::uvec3 pos, struct_measures &measures)
 {
     return pos.x < measures.data_volume_res.x && pos.y < measures.data_volume_res.y && pos.z < measures.data_volume_res.z;
 }
 
 CUDA_HOST_DEVICE bool in_cv_xyz(glm::uvec3 pos, struct_measures &measures) { return pos.x < measures.cv_xyz_res.x && pos.y < measures.cv_xyz_res.y && pos.z < measures.cv_xyz_res.z; }
-
 CUDA_HOST_DEVICE bool in_cv_xyz_inv(glm::uvec3 pos, struct_measures &measures) { return pos.x < measures.cv_xyz_inv_res.x && pos.y < measures.cv_xyz_inv_res.y && pos.z < measures.cv_xyz_inv_res.z; }
-
 CUDA_HOST_DEVICE glm::uvec3 norm_2_cv_xyz(glm::fvec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::fvec3(measures.cv_xyz_res)); }
 CUDA_HOST_DEVICE glm::uvec3 norm_2_cv_xyz_inv(glm::fvec3 pos, struct_measures &measures) { return glm::uvec3(pos * glm::fvec3(measures.cv_xyz_inv_res)); }
 CUDA_HOST_DEVICE glm::uvec3 norm_2_data(glm::fvec3 pos_center, struct_measures &measures) { return glm::uvec3(pos_center * glm::fvec3(measures.data_volume_res) - glm::fvec3(0.5f)); }
-CUDA_HOST_DEVICE glm::fvec3 data_2_norm(glm::uvec3 pos, struct_measures &measures) {
+CUDA_HOST_DEVICE glm::fvec3 data_2_norm(glm::uvec3 pos, struct_measures &measures)
+{
     glm::fvec3 pos_center = glm::fvec3(pos) + glm::fvec3(0.5f);
     return pos_center / glm::fvec3(measures.data_volume_res);
 }
 
 CUDA_HOST_DEVICE uchar tsdf_2_8bit(float tsdf) { return (uchar)(255.f * (tsdf / 0.06f + 0.5f)); }
-
 CUDA_HOST_DEVICE glm::uvec3 index_3d(unsigned int brick_id, struct_measures &measures)
 {
     glm::uvec3 brick = glm::uvec3(0u);
@@ -212,7 +209,6 @@ CUDA_HOST_DEVICE unsigned int identify_depth_cell_id(const glm::uvec2 pos, unsig
 }
 
 CUDA_HOST_DEVICE glm::fvec3 qtransform(glm::fquat q, glm::fvec3 &v) { return v + 2.f * glm::cross(glm::cross(v, glm::fvec3(q.x, q.y, q.z)) + q.w * v, glm::fvec3(q.x, q.y, q.z)); }
-
 /** Warp a position with a single ED node **/
 CUDA_HOST_DEVICE glm::fvec3 warp_position(glm::fvec3 &dist, struct_ed_node &ed_node, struct_ed_meta_entry &ed_meta, const float &skinning_weight, struct_measures &measures)
 {
@@ -237,19 +233,64 @@ CUDA_HOST_DEVICE glm::fvec3 warp_normal(glm::fvec3 &normal, struct_ed_node &ed_n
 
 __device__ float evaluate_vx_misalignment(struct_vertex &warped_vertex, struct_measures &measures)
 {
-    glm::uvec3 wp_voxel_space = norm_2_data(warped_vertex.position, measures);
-    // printf("\n (x,y,z): (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+    glm::uvec3 base_voxel = norm_2_data(warped_vertex.position, measures);
 
-    if(!in_data_volume(wp_voxel_space, measures))
+    /** Trilinear interpolation on cubic lattice **/
+
+    /// Estimate delta
+
+    glm::fvec3 voxel_center_0 = data_2_norm(base_voxel, measures);
+    glm::fvec3 voxel_center_1 = data_2_norm(glm::uvec3(1u, 1u, 1u) + base_voxel, measures);
+    glm::fvec3 delta = (warped_vertex.position - voxel_center_0) / (voxel_center_1 - voxel_center_0);
+
+    // printf("\ndelta: (%f,%f,%f)\n", delta.x, delta.y, delta.z);
+
+    /// Initialize indices
+
+    glm::uvec3 indices_3d[8];
+    indices_3d[0] = glm::uvec3(0u, 0u, 0u) + base_voxel;
+    indices_3d[1] = glm::uvec3(0u, 0u, 1u) + base_voxel;
+    indices_3d[2] = glm::uvec3(0u, 1u, 0u) + base_voxel;
+    indices_3d[3] = glm::uvec3(0u, 1u, 1u) + base_voxel;
+    indices_3d[4] = glm::uvec3(1u, 0u, 0u) + base_voxel;
+    indices_3d[5] = glm::uvec3(1u, 0u, 1u) + base_voxel;
+    indices_3d[6] = glm::uvec3(1u, 1u, 0u) + base_voxel;
+    indices_3d[7] = glm::uvec3(1u, 1u, 1u) + base_voxel;
+
+    /// Read values
+
+    float values[8];
+    for(unsigned int i = 0; i < 8; i++)
     {
-        // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
-        return 1.f;
+        if(!in_data_volume(indices_3d[i], measures))
+        {
+            // printf("\nwarped out of volume: (%u,%u,%u)\n", wp_voxel_space.x, wp_voxel_space.y, wp_voxel_space.z);
+            return 1.f;
+        }
+
+        float2 data{0.f, 0.f};
+        surf3Dread(&data, _volume_tsdf_data, indices_3d[i].x * sizeof(float2), indices_3d[i].y, indices_3d[i].z);
+
+        values[i] = data.x;
     }
 
-    float2 data{0.f, 0.f};
-    surf3Dread(&data, _volume_tsdf_data, wp_voxel_space.x * sizeof(float2), wp_voxel_space.y, wp_voxel_space.z);
+    /// Interpolate for X
 
-    return glm::abs(data.x);
+    float c_00 = values[0] * (1.f - delta.x) + values[4] * delta.x;
+    float c_01 = values[1] * (1.f - delta.x) + values[5] * delta.x;
+    float c_10 = values[2] * (1.f - delta.x) + values[6] * delta.x;
+    float c_11 = values[3] * (1.f - delta.x) + values[7] * delta.x;
+
+    /// Interpolate for Y
+
+    float c_0 = c_00 * (1.f - delta.y) + c_10 * (delta.y);
+    float c_1 = c_01 * (1.f - delta.y) + c_11 * (delta.y);
+
+    /// Interpolate for Z
+
+    float c = c_0 * (1.f - delta.z) + c_1 * (delta.z);
+
+    return glm::abs(c);
 }
 
 __device__ bool sample_prev_depth_projection(glm::fvec3 &depth_projection, int layer, glm::vec2 projection, struct_device_resources dev_res, struct_measures measures)
@@ -375,9 +416,9 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
 
         if(projection.projection[i].x < 0.f || projection.projection[i].y < 0.f)
         {
-#ifdef VERBOSE
-            printf("\nprojected out of depth map: (%f,%f)\n", projection.projection[i].x, projection.projection[i].y);
-#endif
+//#ifdef VERBOSE
+//            printf("\nprojected out of depth map: (%f,%f)\n", projection.projection[i].x, projection.projection[i].y);
+//#endif
             continue;
         }
 
@@ -398,7 +439,6 @@ __device__ float evaluate_data_residual(struct_vertex &warped_vertex, struct_pro
         float normals_alignment = glm::dot(warped_vertex.normal, kinect_normal_normalized);
 
         // printf("\nnormals alignment: %.3f\n", normals_alignment);
-
 
         if(normals_alignment < host_res.configuration.tsdf_normal_limit)
         {
@@ -450,7 +490,7 @@ CUDA_HOST_DEVICE float derivative_step(const int partial_derivative_index, struc
     case 0:
     case 1:
     case 2:
-        step = measures.size_voxel * 0.5f; // half-voxel step
+        step = 0.5f / ((float)measures.data_volume_res.x); // half-voxel step
         break;
     case 3:
     case 4:
@@ -493,14 +533,33 @@ CUDA_HOST_DEVICE void shift_component(struct_ed_node &ed_node, const int partial
     }
 }
 
-CUDA_HOST_DEVICE float robustify(float value)
-{
 #ifdef ED_NODES_ROBUSTIFY
-    return 0.9375f * glm::pow(1 - glm::pow(value, 2), 2);
-#else
-    return value;
-#endif
+
+CUDA_HOST_DEVICE float robustify_ed(float value, struct_host_resources &host_res)
+{
+    if(value >= host_res.configuration.kernel_width_regularization)
+        return 1.f;
+
+    value /= host_res.configuration.kernel_width_regularization;
+    value = value * value;
+    return value * (2.f - value);
 }
+
+#endif
+
+#ifdef CORRESPONDENCE_ROBUSTIFY
+
+CUDA_HOST_DEVICE float robustify_corr(float value, struct_host_resources &host_res)
+{
+    if(value >= host_res.configuration.kernel_width_correspondence)
+        return 1.f;
+
+    value /= host_res.configuration.kernel_width_correspondence;
+    value = value * value;
+    return value * (2.f - value);
+}
+
+#endif
 
 __device__ float evaluate_hull_residual(struct_projection &warped_projection, struct_device_resources &dev_res, struct_measures &measures)
 {
@@ -510,9 +569,9 @@ __device__ float evaluate_hull_residual(struct_projection &warped_projection, st
     {
         if(warped_projection.projection[i].x < 0.f || warped_projection.projection[i].y < 0.f)
         {
-#ifdef VERBOSE
-            printf("\nprojected out of depth map: (%f,%f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
-#endif
+//#ifdef VERBOSE
+//            printf("\nprojected out of depth map: (%f,%f)\n", warped_projection.projection[i].x, warped_projection.projection[i].y);
+//#endif
             residual += 1.f;
             continue;
         }
@@ -614,6 +673,14 @@ __device__ float evaluate_cf_residual(struct_vertex &warped_vertex, struct_verte
         {
             continue;
         }
+
+#ifdef CORRESPONDENCE_ROBUSTIFY
+        // printf("\nsource: %.5f, robust: %.5f\n", glm::pow(residual_component, 2.f), robustify_corr(glm::pow(residual_component, 2.f), host_res));
+
+        residual_component = glm::sqrt(robustify_corr(glm::pow(residual_component, 2.f), host_res));
+#else
+        residual_component = glm::sqrt(glm::pow(residual_component, 2.f));
+#endif
 
         // printf("\nresidual_component: %f\n", residual_component);
 

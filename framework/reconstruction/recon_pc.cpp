@@ -30,8 +30,8 @@ using namespace gl;
 #include <globjects/globjects.h>
 
 #include "/usr/local/cuda/include/cuda_runtime.h"
-#include <globjects/Sync.h>
 #include "/usr/local/cuda/include/vector_types.h"
+#include <globjects/Sync.h>
 
 extern "C" double copy_reference();
 extern "C" double perform_brick_indexing();
@@ -91,7 +91,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
     _native_handles.pbo_kinect_silhouettes = _nka->getSilhouetteHandle();
 
     _measures.size_voxel = _voxel_size;
-    _measures.sigma = 1.732f * 3.f / _res_volume.x;
+    _measures.sigma = 1.732f * 3.f / _res_volume.x; /// normal space
     _measures.size_ed_cell = _ed_cell_size;
     _measures.size_brick = _brick_size;
     _measures.size_depth_cell = 8u;
@@ -133,6 +133,7 @@ ReconPerformanceCapture::ReconPerformanceCapture(LocalKinectArray &nka, Calibrat
 #endif
 
     _native_handles.pbo_opticflow = _nka->getFlowTextureHandle();
+    _native_handles.pbo_quality = _nka->getQualityHandle();
 
     for(uint8_t i = 0; i < m_num_kinects; i++)
     {
@@ -636,9 +637,7 @@ void ReconPerformanceCapture::draw()
     }
 #endif
 }
-void ReconPerformanceCapture::extract_reference_mesh() {
-    compute_isosurface_timed(IsoSurfaceVolume::Reference);
-}
+void ReconPerformanceCapture::extract_reference_mesh() { compute_isosurface_timed(IsoSurfaceVolume::Reference); }
 void ReconPerformanceCapture::draw_data()
 {
     TimerDatabase::instance().begin(TIMER_DATA_MESH_DRAW);
@@ -1064,5 +1063,4 @@ void ReconPerformanceCapture::divideBox()
     std::cout << "brick res " << _res_bricks.x << ", " << _res_bricks.y << ", " << _res_bricks.z << " - " << _bricks.front().indices.size() << " voxels per brick" << std::endl;
 }
 void ReconPerformanceCapture::pause(bool pause) { _is_paused = pause; }
-
 } // namespace kinect

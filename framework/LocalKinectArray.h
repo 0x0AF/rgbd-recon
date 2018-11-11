@@ -67,6 +67,7 @@ class LocalKinectArray
     const unsigned int getNormalsHandle(bool textures = false);
     const unsigned int getColorHandle(bool textures = false);
     const unsigned int getDepthHandle(bool textures = false);
+    const unsigned int getQualityHandle(bool textures = false);
     const unsigned int getSilhouetteHandle(bool textures = false);
     const unsigned int getFlowTextureHandle(bool textures = false);
 
@@ -86,6 +87,7 @@ class LocalKinectArray
     globjects::ref_ptr<globjects::Buffer> _out_pbo_normals;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_colors;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_depths;
+    globjects::ref_ptr<globjects::Buffer> _out_pbo_quality;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_silhouettes;
     globjects::ref_ptr<globjects::Buffer> _out_pbo_flows;
 

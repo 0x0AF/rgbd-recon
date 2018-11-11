@@ -69,6 +69,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes, native_handles.pbo_kinect_silhouettes, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_normals, native_handles.pbo_kinect_normals, cudaGraphicsRegisterFlagsReadOnly));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_opticflow, native_handles.pbo_opticflow, cudaGraphicsRegisterFlagsReadOnly));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_quality, native_handles.pbo_quality, cudaGraphicsRegisterFlagsReadOnly));
 
 #ifdef PIPELINE_DEBUG_TEXTURE_SILHOUETTES
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&_cgr.pbo_kinect_silhouettes_debug, native_handles.pbo_kinect_silhouettes_debug, cudaGraphicsRegisterFlagsWriteDiscard));
@@ -99,6 +100,7 @@ extern "C" void init_cuda(glm::uvec3 &volume_res, struct_measures &measures, str
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_silhouettes[i], &_dev_res.pitch_kinect_silhouettes, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.kinect_normals[i], &_dev_res.pitch_kinect_normals, _host_res.measures.depth_res.x * sizeof(float4), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.alignment_error[i], &_dev_res.pitch_alignment_error, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
+        checkCudaErrors(cudaMallocPitch(&_dev_res.quality[i], &_dev_res.pitch_quality, _host_res.measures.depth_res.x * sizeof(float), _host_res.measures.depth_res.y));
         checkCudaErrors(cudaMallocPitch(&_dev_res.optical_flow[i], &_dev_res.pitch_optical_flow, 2048 * sizeof(float2), 1696));
     }
 
@@ -253,6 +255,7 @@ extern "C" void deinit_cuda()
 #endif
 
     checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_opticflow));
+    checkCudaErrors(cudaGraphicsUnregisterResource(_cgr.pbo_quality));
 
     for(unsigned int i = 0; i < 4; i++)
     {
@@ -273,6 +276,11 @@ extern "C" void deinit_cuda()
     if(_dev_res.kinect_silhouettes != nullptr)
     {
         checkCudaErrors(cudaFree(_dev_res.kinect_silhouettes));
+    }
+
+    if(_dev_res.quality != nullptr)
+    {
+        checkCudaErrors(cudaFree(_dev_res.quality));
     }
 
     if(_dev_res.optical_flow != nullptr)

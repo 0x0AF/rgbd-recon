@@ -31,12 +31,12 @@ namespace kinect
 {
 static const std::size_t s_nu_bg_frames = 20;
 LocalKinectArray::LocalKinectArray(std::string &file_name, std::string &file_name_flow, CalibrationFiles const *calibs, CalibVolumes const *vols, bool readfromfile)
-    : _numLayers(4), _colorArray(),
-      _depthArray_raw(), _textures_depth{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_depth_b{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
+    : _numLayers(4), _colorArray(), _depthArray_raw(), _textures_depth{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
+      _textures_depth_b{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_depth2{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY), globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_quality{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_normal{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
-      _textures_color{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _textures_bg{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY),
-                                                                                            globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
+      _textures_color{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
+      _textures_bg{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY), globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)},
       _textures_silhouette{globjects::Texture::createDefault(GL_TEXTURE_2D_ARRAY)}, _fbo{new globjects::Framebuffer()}, _colorArray_back(), _colorsize(0), _depthsize(0), _pbo_colors(), _pbo_depths(),
       _running(true), _filter_textures(true), _refine_bound(true), _curr_frametime{0.0}, _use_processed_depth{true}, _start_texture_unit(1), _calib_files{calibs}, _calib_vols{vols}
 {
@@ -59,6 +59,7 @@ LocalKinectArray::LocalKinectArray(std::string &file_name, std::string &file_nam
     _out_pbo_colors = new globjects::Buffer();
     _out_pbo_normals = new globjects::Buffer();
     _out_pbo_depths = new globjects::Buffer();
+    _out_pbo_quality = new globjects::Buffer();
     _out_pbo_silhouettes = new globjects::Buffer();
     _out_pbo_flows = new globjects::Buffer();
 
@@ -169,6 +170,10 @@ bool LocalKinectArray::init()
     _out_pbo_normals->bind(GL_PIXEL_PACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
 
+    _out_pbo_quality->setData(_depthsize * _numLayers, nullptr, GL_DYNAMIC_COPY);
+    _out_pbo_quality->bind(GL_PIXEL_PACK_BUFFER_ARB);
+    globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
+
     _out_pbo_depths->setData(_depthsize * _numLayers * 2, nullptr, GL_DYNAMIC_COPY);
     _out_pbo_depths->bind(GL_PIXEL_PACK_BUFFER_ARB);
     globjects::Buffer::unbind(GL_PIXEL_PACK_BUFFER_ARB);
@@ -259,6 +264,7 @@ LocalKinectArray::~LocalKinectArray()
     _out_pbo_colors->destroy();
     _out_pbo_normals->destroy();
     _out_pbo_depths->destroy();
+    _out_pbo_quality->destroy();
     _out_pbo_silhouettes->destroy();
     _out_pbo_flows->destroy();
 }
@@ -276,9 +282,7 @@ bool LocalKinectArray::update(int frame_number)
 
 glm::uvec2 LocalKinectArray::getDepthResolution() const { return _resolution_depth; }
 glm::uvec2 LocalKinectArray::getColorResolution() const { return _resolution_color; }
-
 int LocalKinectArray::getTextureUnit(std::string const &name) const { return _texture_unit_offsets.at(name); }
-
 void LocalKinectArray::processDepth()
 {
     _fbo->setDrawBuffers({GL_COLOR_ATTACHMENT0});
@@ -484,7 +488,6 @@ void LocalKinectArray::bindToTextureUnits() const
 }
 
 unsigned LocalKinectArray::getStartTextureUnit() const { return _start_texture_unit; }
-
 void LocalKinectArray::filterTextures(bool filter)
 {
     _filter_textures = filter;
@@ -735,6 +738,12 @@ void LocalKinectArray::write_out_pbos()
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
+    glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_quality->id());
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_quality->id());
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
     glBindTexture(GL_TEXTURE_2D_ARRAY, _textures_silhouette->id());
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, _out_pbo_silhouettes->id());
     glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RED, GL_FLOAT, 0);
@@ -772,6 +781,14 @@ const unsigned int LocalKinectArray::getDepthHandle(bool texture)
         return _textures_depth->id();
     }
     return _out_pbo_depths->id();
+}
+const unsigned int LocalKinectArray::getQualityHandle(bool texture)
+{
+    if(texture)
+    {
+        return _textures_quality->id();
+    }
+    _out_pbo_quality->id();
 }
 const unsigned int LocalKinectArray::getSilhouetteHandle(bool texture)
 {

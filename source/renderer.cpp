@@ -136,7 +136,8 @@ void renderer::update_gui()
     }
     if(ImGui::CollapsingHeader("Performance Capture", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if(ImGui::CollapsingHeader("Debug Visualizations")) {
+        if(ImGui::CollapsingHeader("Debug Visualizations"))
+        {
             ImGui::Checkbox("Hide Fused Volume", &_model->get_recon_pc()->_conf.debug_hide_fused);
             ImGui::Checkbox("Debug Texture Silhouettes", &_model->get_recon_pc()->_conf.debug_texture_silhouettes);
             ImGui::Checkbox("Debug Texture Alignment Error", &_model->get_recon_pc()->_conf.debug_texture_alignment_error);
@@ -166,7 +167,8 @@ void renderer::update_gui()
             ImGui::Checkbox("Debug Warped Reference Volume [Surface]", &_model->get_recon_pc()->_conf.debug_warped_reference_volume_surface);
         }
 
-        if(ImGui::CollapsingHeader("Pipeline Stages", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::CollapsingHeader("Pipeline Stages", ImGuiTreeNodeFlags_DefaultOpen))
+        {
             ImGui::Checkbox("Pipeline Preprocess Textures", &_model->get_recon_pc()->_conf.pipeline_preprocess_textures);
             ImGui::Checkbox("Pipeline Sample", &_model->get_recon_pc()->_conf.pipeline_sample);
             ImGui::Checkbox("Pipeline Correspondence", &_model->get_recon_pc()->_conf.pipeline_correspondence);
@@ -174,10 +176,11 @@ void renderer::update_gui()
             ImGui::Checkbox("Pipeline Fuse", &_model->get_recon_pc()->_conf.pipeline_fuse);
         }
 
-        if(ImGui::CollapsingHeader("Structural Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextColored(ImVec4(0.0f,1.0f,1.0f,1.0f), "Voxel Size: %.3f", _io->_voxel_size);
-            ImGui::TextColored(ImVec4(0.0f,1.0f,1.0f,1.0f), "ED Cell Size: %.3f", _io->_ed_cell_size);
-            ImGui::TextColored(ImVec4(0.0f,1.0f,1.0f,1.0f), "Brick Size: %.3f", _io->_brick_size);
+        if(ImGui::CollapsingHeader("Structural Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Voxel Size: %.3f", _io->_voxel_size);
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "ED Cell Size: %.3f", _io->_ed_cell_size);
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Brick Size: %.3f", _io->_brick_size);
 
             ImGui::SliderFloat("ED Neighborhood Radius Multiplier (IG)", &_model->get_recon_pc()->_conf.neighborhood_multiplier_ig, 1.f, 3.f, "%.3f");
             ImGui::SliderFloat("ED Neighborhood Radius Multiplier (Reg.)", &_model->get_recon_pc()->_conf.neighborhood_multiplier_reg, 1.f, 3.f, "%.3f");
@@ -185,14 +188,18 @@ void renderer::update_gui()
             ImGui::SliderInt("Vote-Casting Influence Region, Voxels", &_model->get_recon_pc()->_conf.influence_voxels, 0, 5);
         }
 
-        if(ImGui::CollapsingHeader("Filtering Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::CollapsingHeader("Filtering Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+        {
             ImGui::SliderFloat("TSDF Depth Truncation", &_model->get_recon_pc()->_conf.tsdf_depth_limit, 0.001f, 0.03f, "%.5f");
             ImGui::SliderFloat("TSDF Normal Truncation", &_model->get_recon_pc()->_conf.tsdf_normal_limit, 0.001f, 1.f, "%.5f");
             ImGui::SliderFloat("OF Projective Candidate Max Length", &_model->get_recon_pc()->_conf.of_proj_max_length, 0.01f, 0.2f, "%.5f");
+            ImGui::SliderFloat("Corr. Biweight Kernel Width", &_model->get_recon_pc()->_conf.kernel_width_correspondence, 0.00001f, 0.004f, "%.5f");
+            ImGui::SliderFloat("Reg. Biweight Kernel Width", &_model->get_recon_pc()->_conf.kernel_width_regularization, 0.f, 0.001f, "%.5f");
             ImGui::SliderFloat("Surface Preservation Threshold", &_model->get_recon_pc()->_conf.surface_preservation, 0.00001f, 0.03f, "%.5f");
         }
 
-        if(ImGui::CollapsingHeader("Solver Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::CollapsingHeader("Solver Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+        {
             ImGui::SliderFloat("Weight Data", &_model->get_recon_pc()->_conf.weight_data, 0.f, 1.f, "%.5f");
             ImGui::SliderFloat("Weight Visual Hull", &_model->get_recon_pc()->_conf.weight_hull, 0.f, 1.f, "%.5f");
             ImGui::SliderFloat("Weight Correspondence", &_model->get_recon_pc()->_conf.weight_correspondence, 0.f, 1.f, "%.5f");
@@ -203,12 +210,14 @@ void renderer::update_gui()
             ImGui::SliderInt("CG Max Iterations", &_model->get_recon_pc()->_conf.solver_cg_steps, 0, 10, "%.0f");
         }
 
-        if(ImGui::CollapsingHeader("Robustness Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::CollapsingHeader("Robustness Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+        {
             ImGui::SliderFloat("ED Rejection Threshold", &_model->get_recon_pc()->_conf.rejection_threshold, 0.0001f, 0.03f, "%.5f");
             ImGui::SliderInt("Reference Volume Reset", &_model->get_recon_pc()->_conf.reset_frame_count, 1, 100, "%.0f");
         }
 
-        if(ImGui::CollapsingHeader("Auxilliary")) {
+        if(ImGui::CollapsingHeader("Auxilliary"))
+        {
             ImGui::SliderInt("Smooth Silhouette Gaussian Iterations", &_model->get_recon_pc()->_conf.textures_silhouettes_iterations, 0, 100, "%.0f");
 
             ImGui::Separator();
@@ -280,7 +289,6 @@ void renderer::update_gui()
         break;
         case 1: // performance capture
         {
-
         }
         break;
         case 2: // raymarched integration

@@ -58,8 +58,14 @@ CUDA_HOST_DEVICE float evaluate_ed_residual(struct_ed_node &ed_node, struct_ed_m
         residual_component = glm::length(glm::mat3_cast(neighbor_rotation) * diff + neighbor_node_meta.position + neighbor_translation - ed_entry.position - translation);
 #endif
 
+        float weight = exp(-glm::length(diff) * glm::length(diff) / (2.0f * host_res.measures.sigma * host_res.measures.sigma));
+
 #ifdef ED_NODES_ROBUSTIFY
-        residual_component = glm::sqrt(robustify(glm::pow(residual_component, 2.f)));
+        // printf("\nsource: %.5f, robust: %.5f\n", glm::pow(residual_component, 2.f), robustify(glm::pow(residual_component, 2.f), host_res));
+
+        residual_component = glm::sqrt(weight * robustify_ed(glm::pow(residual_component, 2.f), host_res));
+#else
+        residual_component = glm::sqrt(weight * glm::pow(residual_component, 2.f));
 #endif
 
         if(isnan(residual_component))
@@ -224,7 +230,7 @@ __global__ void kernel_calculate_opticflow_guess(struct_device_resources dev_res
 
             if(kinect_normal.x == 0.f)
             {
-                printf("\nNormal is null\n");
+                // printf("\nNormal is null\n");
                 continue;
             }
 
@@ -299,7 +305,8 @@ __global__ void kernel_calculate_opticflow_guess(struct_device_resources dev_res
         printf("\noffset %lu\n", ed_entry.vx_offset);
     }*/
 
-    if(translations > 0.f){
+    if(translations > 0.f)
+    {
         average_translation /= translations;
 
         bool is_nan = isnan(average_translation.x) || isnan(average_translation.y) || isnan(average_translation.z);
@@ -309,7 +316,9 @@ __global__ void kernel_calculate_opticflow_guess(struct_device_resources dev_res
 #ifdef DEBUG_NANS
             printf("\nNaN in optical flow guess evaluation\n");
 #endif
-        } else {
+        }
+        else
+        {
             float semi_rigid_guess[4]; // 4 because of 8 byte alignment
 
             semi_rigid_guess[0] = average_translation.x;
@@ -344,7 +353,8 @@ __global__ void kernel_propagate_opticflow_guess(struct_device_resources dev_res
 #pragma unroll
     for(unsigned int i = 0; i < host_res.active_ed_nodes_count; i++)
     {
-        if(i == idx){
+        if(i == idx)
+        {
             continue;
         }
 
@@ -384,7 +394,9 @@ __global__ void kernel_propagate_opticflow_guess(struct_device_resources dev_res
 #ifdef DEBUG_NANS
         printf("\nNaN in optical flow guess evaluation\n");
 #endif
-    } else {
+    }
+    else
+    {
         semi_rigid_guess[0] = average_neighborhood_translation.x;
         semi_rigid_guess[1] = average_neighborhood_translation.y;
         semi_rigid_guess[2] = average_neighborhood_translation.z;
@@ -577,7 +589,7 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
     struct_ed_meta_entry ed_entry = dev_res.ed_graph_meta[idx];
 
-    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+// printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
@@ -599,12 +611,38 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
                 continue;
             }
 
+#ifdef NORMAL_THRESHOLDING
+
+            float4 kinect_normal = sample_normals(dev_res.normals_tex[i], warped_projection.projection[i]);
+
+            if(kinect_normal.x == 0.f)
+            {
+                // printf("\nNormal is null\n");
+                continue;
+            }
+
+            glm::fvec3 kinect_normal_normalized = glm::normalize(glm::fvec3(kinect_normal.x, kinect_normal.y, kinect_normal.z));
+
+            /*printf("\nnormal: (%.2f,%.2f,%.2f), kinect normal: (%.2f,%.2f,%.2f)\n", warped_vertex.normal.x, warped_vertex.normal.y, warped_vertex.normal.z, kinect_normal_normalized.x,
+                   kinect_normal_normalized.y, kinect_normal_normalized.z);*/
+
+            float normals_alignment = glm::dot(warped_vertex.normal, kinect_normal_normalized);
+
+            // printf("\nnormals alignment: %.3f\n", normals_alignment);
+
+            if(normals_alignment < host_res.configuration.tsdf_normal_limit)
+            {
+                continue;
+            }
+
+#endif
+
             float vx_error = 0.f;
 
             glm::fvec3 extracted_position;
             if(!sample_depth_projection(extracted_position, i, warped_projection.projection[i], dev_res, host_res.measures))
             {
-                vx_error = 1.f;
+                continue;
             }
             else
             {
@@ -613,9 +651,9 @@ __global__ void kernel_evaluate_alignment_error(unsigned int active_ed_nodes_cou
 
                 glm::fvec3 diff = warped_vertex.position - extracted_position;
 
-                if(glm::length(diff) > 0.03f)
+                if(glm::length(diff) > host_res.configuration.tsdf_depth_limit)
                 {
-                    vx_error = 0.03f;
+                    vx_error = host_res.configuration.tsdf_depth_limit;
                 }
                 else
                 {
@@ -792,7 +830,7 @@ __global__ void kernel_energy(float *energy, unsigned int active_ed_nodes_count,
     atomicAdd(energy, ed_residual);
 #endif
 
-    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+// printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
@@ -838,7 +876,7 @@ __global__ void kernel_step_energy(float *energy, unsigned int active_ed_nodes_c
     atomicAdd(energy, ed_residual);
 #endif
 
-    // printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
+// printf("\ned_node position: (%f,%f,%f)\n", ed_node.position.x, ed_node.position.y, ed_node.position.z);
 
 #pragma unroll
     for(unsigned int vx_idx = 0; vx_idx < ed_entry.vx_length; vx_idx++)
@@ -1259,15 +1297,15 @@ __global__ void kernel_jtj_jtf(struct_device_resources dev_res, struct_host_reso
 
     __syncthreads();
 
-    // printf("\njtf[%u]\n", ed_node_offset * 10u);
+// printf("\njtf[%u]\n", ed_node_offset * 10u);
 
-    //    if(idx == 0)
-    //    {
-    //        for(int i = 0; i < ED_COMPONENT_COUNT; i++)
-    //        {
-    //            printf("\nshared_jtf_block[%u]: %f\n", i, shared_jtf_block[i]);
-    //        }
-    //    }
+//    if(idx == 0)
+//    {
+//        for(int i = 0; i < ED_COMPONENT_COUNT; i++)
+//        {
+//            printf("\nshared_jtf_block[%u]: %f\n", i, shared_jtf_block[i]);
+//        }
+//    }
 
 #ifdef DEBUG_JTJ_PUSH_ORDERED_INTEGERS
 
@@ -1281,7 +1319,8 @@ __global__ void kernel_jtj_jtf(struct_device_resources dev_res, struct_host_reso
 
 #endif
 
-    if(component % 2 ==0) {
+    if(component % 2 == 0)
+    {
         memcpy(&dev_res.jtf[idx], &shared_jtf_block[component], 2 * sizeof(float));
     }
 
@@ -1306,7 +1345,7 @@ __global__ void kernel_jtj_coo_cols_rows(unsigned int active_ed_nodes_count, str
         return;
     }
 
-    // printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
+// printf("\ned_node_offset: %u, ed_nodes_count: %u\n", ed_node_offset, ed_nodes_count);
 
 #pragma unroll
     for(unsigned int col = 0; col < ED_COMPONENT_COUNT; col++)
@@ -1831,7 +1870,7 @@ __host__ void evaluate_alignment_error()
 
     int block_size;
     int min_grid_size;
-    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_reject_misaligned_deformations, 0, 0);
+    cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, kernel_evaluate_alignment_error, 0, 0);
     size_t grid_size = (_host_res.active_ed_nodes_count + block_size - 1) / block_size;
     kernel_evaluate_alignment_error<<<grid_size, block_size>>>(_host_res.active_ed_nodes_count, _dev_res, _host_res);
     getLastCudaError("render kernel failed");
@@ -1877,6 +1916,11 @@ __host__ void evaluate_alignment_error()
 
         for(int vx = 0; vx < _host_res.active_ed_vx_count; vx++)
         {
+            if(_host_res.vx_error_values[vx] == 0.f)
+            {
+                continue;
+            }
+
             if(vx_projections[vx].projection[i].x < 0.f || vx_projections[vx].projection[i].y < 0.f)
             {
                 continue;
@@ -2437,13 +2481,13 @@ extern "C" double pcg_solve(struct_native_handles &native_handles)
             misaligned_vx_share = (float)misaligned_vx / (float)_host_res.active_ed_vx_count;
 
 #ifdef VERBOSE
-            printf("\nmisaligned_vx_share: %.3f\n", misaligned_vx_share * 100.f);
+            printf("\nmisaligned_vx_share: %.5f\n", misaligned_vx_share * 100.f);
 #endif
 
             if(misaligned_vx_share < 0.025f)
             {
 #ifdef VERBOSE
-                printf("\nmisalignment vx count criterion satisfied: %.3f\n", misaligned_vx_share * 100.f);
+                printf("\nmisalignment vx count criterion satisfied: %.5f\n", misaligned_vx_share * 100.f);
 #endif
                 break;
             }
